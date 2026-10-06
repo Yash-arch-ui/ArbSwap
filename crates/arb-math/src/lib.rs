@@ -15,7 +15,7 @@ pub fn mul_div_floor(a: u128, b: u128, c: u128) -> Option<u128> {
     if c == 0 {
         return None;
     }
-    a.checked_mul(b)?.checked_div(c).into()
+    a.checked_mul(b)?.checked_div(c)
 }
 
 /// Checked ceil((a * b) / c). Returns None on overflow or c == 0.
@@ -56,6 +56,20 @@ pub fn add_bps(amount: u128, bps: u32, round_up: bool) -> Option<u128> {
 //   §5.9  flow accumulator       n resets to 0 on every update_quote (decision D-04)
 //   §5.10 LVR budget cap         V_active <= 8*(R - gas)/sigma^2  (LVR/V = sigma^2/8 for constant product)
 //   §5.14 vault share math       pro-rata two-token shares, MIN_LIQUIDITY burn (decision D-05)
+//
+// Fixed-point primitives (research/reference/fixed.py is the source of truth;
+// port bit-exactly once golden vectors exist, T1.3):
+//   sqrt_q64 / sqrt_from_price   EXACT floor: isqrt(price_q64 << 64) — 192-bit radicand.
+//                                The shortcut isqrt(v) << 32 loses up to 2^32 units and
+//                                must NOT be used (decision 2026-10-06).
+//   mul_q64 / price_from_sqrt    (a * b) >> 64 needs a widening u128*u128 -> u192/u256
+//                                multiply: checked_mul overflows for realistic prices
+//                                (sqrt(150)-scale operands already exceed u128 when squared).
+//   recip_q64 / recip_inv        floor(2^128 / s); roundtrip bound s^2/2^128.
+//   sqrt_price_scaled            two-floor: mul_q64(sqrt_p, sqrt_q64(1+x)); trails the
+//                                single-floor value by <= sqrt_p/2^64 + 3 units.
+//   tdiv                         truncating division toward zero (Python must use tdiv,
+//                                not //, wherever operands can be negative).
 
 #[cfg(test)]
 mod tests {
