@@ -411,8 +411,11 @@ testing phase.
    Rust without relaxing the floor/ceil rules. **Done:** `crates/arb-math`
    matches 970 golden vectors bit-for-bit.
 4. Calibrate all heuristic coefficients walk-forward and report losing regimes.
-   **Open:** the simulator (T1.4) runs and is deterministic, but its E1-E4
-   magnitudes are not yet calibrated and must not be headlined.
+   **First pass done:** `research/sim/report.py` calibrates walk-forward on
+   synthetic regimes and writes `docs/P1_RESULTS.md`. B3 shows far lower
+   adverse selection than B1 in a crash (2s markout -0.16 vs -9.4 bps) but earns
+   less fee income in calm/trend because it quotes a wider spread. Real-data
+   replay and sensitivity (E9) remain.
 5. Complete the full read of Amini and Feinstein before demo claims involving
    oracle-contraction or sandwich resistance.
 6. **First-depositor / share-inflation:** the MVP burns `MIN_LIQUIDITY`

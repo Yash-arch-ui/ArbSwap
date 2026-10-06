@@ -25,7 +25,12 @@ Downloaded/installed this session:
 
 Known pending:
 - Anchor program is a skeleton (initialize only) — P2 work
-- golden vectors: 5 seed cases; the >=500-case set is T1.2
+- golden vectors: 970 generated, Rust matches bit-for-bit (T1.2/T1.3 done)
+- P1 simulator: B1-B4 + walk-forward calibration done; first E1-E4 results on
+  SYNTHETIC regimes in docs/P1_RESULTS.md (T1.6). Remaining: real-data replay,
+  E5 throttle ablation (B3==B4 currently), E9 sensitivity
+- ladder six-level offset convention and first-depositor virtual shares are OPEN
+  (docs/FORMULA.md §15)
 - CI anchor job rewritten to native steps (solana 4.1.2 + anchor-cli 1.1.2 via
   cargo install + throwaway keypair + `anchor keys sync`); full sequence
   smoke-tested locally in a throwaway copy 2026-10-06 — green CI needs the
