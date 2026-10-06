@@ -36,8 +36,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: metadaomachine/anchor-build-action@v1  # TODO(P2): verify action/versions at first real build
+      - uses: dtolnay/rust-toolchain@1.98.0
+      - name: "Install Solana CLI 4.1.2 (match NOTES.md solana-cli / cargo-build-sbf)"
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v4.1.2/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Cache anchor-cli binary
+        id: anchor-cache
+        uses: actions/cache@v4
         with:
-          anchor_version: 1.1.2
+          path: ~/.cargo/bin/anchor
+          key: anchor-cli-1.1.2-${{ runner.os }}-v1
+      - name: Install anchor-cli 1.1.2 (published on crates.io; cached after first run)
+        if: steps.anchor-cache.outputs.cache-hit != 'true'
+        run: cargo install anchor-cli --version 1.1.2
+      - name: Generate CI-only program keypair and sync declare_id
+        # The real keypair is gitignored (Build Plan §0: never commit keys).
+        # CI builds against a throwaway keypair; anchor keys sync rewrites
+        # declare_id! locally in the runner only — nothing is pushed.
+        run: |
+          mkdir -p target/deploy
+          solana-keygen new --no-bip39-passphrase --silent --force \
+            -o target/deploy/arbswap-keypair.json
+          anchor keys sync
       - name: Anchor build
         run: anchor build
