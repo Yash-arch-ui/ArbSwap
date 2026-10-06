@@ -1,13 +1,15 @@
-"""ArbSwap simulator package (Build Plan §8, task T1.4).
+"""ArbSwap simulator package (Build Plan §8, tasks T1.4-T1.6).
 
-Modules to land in P1:
-  - price source (1s reference replay + synthetic regimes: calm, trend, crash, jump)
-  - oracle model (P_oracle(t) = P_ref(t - latency) + noise, with confidence)
-  - slot clock (400 ms) with update-landing delay distribution
-  - flow model (informed arbitrageur vs Poisson noise flow vs adversarial bots)
-  - venues: passive constant-product pool (B1), fixed-spread vault (B2), ArbSwap (B3/B4 ablations)
-  - frictions: gas and priority fees per update and swap
+Implemented modules:
+  - ``price_source``: 1s reference replay + synthetic regimes (calm/trend/crash/jump)
+  - ``oracle``: latency + noise oracle with a confidence interval
+  - ``flow``: Poisson noise flow and edge-triggered informed arbitrage
+  - ``venues``: B1 passive pool, B2 fixed-spread vault, B3/B4 ArbSwap vault
+  - ``engine``: deterministic event-driven loop
+  - ``metrics``: markouts, quiet flow, hedged PnL, LVR, quote-vs-fill gap
+  - ``calibrate``: walk-forward subset selection
+  - ``experiments``: E1-E4 runners
 
-Rule (Build Plan §4): the simulator must use the same pricing code as the keeper
-so the backtest describes the product.
+Rule (Build Plan §4): the simulator uses the same pricing code as the keeper
+(``research.reference.quote_math``) so the backtest describes the product.
 """
