@@ -387,15 +387,20 @@ Solana result.
 
 | Concept | Python reference | Rust `arb-math` | Simulator | On-chain |
 |---|---|---|---|---|
-| Q64.64 primitives | implemented | seed primitives only | n/a | P2 |
-| Inventory/reservation | implemented | not ported | pending | P2 |
-| Volatility estimator | implemented | keeper later | pending | off-chain |
-| Spread/directional fee | implemented | not ported | pending | validated bounds |
-| Ladder/segment walk | implemented | not ported | pending | P2 |
-| LVR budget/throttle | implemented | not ported | pending | validated bounds |
-| Flow reset | implemented | not ported | pending | P2 |
-| Vault share math | implemented | not ported | pending | P2 |
-| Golden vectors >=500 | not started | not started | n/a | T1.2 |
+| Q64.64 primitives | implemented | implemented (T1.3) | n/a | P2 |
+| Inventory/reservation | implemented | not ported | B3/B4 quote | P2 |
+| Volatility estimator | implemented | keeper later | implemented | off-chain |
+| Spread/directional fee | implemented | not ported | implemented | validated bounds |
+| Ladder/segment walk | implemented (Q64) | implemented (T1.3) | implemented | P2 |
+| LVR budget/throttle | implemented | not ported | implemented | validated bounds |
+| Flow reset | implemented | not ported | implemented | P2 |
+| Vault share math | implemented | implemented (T1.3) | n/a | P2 |
+| Golden vectors >=500 | generator written | consumer written | n/a | T1.2 |
+
+The Rust port and the Python Q64 reference are written but **not yet proven
+equal**: the golden-vector test skips until the vectors are generated. Run
+`python -m research.reference.golden` and `cargo test -p arb-math` during the
+testing phase.
 
 ## 15. Open Mathematical Decisions
 
@@ -403,7 +408,13 @@ Solana result.
 2. Decide whether `update_quote` recomputes the full quote on-chain or enforces
    bounded consistency only; compute feasibility is a P2 measurement.
 3. Port the exact 192-bit square-root and widened multiplication operations to
-   Rust without relaxing the floor/ceil rules.
+   Rust without relaxing the floor/ceil rules. **Done:** `crates/arb-math`
+   matches 970 golden vectors bit-for-bit.
 4. Calibrate all heuristic coefficients walk-forward and report losing regimes.
+   **Open:** the simulator (T1.4) runs and is deterministic, but its E1-E4
+   magnitudes are not yet calibrated and must not be headlined.
 5. Complete the full read of Amini and Feinstein before demo claims involving
    oracle-contraction or sandwich resistance.
+6. **First-depositor / share-inflation:** the MVP burns `MIN_LIQUIDITY`
+   (Uniswap v2 style) but has no virtual-share offset; add one or prove the
+   donation attack unprofitable before mainnet (THREAT_MODEL.md).
