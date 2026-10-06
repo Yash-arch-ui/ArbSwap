@@ -26,4 +26,10 @@ Downloaded/installed this session:
 Known pending:
 - Anchor program is a skeleton (initialize only) — P2 work
 - golden vectors: 5 seed cases; the >=500-case set is T1.2
-- CI anchor job uses a third-party action — verify before first real build
+- CI anchor job rewritten to native steps (solana 4.1.2 + anchor-cli 1.1.2 via
+  cargo install + throwaway keypair + `anchor keys sync`); full sequence
+  smoke-tested locally in a throwaway copy 2026-10-06 — green CI needs the
+  pending commit pushed
+- Pyth Hermes/Benchmarks require an API key (2026-08-26 upgrade) — working
+  free key stored in .ENV (gitignored), verified 2026-10-06; history depth
+  ≈75-80 days (details in research/data/README.md)
