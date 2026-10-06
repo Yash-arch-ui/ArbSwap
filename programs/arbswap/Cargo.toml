@@ -1,0 +1,30 @@
+[package]
+name = "arbswap"
+version = "0.1.0"
+description = "ArbSwap: open, professionally managed market-making vault on Solana"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "arbswap"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+arb-math = { path = "../../crates/arb-math" }
+anchor-lang = "1.1.2"
+
+[dev-dependencies]
+litesvm = "0.16.0"
+solana-message = "~4.4"
+solana-transaction = "~4.1.6"
+solana-signer = "3.0.0"

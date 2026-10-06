@@ -1,0 +1,8 @@
+[package]
+name = "arbswap-keeper"
+version = "0.1.0"
+description = "ArbSwap keeper: reads Pyth, computes quotes via arb-math, sends bounds-checked updates (Build Plan Section 7)"
+edition = "2021"
+
+[dependencies]
+arb-math = { path = "../crates/arb-math" }

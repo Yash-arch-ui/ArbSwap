@@ -1,0 +1,7 @@
+[package]
+name = "arb-math"
+version = "0.1.0"
+description = "ArbSwap pure fixed-point math: ladder, spread, LVR budget, vault accounting (Build Plan Section 5)"
+edition = "2021"
+
+[dependencies]

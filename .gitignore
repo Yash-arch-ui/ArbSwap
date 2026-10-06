@@ -1,0 +1,17 @@
+/target
+**/target
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.anchor/
+.DS_Store
+*.log
+# Raw market data never enters git (Build Plan §4: data/ holds scripts only)
+research/data/raw/
+.ENV
+*.csv
+*.parquet
+*.json.gz
+# Program keypair is generated locally by `anchor keys` / keygen
+target/deploy/*.json
