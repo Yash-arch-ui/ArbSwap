@@ -33,9 +33,10 @@ class QuoteParams:
     sigma_target: float = 0.001
     confidence_max_ratio: float = 0.001
     jump_cooldown_factor: float = 0.5
-    # Section 5's table lists the touch offset (0) alongside six weights, but
-    # its segment formulas require six positive-width intervals. We use the
-    # first non-zero boundary as level 1 and retain six calibrated levels.
+    grace_slots: float = 2.0
+    expiry_slots: float = 10.0
+    max_staleness: float = 2.0
+    max_anchor_step: float = 0.005
     offsets_bps: tuple[int, ...] = (2, 5, 10, 20, 40, 80)
     weights_bps: tuple[int, ...] = (1_000, 1_500, 2_000, 2_000, 2_000, 1_500)
 
@@ -158,6 +159,32 @@ def depth_multiplier(*, sigma_short: float, confidence: float, jump_flag: bool,
     jump_factor = params.jump_cooldown_factor if jump_flag else 0.0
     rule = sigma_factor * confidence_factor * (1.0 - jump_factor)
     return min(1.0, max(0.0, rule), max(0.0, depth_budget))
+
+
+def age_penalty(age: float, params: QuoteParams) -> float:
+    """Extra spread fraction from quote age (Section 5.12)."""
+    if age < 0:
+        raise ValueError("age must be non-negative")
+    return params.age_coeff * max(0.0, age - params.grace_slots)
+
+
+def quote_expired(age: float, params: QuoteParams) -> bool:
+    """True when a quote is past its expiry and must not fill (Section 5.12)."""
+    if age < 0:
+        raise ValueError("age must be non-negative")
+    return age >= params.expiry_slots
+
+
+def oracle_update_allowed(*, staleness: float, confidence_ratio: float,
+                          anchor_step: float, params: QuoteParams) -> bool:
+    """Reject an update that fails the Section 5.11 oracle guards."""
+    if min(staleness, confidence_ratio, abs(anchor_step)) < 0:
+        raise ValueError("oracle guards must be non-negative")
+    return (
+        staleness <= params.max_staleness
+        and confidence_ratio <= params.confidence_max_ratio
+        and abs(anchor_step) <= params.max_anchor_step
+    )
 
 
 def lvr_budget_value(revenue_per_second: float, gas_per_second: float,
