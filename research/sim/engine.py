@@ -62,7 +62,7 @@ def simulate(
     previous_price: float | None = None
     cash_flow = 0.0
 
-    for point in prices:
+    for index, point in enumerate(prices):
         reference = point.price
         tick = oracle.observe(point)
         if isinstance(venue, VaultVenue):
@@ -81,18 +81,18 @@ def simulate(
         # price to the reference, capped by the trader's maximum size.
         side, amount = _informed_trade(venue, reference, informed)
         if side is not None and amount > 0:
-            trade = _apply(venue, side, amount, reference, point.second, trades)
+            trade = _apply(venue, side, amount, reference, index, trades)
             if trade is not None:
                 cash_flow += trade.quote_amount
 
         # Noise arrivals at the reference mid.
-        for side, quote_notional in noise_orders.get(point.second, []):
+        for side, quote_notional in noise_orders.get(index, []):
             if side == "buy":
                 amount_in = quote_notional
             else:
                 amount_in = quote_notional / reference if reference > 0 else 0.0
             if amount_in > 0 and venue.base > 0 and venue.quote > 0:
-                trade = _apply(venue, side, amount_in, reference, point.second, trades)
+                trade = _apply(venue, side, amount_in, reference, index, trades)
                 if trade is not None:
                     cash_flow += trade.quote_amount
 
@@ -116,42 +116,49 @@ def simulate(
 
 
 def _informed_trade(venue, reference: float, informed) -> tuple[str | None, float]:
-    """Find the side and size that move the venue price to the reference.
+    """Find the side and largest size whose average execution price is still
+    favourable versus the reference.
 
-    Uses bisection on a deep copy of the venue so the real state is untouched
-    until a single fill is applied by the caller.
+    A real arbitrageur compares the price they would *execute at* (the venue's
+    ask/bid, including spread and impact) to fair value — not the mid — and
+    trades only while that execution price beats the reference. Sizing uses a
+    bisection on a deep copy so the live venue is untouched until the caller
+    applies one fill.
     """
-    mid = venue_mid(venue)
-    if mid <= 0 or reference <= 0:
+    if reference <= 0:
         return None, 0.0
-    fee = informed.fee_bps / 10_000.0
-    if reference > mid * (1 + fee):
+    epsilon = max(reference * 1e-9, 1e-12)
+
+    def marginal(side: str) -> float | None:
+        trial = copy.deepcopy(venue)
+        try:
+            return trial.fill(side, epsilon).exec_price
+        except (ValueError, ZeroDivisionError):
+            return None
+
+    ask = marginal("buy")
+    bid = marginal("sell")
+    if ask is not None and ask < reference:
         side = "buy"
-    elif reference < mid * (1 - fee):
+    elif bid is not None and bid > reference:
         side = "sell"
     else:
         return None, 0.0
 
     low, high = 0.0, informed.max_size
-    for _ in range(20):
+    for _ in range(18):
         probe = (low + high) / 2.0
         trial = copy.deepcopy(venue)
         try:
-            trial.fill(side, probe)
+            price = trial.fill(side, probe).exec_price
         except (ValueError, ZeroDivisionError):
             high = probe
             continue
-        price_after = venue_mid(trial)
-        if side == "buy":
-            if price_after < reference:
-                low = probe
-            else:
-                high = probe
+        favourable = price < reference if side == "buy" else price > reference
+        if favourable:
+            low = probe
         else:
-            if price_after > reference:
-                low = probe
-            else:
-                high = probe
+            high = probe
     return side, low
 
 

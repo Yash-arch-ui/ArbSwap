@@ -17,6 +17,16 @@ from typing import Iterator, Literal
 
 Regime = Literal["calm", "trend", "crash", "jump"]
 
+# Annualised volatility per regime (calm/trend/crash/jump). Chosen so the three
+# headline regimes are qualitatively distinct; calibrated against real data in
+# the walk-forward step, not assumed to be true.
+REGIME_ANNUAL_VOL: dict[str, float] = {
+    "calm": 0.35,
+    "trend": 0.7,
+    "crash": 2.0,
+    "jump": 1.5,
+}
+
 
 @dataclass(frozen=True)
 class PricePoint:
@@ -30,7 +40,7 @@ def synthetic_series(
     length: int,
     start_price: float = 150.0,
     seed: int = 20261006,
-    annual_vol: float = 0.8,
+    annual_vol: float | None = None,
 ) -> list[PricePoint]:
     """Generate a per-second price path for one of the four regimes.
 
@@ -40,6 +50,8 @@ def synthetic_series(
     """
     if length <= 0 or start_price <= 0:
         raise ValueError("length and start_price must be positive")
+    if annual_vol is None:
+        annual_vol = REGIME_ANNUAL_VOL[regime]
     rng = random.Random(seed)
     scale = annual_vol / math.sqrt(365 * 24 * 3600)
     drift = {"calm": 0.0, "trend": 0.00002, "crash": -0.00005, "jump": 0.0}[regime]

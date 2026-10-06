@@ -8,7 +8,11 @@ from research.reference.quote_math import QuoteParams
 from research.sim.calibrate import walk_forward_folds
 from research.sim.engine import simulate, venue_mid
 from research.sim.flow import InformedFlow, NoiseFlow
-from research.sim.metrics import hedged_pnl, quote_versus_fill_gap_bps
+from research.sim.metrics import (
+    hedged_pnl,
+    notional_weighted_markout,
+    quote_versus_fill_gap_bps,
+)
 from research.sim.oracle import OracleModel
 from research.sim.price_source import synthetic_series
 from research.sim.venues import PassivePool, VaultVenue
@@ -80,3 +84,72 @@ def test_hedged_pnl_removes_directional_exposure():
 def test_default_quote_params_are_valid():
     params = QuoteParams()
     assert sum(params.weights_bps) == 10_000
+
+
+def _sim(venue, regime: str, length: int = 600, seed: int = 11, noise=None,
+         latency: int = 1):
+    prices = synthetic_series(regime=regime, length=length, seed=seed)
+    return simulate(
+        venue_name="test",
+        venue=venue,
+        prices=prices,
+        oracle=OracleModel(latency_seconds=latency),
+        noise=noise or NoiseFlow(seed=seed),
+        informed=InformedFlow(),
+    )
+
+
+def _hedged(result) -> float:
+    return hedged_pnl(result.value_path, result.base_path, result.price_path)
+
+
+def test_passive_pool_is_picked_off_by_a_price_step():
+    """Deterministic mechanism check: when the reference steps down, a passive
+    pool is arbitraged at the stale price and loses, while a latency-free
+    oracle-anchored vault has already repriced and does not."""
+    from research.sim.price_source import PricePoint
+
+    path = (
+        [PricePoint(i, 100.0) for i in range(200)]
+        + [PricePoint(i, 95.0) for i in range(200, 320)]
+    )
+    flow = NoiseFlow(arrival_rate=0.0, seed=5)
+    passive = simulate(
+        venue_name="B1", venue=PassivePool(), prices=path,
+        oracle=OracleModel(latency_seconds=0), noise=flow, informed=InformedFlow(),
+    )
+    fresh = simulate(
+        venue_name="B3", venue=VaultVenue(), prices=path,
+        oracle=OracleModel(latency_seconds=0), noise=flow, informed=InformedFlow(),
+    )
+    assert _hedged(passive) < 0, "a passive pool must lose to a price step"
+    assert _hedged(passive) < _hedged(fresh), "repricing must avoid the loss"
+
+
+def test_passive_pool_loses_more_as_volatility_rises():
+    """LVR grows with volatility: the passive pool's hedged PnL must be worse
+    in a crash than in calm, with the same flow."""
+    quiet_flow = NoiseFlow(arrival_rate=0.0, seed=5)
+    calm = _sim(PassivePool(), "calm", length=800, noise=quiet_flow)
+    crash = _sim(PassivePool(), "crash", length=800, noise=quiet_flow)
+    assert _hedged(crash) < _hedged(calm), "higher vol must cost the passive pool more"
+
+
+def test_oracle_latency_creates_adverse_selection():
+    """A lagged oracle exposes the vault to arbitrage; a fresh one does not."""
+    fresh = _sim(VaultVenue(), "crash", latency=0)
+    lagged = _sim(VaultVenue(), "crash", latency=4)
+    lookup_f = {i: p for i, p in enumerate(fresh.price_path)}.get
+    lookup_l = {i: p for i, p in enumerate(lagged.price_path)}.get
+    fresh_markout = notional_weighted_markout(fresh.trades, 2, lookup_f)
+    lagged_markout = notional_weighted_markout(lagged.trades, 2, lookup_l)
+    assert lagged_markout < fresh_markout, "latency must worsen markouts"
+
+
+def test_markouts_are_recorded_on_the_simulation_clock():
+    """Guard against the regression where trades carried absolute seconds and
+    every markout silently evaluated to zero."""
+    result = _sim(PassivePool(), "crash", length=600)
+    lookup = {i: p for i, p in enumerate(result.price_path)}.get
+    markout = notional_weighted_markout(result.trades, 2, lookup)
+    assert markout != 0.0

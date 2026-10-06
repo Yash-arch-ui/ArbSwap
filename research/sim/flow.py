@@ -20,7 +20,7 @@ Side = Literal["buy", "sell"]
 @dataclass(frozen=True)
 class NoiseFlow:
     arrival_rate: float = 0.2
-    mean_size: float = 10.0
+    mean_size: float = 100.0
     size_sigma: float = 1.0
     seed: int = 20261006
 

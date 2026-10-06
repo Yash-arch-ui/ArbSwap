@@ -26,7 +26,7 @@ class OracleTick:
 class OracleModel:
     """Latency + noise oracle with a configurable confidence interval."""
 
-    latency_seconds: int = 0
+    latency_seconds: int = 1
     noise_bps: float = 1.0
     # Representative of live Pyth SOL/USD: conf ~0.018 on price ~120 = ~1.5 bps.
     confidence_bps: float = 1.5
