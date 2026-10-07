@@ -662,6 +662,40 @@ fn reservation_outside_the_inventory_band_is_rejected() {
     assert_eq!(fixture.quote_state_value().version, 0);
 }
 
+/// F-10: a second deposit reuses the (now `init_if_needed`) ticket, and the
+/// depositor is charged only the amounts the minted shares are worth — the
+/// imbalanced excess is not pulled.
+#[test]
+fn second_deposit_reuses_the_ticket_and_pulls_only_what_is_needed() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("first deposit");
+    let total_before = fixture.vault_state().total_shares;
+    let base_before = token_amount(&fixture.svm, fixture.lp_base);
+
+    // Quote is the limiting side (small relative request), so most of the large
+    // base request must stay in the depositor's wallet.
+    let request_base = LP_BASE_DEPOSIT / 2;
+    let request_quote = LP_QUOTE_DEPOSIT / 100;
+    fixture
+        .deposit(&keys.lp, request_base, request_quote, 1)
+        .expect("second deposit must reuse the ticket");
+
+    let base_after = token_amount(&fixture.svm, fixture.lp_base);
+    assert!(
+        base_after > base_before - request_base,
+        "base excess was donated (F-10): spent {}",
+        base_before - base_after
+    );
+    assert!(
+        base_after < base_before,
+        "some base must be pulled for the minted shares"
+    );
+    assert!(fixture.vault_state().total_shares > total_before);
+}
+
 /// Token-2022 owned accounts must be rejected by the classic `Program<Token>`
 /// constraint, without ever reaching the instruction body.
 #[test]

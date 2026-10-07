@@ -110,6 +110,25 @@ pub mod arbswap {
             ErrorCode::InvalidAmount
         );
         let total_shares = ctx.accounts.vault.total_shares;
+        // Reserves available to LPs: the fee buckets are excluded from share math.
+        let base_net = ctx
+            .accounts
+            .base_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_base)
+            .saturating_sub(ctx.accounts.vault.keeper_base)
+            .saturating_sub(ctx.accounts.vault.protocol_base);
+        let quote_net = ctx
+            .accounts
+            .quote_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_quote)
+            .saturating_sub(ctx.accounts.vault.keeper_quote)
+            .saturating_sub(ctx.accounts.vault.protocol_quote);
+        require!(
+            total_shares == 0 || (base_net > 0 && quote_net > 0),
+            ErrorCode::InvalidParams
+        );
         let shares = if total_shares == 0 {
             let root = integer_sqrt(
                 (base_amount as u128)
@@ -146,34 +165,33 @@ pub mod arbswap {
             let by_base = (base_amount as u128)
                 .checked_mul(total_shares as u128)
                 .ok_or(ErrorCode::MathOverflow)?
-                .checked_div(
-                    ctx.accounts
-                        .base_reserve
-                        .amount
-                        .saturating_sub(ctx.accounts.vault.insurance_base)
-                        .saturating_sub(ctx.accounts.vault.keeper_base)
-                        .saturating_sub(ctx.accounts.vault.protocol_base)
-                        as u128,
-                )
+                .checked_div(base_net as u128)
                 .ok_or(ErrorCode::MathOverflow)?;
             let by_quote = (quote_amount as u128)
                 .checked_mul(total_shares as u128)
                 .ok_or(ErrorCode::MathOverflow)?
-                .checked_div(
-                    ctx.accounts
-                        .quote_reserve
-                        .amount
-                        .saturating_sub(ctx.accounts.vault.insurance_quote)
-                        .saturating_sub(ctx.accounts.vault.keeper_quote)
-                        .saturating_sub(ctx.accounts.vault.protocol_quote)
-                        as u128,
-                )
+                .checked_div(quote_net as u128)
                 .ok_or(ErrorCode::MathOverflow)?;
             by_base.min(by_quote) as u64
         };
         require!(shares >= min_shares, ErrorCode::SlippageExceeded);
-        token::transfer(ctx.accounts.base_transfer_ctx(), base_amount)?;
-        token::transfer(ctx.accounts.quote_transfer_ctx(), quote_amount)?;
+        // Pull only what the minted shares are worth; the imbalanced remainder
+        // stays with the depositor instead of being donated to the pool
+        // (audit F-10).
+        let (pull_base, pull_quote) = if total_shares == 0 {
+            (base_amount, quote_amount)
+        } else {
+            let needed_base =
+                ceil_div_u128(shares as u128 * base_net as u128, total_shares as u128)
+                    .min(base_amount as u128) as u64;
+            let needed_quote =
+                ceil_div_u128(shares as u128 * quote_net as u128, total_shares as u128)
+                    .min(quote_amount as u128) as u64;
+            require!(needed_base > 0 && needed_quote > 0, ErrorCode::InvalidAmount);
+            (needed_base, needed_quote)
+        };
+        token::transfer(ctx.accounts.base_transfer_ctx(), pull_base)?;
+        token::transfer(ctx.accounts.quote_transfer_ctx(), pull_quote)?;
         let bump = [ctx.accounts.vault.bump];
         let seeds: &[&[u8]] = &[
             b"vault",
@@ -193,11 +211,19 @@ pub mod arbswap {
             ),
             shares,
         )?;
-        if total_shares == 0 {
-            ctx.accounts.vault.total_shares = shares
-                .checked_add(ctx.accounts.config.min_liquidity)
-                .ok_or(ErrorCode::MathOverflow)?;
-        }
+        // Every deposit grows the supply. The first deposit additionally counts
+        // the permanently locked minimum-liquidity shares. (Previously this ran
+        // only when `total_shares == 0`, so later deposits minted shares that
+        // the supply never recorded.)
+        let locked = if total_shares == 0 {
+            ctx.accounts.config.min_liquidity
+        } else {
+            0
+        };
+        ctx.accounts.vault.total_shares = total_shares
+            .checked_add(shares)
+            .and_then(|value| value.checked_add(locked))
+            .ok_or(ErrorCode::MathOverflow)?;
         let ticket = &mut ctx.accounts.deposit_ticket;
         ticket.owner = ctx.accounts.user.key();
         ticket.shares = shares;
@@ -209,8 +235,8 @@ pub mod arbswap {
         emit!(DepositEvent {
             slot: Clock::get()?.slot,
             shares,
-            base_amount,
-            quote_amount
+            base_amount: pull_base,
+            quote_amount: pull_quote
         });
         Ok(())
     }
@@ -272,6 +298,7 @@ pub mod arbswap {
         let total = ctx.accounts.vault.total_shares;
         require!(total > 0, ErrorCode::MathOverflow);
         let shares = ctx.accounts.withdraw_ticket.shares as u128;
+        require!(shares > 0, ErrorCode::InvalidAmount);
         let base_available = ctx
             .accounts
             .base_reserve
@@ -340,6 +367,9 @@ pub mod arbswap {
         ctx.accounts.vault.total_shares = total
             .checked_sub(ctx.accounts.withdraw_ticket.shares)
             .ok_or(ErrorCode::MathOverflow)?;
+        // Mark the ticket claimed so the same shares cannot be withdrawn twice;
+        // the reusable ticket can then queue a new request (audit F-10).
+        ctx.accounts.withdraw_ticket.shares = 0;
         emit!(WithdrawClaimed {
             slot: Clock::get()?.slot,
             shares: ctx.accounts.withdraw_ticket.shares,
@@ -895,7 +925,7 @@ pub struct Deposit<'info> {
     pub user_quote: Box<Account<'info, TokenAccount>>,
     #[account(mut, constraint = user_shares.mint == vault.share_mint, constraint = user_shares.owner == user.key())]
     pub user_shares: Box<Account<'info, TokenAccount>>,
-    #[account(init, payer=user, space=8+32+8+8+1, seeds=[b"dep", vault.key().as_ref(), user.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=user, space=8+32+8+8+1, seeds=[b"dep", vault.key().as_ref(), user.key().as_ref()], bump)]
     pub deposit_ticket: Account<'info, DepositTicket>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -935,7 +965,7 @@ pub struct RequestWithdraw<'info> {
     pub deposit_ticket: Box<Account<'info, DepositTicket>>,
     #[account(mut, constraint=user_shares.owner==user.key())]
     pub user_shares: Box<Account<'info, TokenAccount>>,
-    #[account(init, payer=user, space=8+32+8+8+1, seeds=[b"wd", vault.key().as_ref(), user.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=user, space=8+32+8+8+1, seeds=[b"wd", vault.key().as_ref(), user.key().as_ref()], bump)]
     pub withdraw_ticket: Box<Account<'info, WithdrawTicket>>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -1054,6 +1084,14 @@ pub struct WindDown<'info> {
     pub admin: Signer<'info>,
     #[account(mut)]
     pub vault: Account<'info, Vault>,
+}
+
+/// Ceiling division for share maths; returns 0 when the denominator is 0.
+fn ceil_div_u128(numerator: u128, denominator: u128) -> u128 {
+    if denominator == 0 {
+        return 0;
+    }
+    numerator / denominator + u128::from(numerator % denominator != 0)
 }
 
 fn integer_sqrt(n: u128) -> u128 {
