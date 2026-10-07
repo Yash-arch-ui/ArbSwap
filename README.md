@@ -98,6 +98,9 @@ speed; never claim an unmeasured result; report losing regimes.
 
 ## Documents
 
+- `docs/ARCHITECTURE.md` — component map, data model, instruction surface, trust boundaries.
 - `docs/BUILD_PLAN.md` — the full specification (imported, verbatim).
 - `docs/ASSUMPTIONS.md` — what is verified vs assumed (read before coding).
+- `docs/FORMULA.md` — the math source map and open decisions.
+- `docs/AUDIT_REPORT.md` — evidence-based audit and findings register.
 - `docs/THREAT_MODEL.md` — threats, mitigations, tests.

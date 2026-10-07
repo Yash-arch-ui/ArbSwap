@@ -9,6 +9,7 @@ Document map:
   simulator/evaluation (§8), analytics (§9), testing (§10), security (§11),
   phases (§12), decisions log (§14), definition of done (§15).
 - `ASSUMPTIONS.md` — verified vs unverified claims; resolve every *verify* item here (T0.3).
+- `ARCHITECTURE.md` — component map, on-chain data model, instruction surface, trust boundaries.
 - `THREAT_MODEL.md` — threats, mitigations, tests (§11).
 - `FORMULA.md` — P1 mathematical source map, derivations, status, and open decisions.
 
