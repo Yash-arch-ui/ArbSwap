@@ -15,7 +15,7 @@ from research.sim.flow import InformedFlow, NoiseFlow
 from research.sim.metrics import TradeRecord
 from research.sim.oracle import OracleModel
 from research.sim.price_source import PricePoint
-from research.sim.venues import PassivePool, VaultVenue
+from research.sim.venues import HonestyRejected, PassivePool, VaultVenue
 
 
 @dataclass
@@ -29,6 +29,7 @@ class SimResult:
     value_path: list[float] = field(default_factory=list)
     base_path: list[float] = field(default_factory=list)
     price_path: list[float] = field(default_factory=list)
+    rejects: int = 0
 
 
 def venue_mid(venue) -> float:
@@ -61,6 +62,7 @@ def simulate(
     price_path: list[float] = []
     previous_price: float | None = None
     cash_flow = 0.0
+    rejects = 0
 
     for index, point in enumerate(prices):
         reference = point.price
@@ -75,13 +77,12 @@ def simulate(
                 previous_price=previous_price,
                 depth_budget=depth_budget,
             )
-        base_path.append(venue.base if hasattr(venue, "base") else 0.0)
-
         # Informed arbitrage around the refreshed quote: size to move the venue
         # price to the reference, capped by the trader's maximum size.
         side, amount = _informed_trade(venue, reference, informed)
         if side is not None and amount > 0:
-            trade = _apply(venue, side, amount, reference, index, trades)
+            trade, rejected = _apply(venue, side, amount, reference, index, trades)
+            rejects += rejected
             if trade is not None:
                 cash_flow += trade.quote_amount
 
@@ -92,10 +93,14 @@ def simulate(
             else:
                 amount_in = quote_notional / reference if reference > 0 else 0.0
             if amount_in > 0 and venue.base > 0 and venue.quote > 0:
-                trade = _apply(venue, side, amount_in, reference, index, trades)
+                trade, rejected = _apply(venue, side, amount_in, reference, index, trades)
+                rejects += rejected
                 if trade is not None:
                     cash_flow += trade.quote_amount
 
+        # End-of-step holdings: the base held during the move to the next step.
+        held_base = venue.base if hasattr(venue, "base") else 0.0
+        base_path.append(held_base)
         value_path.append(venue.value(reference) if isinstance(venue, VaultVenue) else
                           venue.quote + venue.base * reference)
         price_path.append(reference)
@@ -112,6 +117,7 @@ def simulate(
         value_path=value_path,
         base_path=base_path,
         price_path=price_path,
+        rejects=rejects,
     )
 
 
@@ -163,13 +169,15 @@ def _informed_trade(venue, reference: float, informed) -> tuple[str | None, floa
 
 
 def _apply(venue, side: str, amount_in: float, reference: float,
-           second: int, trades: list[TradeRecord]) -> TradeRecord | None:
+           second: int, trades: list[TradeRecord]) -> tuple[TradeRecord | None, int]:
     if isinstance(venue, VaultVenue) and venue.quote_state is None:
-        return None
+        return None, 0
     try:
         fill = venue.fill(side, amount_in)
+    except HonestyRejected:
+        return None, 1
     except (ValueError, ZeroDivisionError):
-        return None
+        return None, 0
     if side == "buy":
         base_amount = fill.amount_out
         quote_amount = fill.amount_in
@@ -183,6 +191,7 @@ def _apply(venue, side: str, amount_in: float, reference: float,
         quote_amount=quote_amount,
         exec_price=fill.exec_price,
         mid_at_fill=reference,
+        gap_bps=fill.gap_bps,
     )
     trades.append(trade)
-    return trade
+    return trade, 0

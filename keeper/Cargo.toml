@@ -6,3 +6,4 @@ edition = "2021"
 
 [dependencies]
 arb-math = { path = "../crates/arb-math" }
+sha2 = "0.10"

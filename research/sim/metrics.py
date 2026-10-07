@@ -19,6 +19,7 @@ class TradeRecord:
     quote_amount: float
     exec_price: float
     mid_at_fill: float
+    gap_bps: float = 0.0  # quote-versus-fill gap; positive = worse for the trader
 
     @property
     def vault_bought_base(self) -> bool:
@@ -98,6 +99,32 @@ def quote_versus_fill_gap_bps(quoted_out: float, executed_out: float) -> float:
     if quoted_out <= 0:
         raise ValueError("quoted_out must be positive")
     return 10_000.0 * (quoted_out - executed_out) / quoted_out
+
+
+def notional_weighted_gap(trades: list[TradeRecord]) -> float:
+    """Notional-weighted quote-versus-fill gap across fills (Build Plan §8.3).
+
+    A positive value means executions averaged *worse* for the trader than the
+    state they last read. The honest venue rejects such fills, so its gap is
+    zero by construction; the B4 ablation fills them, so its gap is positive.
+    """
+    total_weight = 0.0
+    total = 0.0
+    for trade in trades:
+        total += trade.notional * trade.gap_bps
+        total_weight += trade.notional
+    return total / total_weight if total_weight else 0.0
+
+
+def identical_fill_share(trades: list[TradeRecord], *, tolerance_bps: float = 0.01) -> float:
+    """Share of notional executed at (essentially) the quoted output."""
+    total_weight = 0.0
+    identical = 0.0
+    for trade in trades:
+        total_weight += trade.notional
+        if abs(trade.gap_bps) <= tolerance_bps:
+            identical += trade.notional
+    return identical / total_weight if total_weight else 1.0
 
 
 def lvr_discrete(sigma_per_sqrt_second: float, liquidity_value: float,

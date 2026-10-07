@@ -1,8 +1,12 @@
-"""Experiments E1-E4 (Build Plan §8.4, T1.6).
+"""Experiments E1-E6 (Build Plan §8.4, T1.6).
 
 Runs the venues side by side on a shared price path and reports the headline
 metrics. Regimes are chosen in advance and losing regimes are reported, per the
 methodology rules in §8.5.
+
+Baselines (Build Plan §8.2):
+  B1 passive pool | B2 fixed spread | B3 no depth throttle | B4 no honesty
+  ArbSwap = the full product (engine + throttle + honest execution).
 """
 
 from __future__ import annotations
@@ -14,13 +18,17 @@ from research.sim.engine import SimResult, simulate
 from research.sim.flow import InformedFlow, NoiseFlow
 from research.sim.metrics import (
     hedged_pnl,
+    notional_weighted_gap,
     notional_weighted_markout,
     realized_volatility_per_sqrt_second,
     retail_half_spread_bps,
 )
 from research.sim.oracle import OracleModel
-from research.sim.price_source import Regime, synthetic_series
+from research.sim.price_source import PricePoint, Regime, synthetic_series
 from research.sim.venues import PassivePool, VaultVenue
+
+VENUE_ORDER = ("B1_passive", "B2_fixed_spread", "B3_no_throttle",
+               "B4_no_honesty", "ArbSwap")
 
 
 @dataclass
@@ -29,17 +37,34 @@ class VenueReport:
     hedged_pnl: float
     markout_2s_bps: float
     quiet_half_spread_bps: float
+    gap_bps: float
     sigma: float
     trades: int
+    rejects: int
+
+
+def venue_set(params: QuoteParams, *, passive_fee: float = 0.0001,
+              vault_fee_bps: float = 1.0) -> dict[str, object]:
+    """Instantiate B1-B4 and the full ArbSwap vault with equal starting capital.
+
+    The passive pool fee defaults to 1 bps (typical of a major SOL/USDC pool);
+    E9 sweeps it. The vault fee defaults to the Build Plan §5.16 ``fee_bps``.
+    """
+    return {
+        "B1_passive": PassivePool(fee=passive_fee),
+        "B2_fixed_spread": VaultVenue(params=params, engine_enabled=False,
+                                      fee_bps=vault_fee_bps),
+        "B3_no_throttle": VaultVenue(params=params, throttle_enabled=False,
+                                     fee_bps=vault_fee_bps),
+        "B4_no_honesty": VaultVenue(params=params, honest_enabled=False,
+                                    fee_bps=vault_fee_bps),
+        "ArbSwap": VaultVenue(params=params, fee_bps=vault_fee_bps),
+    }
 
 
 def _price_lookup(result: SimResult):
     by_second = {i: price for i, price in enumerate(result.price_path)}
-
-    def price_at(second: int):
-        return by_second.get(second)
-
-    return price_at
+    return by_second.get
 
 
 def report(name: str, result: SimResult) -> VenueReport:
@@ -49,45 +74,55 @@ def report(name: str, result: SimResult) -> VenueReport:
         hedged_pnl=hedged_pnl(result.value_path, result.base_path, result.price_path),
         markout_2s_bps=notional_weighted_markout(result.trades, 2, lookup),
         quiet_half_spread_bps=retail_half_spread_bps(result.trades, lookup),
+        gap_bps=notional_weighted_gap(result.trades),
         sigma=realized_volatility_per_sqrt_second(result.price_path),
         trades=len(result.trades),
+        rejects=result.rejects,
     )
 
 
-def run_regime(regime: Regime, *, length: int = 3_600, seed: int = 20261006,
-               params: QuoteParams | None = None) -> dict[str, VenueReport]:
-    prices = synthetic_series(regime=regime, length=length, seed=seed)
-    params = params or QuoteParams()
-    noise = NoiseFlow(seed=seed)
-    informed = InformedFlow()
-
-    venues = {
-        "B1_passive": PassivePool(),
-        "B2_fixed_spread": VaultVenue(params=params, engine_enabled=False),
-        "B3_arbswap": VaultVenue(params=params),
-        "B4_no_throttle": VaultVenue(params=params, depth_override=1.0),
-    }
+def run_venues(points: list[PricePoint], *, params: QuoteParams,
+               seed: int = 20261006, depth_budget: float = 1.0,
+               noise: NoiseFlow | None = None,
+               informed: InformedFlow | None = None,
+               passive_fee: float = 0.0001,
+               vault_fee_bps: float = 1.0) -> dict[str, VenueReport]:
+    """Run every venue on the same path with the same flow draws."""
+    noise = noise or NoiseFlow(seed=seed)
+    informed = informed or InformedFlow()
     reports: dict[str, VenueReport] = {}
-    for name, venue in venues.items():
+    for name, venue in venue_set(params, passive_fee=passive_fee,
+                                 vault_fee_bps=vault_fee_bps).items():
         result = simulate(
             venue_name=name,
             venue=venue,
-            prices=prices,
+            prices=points,
             oracle=OracleModel(),
             noise=noise,
             informed=informed,
+            depth_budget=depth_budget,
         )
         reports[name] = report(name, result)
     return reports
 
 
-def e1_lvr_reduction(reports: dict[str, VenueReport]) -> float:
-    """Fractional hedged-PnL improvement of B3 over the passive pool B1.
+def run_regime(regime: Regime, *, length: int = 3_600, seed: int = 20261006,
+               params: QuoteParams | None = None,
+               passive_fee: float = 0.0001) -> dict[str, VenueReport]:
+    prices = synthetic_series(regime=regime, length=length, seed=seed)
+    return run_venues(prices, params=params or QuoteParams(), seed=seed,
+                      passive_fee=passive_fee)
 
-    A positive number means B3 kept more value than B1 on the same path.
+
+def e1_lvr_reduction(reports: dict[str, VenueReport], *, venue: str = "ArbSwap",
+                     baseline: str = "B1_passive") -> float:
+    """Fractional hedged-PnL improvement of a venue over the passive pool.
+
+    A positive number means the venue kept more value than the passive pool on
+    the same path.
     """
-    passive = reports["B1_passive"].hedged_pnl
-    arbs = reports["B3_arbswap"].hedged_pnl
+    passive = reports[baseline].hedged_pnl
+    arbs = reports[venue].hedged_pnl
     if passive == 0:
         return 0.0
     return (arbs - passive) / abs(passive)
@@ -105,16 +140,38 @@ def e4_retail_quality(reports: dict[str, VenueReport]) -> dict[str, float]:
     return {name: report.quiet_half_spread_bps for name, report in reports.items()}
 
 
+def e5_throttle_ablation(reports: dict[str, VenueReport]) -> float:
+    """Hedged-PnL difference of ArbSwap (throttle on) over B3 (throttle off)."""
+    return reports["ArbSwap"].hedged_pnl - reports["B3_no_throttle"].hedged_pnl
+
+
+def e6_honesty_cost(reports: dict[str, VenueReport]) -> dict[str, float]:
+    """Fill-rate and gap cost of honest execution versus the B4 ablation."""
+    full = reports["ArbSwap"]
+    dishonest = reports["B4_no_honesty"]
+    return {
+        "fills_full": float(full.trades),
+        "fills_no_honesty": float(dishonest.trades),
+        "rejected_honest_fills": float(full.rejects),
+        "gap_full_bps": full.gap_bps,
+        "gap_no_honesty_bps": dishonest.gap_bps,
+        "pnl_full": full.hedged_pnl,
+        "pnl_no_honesty": dishonest.hedged_pnl,
+    }
+
+
 def main() -> None:
-    print("PRELIMINARY: parameters are not yet walk-forward calibrated (T1.5).")
+    print("PRELIMINARY: parameters are not walk-forward calibrated (T1.5).")
     print("These numbers test the pipeline, not the product; do not headline them.")
     for regime in ("calm", "trend", "crash"):
         reports = run_regime(regime)
         print(f"== {regime} ==")
-        print(f"  E1 LVR/hedged improvement B3 vs B1: {e1_lvr_reduction(reports):+.4f}")
+        print(f"  E1 hedged improvement ArbSwap vs B1: {e1_lvr_reduction(reports):+.4f}")
         print(f"  E2 markout 2s (bps): {e2_markouts(reports)}")
         print(f"  E3 hedged PnL: {e3_hedged_return(reports)}")
         print(f"  E4 quiet half-spread (bps): {e4_retail_quality(reports)}")
+        print(f"  E5 throttle ablation (ArbSwap - B3): {e5_throttle_ablation(reports):+.2f}")
+        print(f"  E6 honesty cost: {e6_honesty_cost(reports)}")
 
 
 if __name__ == "__main__":

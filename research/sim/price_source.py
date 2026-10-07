@@ -64,16 +64,79 @@ def synthetic_series(
     return [PricePoint(second=i, price=p) for i, p in enumerate(prices)]
 
 
-def load_csv(path: str | Path, *, price_column: str = "price") -> list[PricePoint]:
-    """Load a reference-price CSV; returns one point per row in file order."""
-    points: list[PricePoint] = []
+def _parse_timestamp(value: str) -> int:
+    """Accept seconds or milliseconds since the epoch and return seconds."""
+    number = float(value)
+    return int(number // 1000) if number > 1e11 else int(number)
+
+
+def load_price_csv(
+    path: str | Path,
+    *,
+    price_column: str = "price",
+    timestamp_column: str | None = None,
+) -> list[PricePoint]:
+    """Load a real reference-price CSV onto a contiguous 1-second grid.
+
+    The CSV is the output of the download scripts in ``research/data``. When a
+    timestamp column is present (``timestamp_ms`` by default for Binance, or an
+    explicit ``timestamp_column``), rows are sorted and missing seconds are
+    forward-filled so the replay clock has exactly one point per second with a
+    0-based ``second`` index. Without a timestamp column the rows are used in
+    file order (one point per row), which matches ``load_csv``.
+    """
+    rows: list[tuple[int, float]] = []
     with Path(path).open(newline="") as handle:
         reader = csv.DictReader(handle)
-        if reader.fieldnames is None or price_column not in reader.fieldnames:
+        fieldnames = reader.fieldnames or []
+        if price_column not in fieldnames:
             raise ValueError(f"CSV must contain a {price_column!r} column")
+        if timestamp_column is None:
+            for candidate in ("timestamp_ms", "timestamp", "time", "open_time"):
+                if candidate in fieldnames:
+                    timestamp_column = candidate
+                    break
         for index, row in enumerate(reader):
-            points.append(PricePoint(second=index, price=float(row[price_column])))
-    return points
+            price = float(row[price_column])
+            if timestamp_column is not None:
+                rows.append((_parse_timestamp(row[timestamp_column]), price))
+            else:
+                rows.append((index, price))
+    if timestamp_column is None:
+        return [PricePoint(second=second, price=price) for second, price in rows]
+
+    rows.sort(key=lambda item: item[0])
+    dense: list[PricePoint] = []
+    previous_price: float | None = None
+    expected_second: int | None = None
+    for timestamp, price in rows:
+        if previous_price is None:
+            expected_second = timestamp
+        while expected_second is not None and expected_second < timestamp:
+            dense.append(PricePoint(second=len(dense), price=previous_price))
+            expected_second += 1
+        if expected_second == timestamp or previous_price is None:
+            dense.append(PricePoint(second=len(dense), price=price))
+            expected_second = timestamp + 1
+        previous_price = price
+    return dense
+
+
+def load_csv(path: str | Path, *, price_column: str = "price") -> list[PricePoint]:
+    """Backward-compatible alias for :func:`load_price_csv`."""
+    return load_price_csv(path, price_column=price_column)
+
+
+def split_windows(points: list[PricePoint], windows: int) -> list[list[PricePoint]]:
+    """Split a path into ``windows`` contiguous chunks (no look-ahead)."""
+    if windows < 1:
+        raise ValueError("windows must be >= 1")
+    if len(points) < windows:
+        raise ValueError("not enough points for the requested windows")
+    size = len(points) // windows
+    chunks = [points[index * size:(index + 1) * size] for index in range(windows - 1)]
+    chunks.append(points[(windows - 1) * size:])
+    return chunks
 
 
 def iter_prices(points: list[PricePoint]) -> Iterator[PricePoint]:

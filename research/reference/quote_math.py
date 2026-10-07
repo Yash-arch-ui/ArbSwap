@@ -30,7 +30,7 @@ class QuoteParams:
     jump_extra: float = 0.0005
     directional_coeff: float = 1.0
     utilization_max: float = 0.5
-    sigma_target: float = 0.001
+    sigma_target: float = 0.0001
     confidence_max_ratio: float = 0.001
     jump_cooldown_factor: float = 0.5
     grace_slots: float = 2.0
@@ -243,7 +243,8 @@ def build_ladder(*, price: float, reservation: float, half_spread: float,
 def compute_quote(*, price: float, base_reserve: float, quote_reserve: float,
                   confidence: float, age: float, volatility: VolatilityState,
                   params: QuoteParams, previous_price: float | None = None,
-                  depth_budget: float = 1.0) -> Quote:
+                  depth_budget: float = 1.0, apply_throttle: bool = True,
+                  depth_override: float | None = None) -> Quote:
     q = inventory_imbalance(base_reserve, quote_reserve, price)
     p_res = reservation_price(price, q, params.inventory_coeff)
     spread = compute_half_spread(sigma_short=volatility.sigma_short,
@@ -255,10 +256,15 @@ def compute_quote(*, price: float, base_reserve: float, quote_reserve: float,
     else:
         ask_extra, bid_extra = directional_addon(
             price, previous_price, coefficient=params.directional_coeff)
-    depth = depth_multiplier(sigma_short=volatility.sigma_short,
-                             confidence=confidence / price,
-                             jump_flag=volatility.jump_flag,
-                             depth_budget=depth_budget, params=params)
+    if depth_override is not None:
+        depth = depth_override
+    elif not apply_throttle:
+        depth = min(1.0, max(0.0, depth_budget))
+    else:
+        depth = depth_multiplier(sigma_short=volatility.sigma_short,
+                                 confidence=confidence / price,
+                                 jump_flag=volatility.jump_flag,
+                                 depth_budget=depth_budget, params=params)
     asks, bids = build_ladder(price=price, reservation=p_res,
                               half_spread=spread, ask_extra=ask_extra,
                               bid_extra=bid_extra, base_reserve=base_reserve,
