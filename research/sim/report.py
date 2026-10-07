@@ -1,10 +1,15 @@
-"""P1 results generator (T1.5 + T1.6 + E5/E6/E9).
+"""P1 synthetic + ad-hoc results generator (T1.5 + T1.6 + E5/E6/E9).
 
 Calibrates the heuristic coefficients walk-forward, freezes them, then evaluates
 B1/B2/B3/B4 and the full ArbSwap vault on the held-out segment and writes
-``docs/P1_RESULTS.md``. Results are reported honestly: losing regimes, the
+``docs/P1_SYNTHETIC.md``. Results are reported honestly: losing regimes, the
 synthetic-data limitation, and the honest-execution fill-rate cost are stated in
 the output.
+
+This is the *synthetic / exploratory* generator. The canonical held-out result
+is produced by ``research.sim.study`` (the pre-registered protocol) and written
+to ``docs/P1_RESULTS.md``; the two deliberately use different output paths so
+one cannot overwrite the other.
 
 Run::
 
@@ -215,7 +220,7 @@ def main() -> None:
     parser.add_argument("--real-source", default="Binance SOLUSDC 1s direct quote")
     parser.add_argument("--length", type=int, default=2_400)
     parser.add_argument("--seed", type=int, default=20261006)
-    parser.add_argument("--out", type=Path, default=Path("docs/P1_RESULTS.md"))
+    parser.add_argument("--out", type=Path, default=Path("docs/P1_SYNTHETIC.md"))
     args = parser.parse_args()
 
     synthetic: dict[str, tuple[QuoteParams, dict[str, VenueReport], float]] = {}

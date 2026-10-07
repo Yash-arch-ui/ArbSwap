@@ -24,6 +24,10 @@ def _points(n: int) -> list[PricePoint]:
     return [PricePoint(second=i, price=100.0 + i * 0.01) for i in range(n)]
 
 
+def _params_json() -> str:
+    return json.dumps(asdict(QuoteParams()))
+
+
 def test_extract_blocks_slices_on_the_registered_hours():
     points = _points(168 * 3600)
     blocks = extract_blocks(points, hours=(0, 14, 28))
@@ -118,3 +122,63 @@ def test_render_produces_every_registered_section():
     assert "W3" in text and "crash" in text
     assert "regimes match pre-registration" in text
     assert "+" in text  # E1 values are rendered with an explicit sign
+
+
+# --- smoke tests: every study phase must return a well-formed dict ----------
+# (F-02 in docs/AUDIT_REPORT.md: a stray tuple in _s2_job made S2 non-executable.)
+
+import research.sim.study as study  # noqa: E402
+
+
+def test_s1_job_returns_a_well_formed_row(monkeypatch):
+    monkeypatch.setattr(study, "_load_window", lambda window: _points(400))
+    row = study._s1_job(("W2", 1.0, _params_json()))
+    assert row["window"] == "W2"
+    assert row["step_seconds"] == 1.0
+    assert set(row["venues"]) == {"ArbSwap", "B1_passive"}
+    assert isinstance(row["venues"]["ArbSwap"]["hedged_pnl"], float)
+
+
+def test_s2_job_returns_a_well_formed_row(monkeypatch):
+    monkeypatch.setattr(study, "_load_slice", lambda window: _points(400))
+    row = study._s2_job(("W3", 0.6, _params_json()))
+    assert isinstance(row, dict), "F-02 regression: _s2_job must return a dict"
+    assert row["window"] == "W3"
+    assert row["slot_seconds"] == 0.6
+    assert row["step_seconds"] == 0.2
+    assert "ArbSwap" in row["reports"]
+    assert "quiet_half_spread_bps" in row["reports"]["ArbSwap"]
+
+
+def test_s3_job_returns_a_well_formed_row(monkeypatch):
+    monkeypatch.setattr(study, "_load_agg_slice", lambda day: _points(400))
+    row = study._s3_job(("W4", 0.2, _params_json()))
+    assert row["window"] == "W4"
+    assert row["day"] == AGGTRADES_DATES["W4"]
+    assert row["latency_seconds"] == 0.2
+    assert set(row["venues"]) == {"ArbSwap", "B1_passive"}
+
+
+def test_s4_job_returns_a_well_formed_row(monkeypatch):
+    monkeypatch.setattr(study, "_load_window", lambda window: _points(400))
+    row = study._s4_job((20261007, _params_json()))
+    assert row["seed"] == 20261007
+    assert row["window"] == "W2"
+    assert "ArbSwap" in row["venues"]
+
+
+def test_evaluate_window_returns_every_venue(monkeypatch):
+    monkeypatch.setattr(study, "_load_window", lambda window: _points(400))
+    row = study._evaluate_window(("W3", _params_json()))
+    assert row["label"] == "W3"
+    assert set(row["reports"]) == {
+        "B1_passive", "B2_fixed_spread", "B3_no_throttle", "B4_no_honesty", "ArbSwap"}
+    assert row["theory_lvr_quote"] >= 0.0
+    assert "fill_rate" in row["reports"]["ArbSwap"]
+    assert "cost_per_update_quote" in row["reports"]["ArbSwap"]
+
+
+def test_parse_params_round_trips_json_lists_back_to_tuples():
+    params = study.parse_params(json.loads(json.dumps(asdict(QuoteParams()))))
+    assert params == QuoteParams()
+    assert isinstance(params.offsets_bps, tuple)
