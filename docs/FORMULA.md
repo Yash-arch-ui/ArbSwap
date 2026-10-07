@@ -82,6 +82,12 @@ base. The denominator must be positive; the result is bounded by [-1, 1].
 
 **Status:** SPEC. This is the normalized form used by ArbSwap.
 
+**Known defect (audit F-03):** the keeper computes `q` from **raw token atoms**,
+mixing SOL (9 decimals) with USDC (6 decimals). For real mainnet reserves that
+saturates the skew near its bound. A correct implementation normalises base to
+quote units (or uses a decimals-aware price) and needs a mixed-decimal parity
+vector before devnet. The Python simulator is unit-free and unaffected.
+
 ### 2.2 Reservation price
 
 ```text
@@ -117,8 +123,12 @@ ArbSwap maintains a fast estimate (`lambda ~= 0.94`) and a slow estimate
 (`lambda ~= 0.99`). These values are starting heuristics, not measured truths.
 The simulator must calibrate them walk-forward and freeze them before testing.
 
-**Status:** SPEC + HEURISTIC parameters. Implemented in
-`research/reference/quote_math.py`; not yet ported to Rust.
+**Status:** SPEC + HEURISTIC parameters. Implemented in the independent float
+reference `research/reference/quote_math.py` (log returns, per-second decay
+`lambda^dt`, innovation `r^2/dt`, so the estimate is clock-invariant). The Rust
+keeper has a `VolatilityState` but it uses simple `|dP|/P` returns with
+per-sample lambdas and **no time normalisation**, so it does not yet match the
+reference (audit F-09).
 
 ## 4. Half-Spread
 
@@ -147,6 +157,11 @@ absolute-inventory term. Report the distinction in calibration results.
 
 **Status:** SPEC/HEURISTIC. No coefficient is a theorem or a promise.
 
+**Known divergence (audit F-09):** the keeper's spread omits the `s_min` clamp,
+the directional add-on, the `confidence_max` cutoff and the jump cool-down, so
+keeper quotes do not equal the simulator's for the same tick. That gap is
+tracked as a P3 parity item (Task 5).
+
 ## 5. Directional Add-On
 
 ```text
@@ -160,6 +175,10 @@ falls, the bid is widened. Alexander and Fritz motivate directional fees under
 drift and toxic flow; the coefficient `e` is still a calibrated heuristic.
 
 **Status:** DERIVED motivation, SPEC formula, HEURISTIC coefficient.
+
+**Known gap (audit F-09):** the keeper's `encode_update_quote_instruction`
+writes `ask_extra_bps = bid_extra_bps = 0`, so the directional add-on never
+reaches the on-chain ladder. Implementing it (and testing it) is a P3 item.
 
 ## 6. Ladder Construction
 
@@ -183,13 +202,20 @@ C_bid,k   = w_k*quote_cap
 sum(w_k)  = 1
 ```
 
+**Known gap (audit F-12):** capacity is computed from the **full** reserves,
+including the insurance/keeper/protocol fee buckets that share math already
+excludes. The keeper replay also hard-codes placeholder reserves (`1_000` /
+`150_000`), so the quoted depth is phantom until real available reserves (net of
+buckets) are read from chain and supplied.
+
 ### 6.1 Important specification ambiguity
 
 The Build Plan table lists six weights and offsets `0, 2, 5, 10, 20, 40`,
 while the segment equations require six positive-width intervals and define
 `m_0 = 0`. Treating those six listed numbers literally creates a zero-width
-first interval. Until the human resolves this, the Python reference uses six
-positive outer boundaries `(2, 5, 10, 20, 40, 80)` and records the touch `0`
+first interval. The reference therefore uses six positive outer boundaries
+`(2, 5, 10, 20, 40, 80)` and records the touch `0` (see §15.1 — this is the
+frozen choice across Python, keeper and program, pending human ratification).
 
 
 ```text
@@ -214,8 +240,10 @@ dy_out     = L*(sqrt(P) - sqrt(P'))
 If the requested input crosses a boundary, fill the current segment fully and
 carry the remainder to the next segment. These are the concentrated-liquidity
 
-**Status:** DERIVED formulas; Python float reference implemented; Rust port
-OPEN pending widening arithmetic and golden vectors.
+**Status:** DERIVED formulas; Python float reference and the Rust
+`arb-math::quote::walk_ladder` port are both implemented and agree bit-for-bit
+on 970 golden vectors (see §14). The on-chain `swap` executes the stored levels
+through the same walk.
 
 ## 8. Flow Accumulator
 
@@ -231,7 +259,11 @@ The reset is decision D-04. It is intentionally different from persistent
 netting approaches described for some proprietary AMMs because inventory skew
 already moves `P_res`.
 
-**Status:** SPEC; Python reset implemented; swap integration pending.
+**Status:** SPEC; Python reset implemented; the on-chain `swap` accumulates
+`flow_n` but **never reads it for pricing**, and its two sides use different
+bases (buy subtracts gross `amount_in`, sell adds net `out`). The accumulator is
+dead weight today and a unit trap tomorrow — either drop it or fix the units and
+use it (audit F-16, decision D4).
 
 ## 9. LVR And Depth Throttle
 
@@ -272,7 +304,14 @@ When `sigma = 0`, the LVR budget is unbounded mathematically; the holdings
 utilization cap still limits displayed depth.
 
 **Status:** DERIVED LVR identity and budget; SPEC rule throttle; heuristic
-normalization and coefficients. Validate with E1 and E5.
+normalization and coefficients.
+
+**Not wired (audit F-08):** `lvr_budget_value(R, g_gas, sigma)` exists in the
+research reference but no caller supplies `R` or `g_gas`, and every simulator run
+uses `depth_budget = 1.0`. The throttle actually applied is
+`depth_multiplier` from σ-target and confidence only (`min(1, sigma_target/sigma)`
+times the confidence term). Either define and measure `R` and `g_gas` and feed
+the budget, or drop the budget language from claims.
 
 ## 10. Oracle, Age, And Expiry Guards
 
@@ -296,7 +335,13 @@ Pyth Core supplies price, confidence, exponent, and publish time. Its update
 verification is in-band and caller-paid, so measurements must separate Pyth
 verification CU from ArbSwap instruction CU.
 
-**Status:** SPEC; on-chain enforcement is P2/P3 work.
+**Status:** SPEC; **on-chain enforcement is implemented (P2) and tested.** The
+program requires a Pyth Receiver `PriceUpdateV2` account, uses
+`get_price_no_older_than` (which enforces `VerificationLevel::Full`, feed-id
+match and `publish_time + max_age >= now` in Unix seconds), pins
+`oracle_price` to the decoded Q64 price, and bounds the confidence. Note the
+guard is in **seconds**, not slots (audit D1). The live transport (Hermes fetch,
+Pyth CPI and a funded keeper) remains Open.
 
 ## 11. Fees
 
@@ -308,7 +353,11 @@ net_in  = amount_in - fee
 Fees are retained and split into LP, insurance, keeper, and protocol portions by
 fixed shares. `fee_bps` changes only through timelocked parameters.
 
-**Status:** SPEC; integer rounding implemented in `fixed.py`, program pending.
+**Status:** SPEC; integer rounding implemented in `fixed.py` and
+`arb-math::quote::fee_amount`, and used by the on-chain `swap`. Note the program
+tracks only the three liability buckets (insurance/keeper/protocol) and excludes
+them from share value; there is no separate LP bucket (audit D5). There is no
+timelocked `set_params` yet (audit F-17).
 
 ## 12. Vault Shares
 
@@ -334,8 +383,14 @@ out_Q = floor(shares*Q/S)
 The first liquidity amount is permanently burned. This follows the Uniswap v2
 minimum-liquidity mechanism; no oracle price is used in share math, per D-05.
 
-**Status:** SPEC; Python integer reference implemented; on-chain accounting
-pending. Warm-up and epoch queue are P2 requirements.
+**Status:** SPEC; Python integer reference implemented; the program implements
+first-deposit/later-deposit/withdraw inline (`programs/arbswap/src/lib.rs`).
+Two known gaps: a deposit transfers **both** requested token amounts and donates
+the imbalanced leg (the excess is not refunded), and deposit/withdraw tickets are
+`init`-keyed so a user cannot top up without claiming first (audit F-10).
+
+There is no virtual-share offset yet, so the classic share-inflation/donation
+attack is unproven (audit F-11; THREAT_MODEL.md).
 
 ## 13. Research Metrics
 
@@ -377,47 +432,67 @@ or impermanent loss as microstructural alpha.
 ### Quote-versus-fill gap
 
 ```text
+gap_bps = 10,000*(quoted_out - executed_out)/quoted_out
 ```
 
-Report mean, notional-weighted mean, identical-fill share, and tail. The 0x
-39%/1.08 bps observation is Base/Flashblocks and must not be presented as a
-Solana result.
+Positive means the trader received less than the quote they could have read
+(worse for the trader); negative means they did better. Report mean,
+notional-weighted mean, identical-fill share, and tail. The 0x 39%/1.08 bps
+observation is Base/Flashblocks and must not be presented as a Solana result.
 
 ## 14. Formula To Code Status
 
-| Concept | Python reference | Rust `arb-math` | Simulator | On-chain |
-|---|---|---|---|---|
-| Q64.64 primitives | implemented | implemented (T1.3) | n/a | P2 |
-| Inventory/reservation | implemented | not ported | B3/B4 quote | P2 |
-| Volatility estimator | implemented | keeper later | implemented | off-chain |
-| Spread/directional fee | implemented | not ported | implemented | validated bounds |
-| Ladder/segment walk | implemented (Q64) | implemented (T1.3) | implemented | P2 |
-| LVR budget/throttle | implemented | not ported | implemented | validated bounds |
-| Flow reset | implemented | not ported | implemented | P2 |
-| Vault share math | implemented | implemented (T1.3) | n/a | P2 |
-| Golden vectors >=500 | generator written | consumer written | n/a | T1.2 |
+| Concept | Python reference | Rust `arb-math` | Keeper | Simulator | On-chain |
+|---|---|---|---|---|---|
+| Q64.64 primitives | `fixed.py` | `fixed.rs` | yes | n/a | via `arb-math` |
+| Exact 192-bit sqrt | `fixed.py` | `wide::isqrt` | via crate | n/a | via `arb-math` |
+| Segment walk (ask/bid) | `ladder.py` | `quote::walk_ladder` | builds ladder | implemented | executes levels |
+| Inventory/reservation | `quote_math.py` | not ported (keeper-side) | yes (decimals bug) | B3/B4 quote | levels supplied |
+| Volatility estimator | `quote_math.py` | not ported (keeper-side) | yes (not normalised) | implemented | off-chain |
+| Spread/directional fee | `quote_math.py` | not ported (keeper-side) | partial, no clamp | implemented | bounded only |
+| LVR budget/throttle | `quote_math.py` (`lvr_budget_value`) | not ported | σ-target only | σ-target/confidence only | bounded only |
+| Flow accumulator | reset only | n/a | n/a | reset only | stored, never read |
+| Vault share math | `quote_math.py` | `quote.rs` | n/a | n/a | implemented inline |
+| Fees | `fixed.py` | `quote::fee_amount` | n/a | n/a | implemented |
+| Golden vectors | generator `golden.py` | consumer `golden.rs` | n/a | n/a | — |
 
-The Rust port and the Python Q64 reference are written but **not yet proven
-equal**: the golden-vector test skips until the vectors are generated. Run
-`python -m research.reference.golden` and `cargo test -p arb-math` during the
-testing phase.
+**Golden vectors now exist and run:** `crates/arb-math/tests/golden.rs` checks
+970 vectors (`golden_vectors.txt`) bit-for-bit; it no longer skips.
+
+**Independence caveat (audit F-07):** the golden generator imports
+`research/reference/{fixed,ladder}.py`, and `ladder.py` states it *"mirrors
+`crates/arb-math/src/quote.rs` bit-for-bit"*. The golden test is therefore a
+strong cross-language differential regression check, **not** an independent
+proof that the algorithm is correct. The independent float implementation
+(`research/reference/quote_math.py`) is exercised separately by
+`research/reference/test_quote_math.py`. Do not describe the vectors as an
+independent oracle.
 
 ## 15. Open Mathematical Decisions
 
-1. Resolve the six-level offset convention before freezing T1.2 vectors.
+1. **Offset convention.** The Build Plan table lists `0, 2, 5, 10, 20, 40`
+   (which creates a zero-width first interval); every implementation (Python,
+   keeper, program tests) uses positive outer boundaries `(2, 5, 10, 20, 40, 80)`
+   with the first interval width `[0, 2]`. The vectors are frozen on the latter.
+   **Still needs human ratification**, but the code is internally consistent, so
+   this is a documentation decision, not a blocker.
 2. Decide whether `update_quote` recomputes the full quote on-chain or enforces
-   bounded consistency only; compute feasibility is a P2 measurement.
-3. Port the exact 192-bit square-root and widened multiplication operations to
-   Rust without relaxing the floor/ceil rules. **Done:** `crates/arb-math`
-   matches 970 golden vectors bit-for-bit.
-4. Calibrate all heuristic coefficients walk-forward and report losing regimes.
-   **First pass done:** `research/sim/report.py` calibrates walk-forward on
-   synthetic regimes and writes `docs/P1_RESULTS.md`. B3 shows far lower
-   adverse selection than B1 in a crash (2s markout -0.16 vs -9.4 bps) but earns
-   less fee income in calm/trend because it quotes a wider spread. Real-data
-   replay and sensitivity (E9) remain.
+   bounded consistency only. **Resolved in part:** the program today enforces
+   *shape and Pyth consistency* but does **not** bind the executed `levels` to
+   the anchor/oracle (audit F-04), so a compromised keeper can quote arbitrary
+   prices. This is the top devnet blocker.
+3. Port the exact 192-bit square-root and widened multiplication to Rust without
+   relaxing floor/ceil. **Done:** `crates/arb-math` matches 970 golden vectors.
+4. Calibrate heuristic coefficients walk-forward and report losing regimes.
+   **Done for P1:** the pre-registered W1–W6 study (`python -m research.sim.study`,
+   `docs/P1_RESULTS.md`) freezes W1 params and reports all five held-out windows.
+   The synthetic/exploratory generator is `research/sim/report.py`
+   (`docs/P1_SYNTHETIC.md`). Coefficients remain heuristics, not optima.
 5. Complete the full read of Amini and Feinstein before demo claims involving
    oracle-contraction or sandwich resistance.
 6. **First-depositor / share-inflation:** the MVP burns `MIN_LIQUIDITY`
    (Uniswap v2 style) but has no virtual-share offset; add one or prove the
    donation attack unprofitable before mainnet (THREAT_MODEL.md).
+7. **Define `R` and `g_gas`,** or drop the LVR-budget language (audit F-08).
+8. **Fix the keeper decimals bug** (F-03) and bind the on-chain ladder to the
+   anchor (F-04) before any devnet run.
