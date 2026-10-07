@@ -127,6 +127,54 @@ def load_csv(path: str | Path, *, price_column: str = "price") -> list[PricePoin
     return load_price_csv(path, price_column=price_column)
 
 
+def load_price_window(path: str | Path, *, start_ms: int, end_ms: int,
+                      step_ms: int = 1_000,
+                      timestamp_column: str = "timestamp_ms",
+                      price_column: str = "price") -> list[PricePoint]:
+    """Load one half-open ``[start_ms, end_ms)`` window as a contiguous grid.
+
+    Rows are streamed so weeks of 1-second data never sit in memory at once;
+    seconds with no trade are forward-filled. ``PricePoint.second`` is the
+    0-based index *within the window*, which is the clock the simulator runs
+    on, while ``start_ms``/``end_ms`` keep the absolute calendar anchoring.
+    """
+    if start_ms < 0 or end_ms <= start_ms:
+        raise ValueError("need 0 <= start_ms < end_ms")
+    if start_ms % step_ms or end_ms % step_ms:
+        raise ValueError("window bounds must land on the grid")
+    out: list[PricePoint] = []
+    grid = start_ms
+    last: float | None = None
+
+    def emit(stamp: int, price: float) -> None:
+        out.append(PricePoint(second=(stamp - start_ms) // step_ms, price=price))
+
+    with Path(path).open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            stamp = int(row[timestamp_column])
+            if stamp >= end_ms:
+                break
+            price = float(row[price_column])
+            if price <= 0:
+                continue
+            if last is None:
+                # Anchor the grid: rows before the window only seed the fill.
+                grid = stamp if stamp > start_ms else start_ms
+            while last is not None and grid < stamp and grid < end_ms:
+                if grid >= start_ms:
+                    emit(grid, last)
+                grid += step_ms
+            if stamp >= grid:
+                emit(stamp, price)
+                grid = stamp + step_ms
+            last = price
+    while last is not None and grid < end_ms:
+        emit(grid, last)
+        grid += step_ms
+    return out
+
+
 def split_windows(points: list[PricePoint], windows: int) -> list[list[PricePoint]]:
     """Split a path into ``windows`` contiguous chunks (no look-ahead)."""
     if windows < 1:
