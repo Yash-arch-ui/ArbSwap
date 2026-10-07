@@ -38,13 +38,16 @@ CU to *measure* true consumption rather than hitting the ceiling.
 
 Every instruction now fits the 200,000 CU transaction default, so no caller
 needs a `ComputeBudgetProgram` bump. After the Task 2 division rewrite,
-`swap` fell 201,119 → 33,676 CU and `trip_breaker` 10,051 → 7,051 CU:
-`arb_math::wide::U256::div_rem` was a 256-round restoring shift-subtract and is
-now Knuth Algorithm D over 64-bit limbs, and `U256::isqrt` is Newton's method
-seeded from the bit length. Both are bit-identical to the old routines
-(differential fuzz test in `crates/arb-math/tests/properties.rs`).
-`update_quote` is unchanged at 12,802 CU: it does not walk the ladder and is
-dominated by Anchor account validation and Pyth verification.
+`swap` fell 201,119 → 33,676 CU: `arb_math::wide::U256::div_rem` was a 256-round
+restoring shift-subtract and is now Knuth Algorithm D over 64-bit limbs, and
+`U256::isqrt` is Newton's method seeded from the bit length. Both are
+bit-identical to the old routines (differential fuzz test in
+`crates/arb-math/tests/properties.rs`). `update_quote` is unchanged at 12,802 CU:
+it does not walk the ladder and is dominated by Anchor account validation and
+Pyth verification. `trip_breaker` measures 7,051 CU alone; it can read 10,051 CU
+when the breaker and lifecycle binaries share one `cargo test` invocation — a
+harness artifact that explains the earlier 7,051/10,051 mismatch (see
+ASSUMPTIONS A-17).
 
 No mainnet or funded deployment is approved while the Live RPC/private-key
 keeper row remains Open.

@@ -230,9 +230,14 @@ dividends, 5,000 u128-range cases, and hand-picked edges); the Python↔Rust
 golden vectors are unchanged.
 
 Measured effect (LiteSVM, rebuilt SBF program): **`swap` 201,119 → 33,676 CU**
-(6.0×) and **`trip_breaker` 10,051 → 7,051 CU**, both now inside the 200,000
-default; `update_quote` is **unchanged at 12,802 CU** because it does not walk
-the ladder — it is dominated by Anchor account validation and Pyth verification,
-which live in the program, not `arb-math`. Consequence: no caller needs a
+(6.0×), now inside the 200,000 default. `update_quote` is **unchanged at
+12,802 CU** because it does not walk the ladder — it is dominated by Anchor
+account validation and Pyth verification, which live in the program, not
+`arb-math`. `trip_breaker` measures **7,051 CU** when its test binary runs
+alone; it occasionally reports **10,051 CU** (+3,000) when the breaker and
+lifecycle test binaries are invoked in the same `cargo test` command. That
+spread is a measurement artifact of the harness, not a code path, and it
+explains the audit's F-06 "7,051 vs 10,051" disagreement — the two numbers are
+the same instruction measured two ways. Consequence: no caller needs a
 compute-budget bump, and `research/sim/costs.py` `CU_SWAP` is 33,676. The "cheap
 update" claim is still **not** supported for `update_quote`.
