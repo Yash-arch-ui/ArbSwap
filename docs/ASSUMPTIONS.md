@@ -40,8 +40,8 @@ Example 3; narrow-liquidity LVR/V → ∞ (Master Plan R3) is Example 4.
 propAMM paper §7.1: median updates 485–676 CU (Solana) vs ≥16,938 CU for a swap;
 HumidiFi reported ~300 → 47 CU per update. The <1,000 CU target in Build Plan
 §2.5 is conservative. **Measured on the built program (LiteSVM, 2026-10-07):**
-`update_quote` 12,802 CU, `swap` 33,676 CU (was 201,119 before the Task 2
-division rewrite), `trip_breaker` 7,051 CU. Both fit the 200,000 CU transaction
+`update_quote` 17,962 CU, `swap` 71,518 CU (ladder-dependent), `trip_breaker`
+10,054 CU. All fit the 200,000 CU transaction
 default. The update is still ~19–26× the paper's propAMM median, so the "cheap
 update" claim is *not* supported for `update_quote`; it is dominated by Anchor
 account validation, not the ladder math (ASSUMPTIONS A-17).
@@ -177,8 +177,8 @@ gates.
   `LANDING_DELAY_SECONDS = ((0.4,0.55),(0.8,0.25),(1.2,0.12),(2.0,0.05),(3.2,0.03))`
   (mean 0.76 s) is a **HEURISTIC** — not measured on Solana. Replace with a
   live-mempool measurement before any P4 claim.
-- **Costs:** compute units are *measured* in LiteSVM (update 12,802 CU; swap
-  33,676 CU) → VERIFIED; `base_fee_lamports = 5000` is the protocol parameter;
+- **Costs:** compute units are *measured* in LiteSVM (update 17,962 CU; swap
+  71,518 CU) → VERIFIED; `base_fee_lamports = 5000` is the protocol parameter;
   `priority_micro_lamports_per_cu = 1000` is a **HEURISTIC** (priority fees are
   set by a leader auction). Gas and priority are converted to quote at the
   current reference SOL price.
@@ -239,8 +239,10 @@ lifecycle test binaries are invoked in the same `cargo test` command. That
 spread is a measurement artifact of the harness, not a code path, and it
 explains the audit's F-06 "7,051 vs 10,051" disagreement — the two numbers are
 the same instruction measured two ways. Consequence: no caller needs a
-compute-budget bump, and `research/sim/costs.py` `CU_SWAP` is 33,676. The "cheap
-update" claim is still **not** supported for `update_quote`.
+compute-budget bump. (Later re-measured after F-04/D-07: `update_quote` 17,962,
+`swap` 71,518, `trip_breaker` 10,054 — see A-21 and `SECURITY_CHECKLIST.md`;
+`research/sim/costs.py` now records those.) The "cheap update" claim is still
+**not** supported for `update_quote`.
 
 ## A-18. Task 5/6 keeper parity and security tests — VERIFIED (2026-10-07)
 Keeper (`keeper/src/lib.rs`) parity fixes:
@@ -336,7 +338,7 @@ the funded **devnet deploy + initialize_program**, scripted in
   the cluster so retries cannot double-spend an update. `adaptive_priority_fee`
   scales with volatility urgency, doubles on a jump, and is clipped to
   `[floor, cap]`. `MAX_UPDATE_COMPUTE_UNITS = 60_000` is set tightly above the
-  measured 12,802 CU update cost.
+  measured 17,962 CU update cost (see `SECURITY_CHECKLIST.md`).
 - **Live loop (T3.1/T3.2):** `keeper live <hermes_url> <rpc_url> ...` fetches
   Hermes, reads reserves over JSON-RPC (`getTokenAccountBalance`), and submits
   `update_quote` via `sendTransaction`. It is not run in this environment (no

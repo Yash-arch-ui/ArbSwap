@@ -79,9 +79,9 @@ P2 oracle verification:
 
   | Instruction | CU |
   |---|---|
-  | `update_quote` | 12,802 |
-  | `trip_breaker` | 7,051 |
-  | `swap` | 33,676 |
+  | `update_quote` | 17,962 |
+  | `trip_breaker` | 10,054 |
+  | `swap` | 71,518 |
 
   Every instruction fits the 200,000 CU transaction default. `swap` was
   201,119 CU before the Task 2 rewrite of `arb_math::wide::U256::div_rem`
@@ -140,7 +140,7 @@ P3 remaining deployment boundary:
 | P2 token-funded lifecycle | Complete | `tests/litesvm_lifecycle.rs`: deposit/quote/swap/breaker/withdraw + value conservation |
 | P2 access control + adversarial suite | Complete | `tests/litesvm_security.rs` (program-admin gate, re-init), 19 lifecycle tests, 2 breaker tests |
 | P2 attack-vector review | Complete | Every account constrained by PDA seed/address/owner/mint; checked arithmetic; no `remaining_accounts`/arbitrary CPI (ASSUMPTIONS A-20) |
-| P2 CU measurements | Complete | `update_quote` 12,802 / `trip_breaker` 7,051 / `swap` 33,676 |
+| P2 CU measurements | Complete | `update_quote` 17,962 / `trip_breaker` 10,054 / `swap` 71,518 |
 | P2 devnet gate | Pending | On-chain deployment required |
 | P3 keeper core/replay | Complete | keeper unit tests and binary |
 | P3 price source (Hermes parse, replay) | Complete | `parse_hermes`, `PriceSource`, `HermesSource` (injected transport) |

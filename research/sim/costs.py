@@ -23,10 +23,11 @@ LAMPORTS_PER_SOL = 1_000_000_000.0
 BASE_FEE_LAMPORTS = 5_000
 
 # Measured on LiteSVM against the built program (docs/SECURITY_CHECKLIST.md).
-# `CU_SWAP` was 201,119 before the Task 2 division rewrite (`wide.rs` Knuth
-# Algorithm D); the swap instruction is now well inside the 200,000 CU default.
-CU_UPDATE_QUOTE = 12_802
-CU_SWAP = 33_676
+# Re-measured 2026-10-07 after the D-07 bond account was added to `update_quote`
+# (the extra unchecked account costs ~5k CU even on the allowlist path) and the
+# F-04 anchor ladder changed the swap walk. The swap CU is ladder-dependent.
+CU_UPDATE_QUOTE = 17_962
+CU_SWAP = 71_518
 
 # Heuristic: a mid-priority keeper lands inside one or two slots most of the
 # time, with a thin tail when the network is congested. Probabilities sum to 1.

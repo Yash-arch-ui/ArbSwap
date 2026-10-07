@@ -108,9 +108,9 @@ differential testing against `research/sim/test_keeper_parity.py`.
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | 12,802 |
-| `trip_breaker` | 7,051 |
-| `swap` | 33,676 |
+| `update_quote` | 17,962 |
+| `trip_breaker` | 10,054 |
+| `swap` | 71,518 |
 
 Every instruction fits the 200,000 CU default. `swap` fell 6× after the
 `arb-math` division/sqrt rewrite (`ASSUMPTIONS` A-17). Pyth verification CU is

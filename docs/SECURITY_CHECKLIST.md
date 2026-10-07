@@ -23,7 +23,7 @@
 | SBF execution | LiteSVM executes the built program | Pass |
 | Token-funded full lifecycle | Deposit → update_quote → swap → expiry/breaker/reset → withdraw/crank/claim in one LiteSVM fixture with global value conservation (`tests/litesvm_lifecycle.rs`) | Pass |
 | Live RPC/private-key keeper | `build_update_quote_transaction` + injectable `LiveSender` in `keeper/src/lib.rs` builds the compute-budget + `update_quote` transaction and signs it; the signed bytes are unit-tested offline. A funded devnet run has **not** been performed | Code present; devnet run open |
-| CU measurements | LiteSVM `compute_units_consumed`: `update_quote` 12,802, `trip_breaker` 7,051, `swap` 33,676 | Pass |
+| CU measurements | LiteSVM `compute_units_consumed`: `update_quote` 17,962, `trip_breaker` 10,054, `swap` 71,518 | Pass |
 | Foreign program rejection | Token-2022 owned accounts rejected by `Program<Token>` before the instruction body | Pass |
 | Wind-down control | Admin-only `wind_down`, then `update_quote` is `Paused` (`wind_down_is_admin_only_and_pauses_quotes`) | Pass |
 | Update-slot monotonicity | `stored < update_slot <= clock.slot`; a future slot is rejected (`future_update_slot_is_rejected`) | Pass |
@@ -47,22 +47,23 @@ CU to *measure* true consumption rather than hitting the ceiling.
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | 12,802 |
-| `trip_breaker` | 7,051 |
-| `swap` | 33,676 |
+| `update_quote` | 17,962 |
+| `trip_breaker` | 10,054 |
+| `swap` | 71,518 |
 
-Every instruction now fits the 200,000 CU transaction default, so no caller
-needs a `ComputeBudgetProgram` bump. After the Task 2 division rewrite,
-`swap` fell 201,119 → 33,676 CU: `arb_math::wide::U256::div_rem` was a 256-round
-restoring shift-subtract and is now Knuth Algorithm D over 64-bit limbs, and
-`U256::isqrt` is Newton's method seeded from the bit length. Both are
-bit-identical to the old routines (differential fuzz test in
-`crates/arb-math/tests/properties.rs`). `update_quote` is unchanged at 12,802 CU:
-it does not walk the ladder and is dominated by Anchor account validation and
-Pyth verification. `trip_breaker` measures 7,051 CU alone; it can read 10,051 CU
-when the breaker and lifecycle binaries share one `cargo test` invocation — a
-harness artifact that explains the earlier 7,051/10,051 mismatch (see
-ASSUMPTIONS A-17).
+Every instruction fits the 200,000 CU transaction default, so no caller needs a
+`ComputeBudgetProgram` bump. After the Task 2 division rewrite, `swap` fell from
+201,119 CU (`arb_math::wide::U256::div_rem` is now Knuth Algorithm D over 64-bit
+limbs and `U256::isqrt` is Newton's method, both bit-identical to the old
+routines; differential fuzz in `crates/arb-math/tests/properties.rs`). The
+current `swap` figure is **ladder-dependent** — it measures the lifecycle
+fixture's six-level ladder (post-F-04 anchor ladder) absorbing a 100k quote
+input; the division rewrite is what keeps it in the tens of thousands rather
+than hundreds. `update_quote` grew from 12,802 to 17,962 CU because the D-07
+`keeper_bond` account is now passed (an extra unchecked account); the context
+does **not** validate its PDA, so the derivation runs only when `min_bond > 0`.
+`trip_breaker` is 10,054 CU. All figures are deterministic on the rebuilt SBF
+program (see ASSUMPTIONS A-17).
 
 No mainnet or funded deployment is approved while the Live RPC/private-key
 keeper row remains Open.

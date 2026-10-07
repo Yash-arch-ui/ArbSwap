@@ -411,7 +411,22 @@ pub mod arbswap {
             ErrorCode::NotKeeper
         );
         // D-07: when a minimum bond is configured, the keeper must be bonded.
+        // The PDA derivation only runs when bonding is enabled, so the MVP
+        // allowlist path keeps the update CU low (the `keeper_bond` account is
+        // unvalidated in the context for exactly this reason).
         if ctx.accounts.config.min_bond > 0 {
+            let (expected, _) = Pubkey::find_program_address(
+                &[
+                    b"keeper",
+                    ctx.accounts.vault.key().as_ref(),
+                    ctx.accounts.keeper.key().as_ref(),
+                ],
+                &crate::ID,
+            );
+            require!(
+                ctx.accounts.keeper_bond.key() == expected,
+                ErrorCode::NotBonded
+            );
             let data = ctx
                 .accounts
                 .keeper_bond
@@ -1298,8 +1313,9 @@ pub struct UpdateQuote<'info> {
     #[account(mut,seeds=[b"quote",vault.key().as_ref()],bump=quote_state.bump)]
     pub quote_state: Box<Account<'info, QuoteState>>,
     pub price_update: Box<Account<'info, PriceUpdateV2>>,
-    /// CHECK: the keeper bond PDA, only deserialised when `min_bond > 0`.
-    #[account(seeds=[b"keeper", vault.key().as_ref(), keeper.key().as_ref()], bump)]
+    /// CHECK: the keeper bond PDA. The context does **not** validate it (no
+    /// `seeds`), so the MVP allowlist path pays no PDA-derivation CU; the body
+    /// checks the PDA and the bonded amount only when `min_bond > 0`.
     pub keeper_bond: UncheckedAccount<'info>,
 }
 #[derive(Accounts)]
