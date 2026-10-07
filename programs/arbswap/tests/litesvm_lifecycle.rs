@@ -118,6 +118,10 @@ struct Fixture {
 
 impl Fixture {
     fn new(keys: &Keys) -> Self {
+        Self::with_min_bond(keys, 0)
+    }
+
+    fn with_min_bond(keys: &Keys, min_bond: u64) -> Self {
         // LiteSVM defaults the whole transaction to 200k CU, which is not
         // enough to *measure* a swap. Raise the budget so the meter reports
         // true consumption; on-chain the sender sets the same value with a
@@ -221,6 +225,7 @@ impl Fixture {
             max_spread_bps: 50,
             max_quote_size: MAX_QUOTE_SIZE,
             max_inventory_bps: 2_000,
+            min_bond,
             offsets_bps: OFFSETS,
             weights_bps: WEIGHTS,
         };
@@ -612,6 +617,7 @@ impl Fixture {
                 config: self.config,
                 quote_state: self.quote_state,
                 price_update,
+                keeper_bond: self.keeper_bond(keeper),
             },
         );
         send(&mut self.svm, &[keeper], instruction)
@@ -1145,6 +1151,24 @@ fn keeper_reward_claim_pays_only_accrued_and_zeroes_it() {
         token_amount(&fixture.svm, fixture.keeper_quote),
         before + accrued
     );
+}
+
+/// D-07: when `min_bond > 0`, an unbonded keeper cannot quote; bonding enables
+/// it. This is the resolved bonded-keeper path (0 = allowlist MVP).
+#[test]
+fn update_quote_requires_a_keeper_bond() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, quote_update(SLOT)),
+        "NotBonded",
+    );
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("a bonded keeper may quote");
 }
 
 /// Token-2022 owned accounts must be rejected by the classic `Program<Token>`

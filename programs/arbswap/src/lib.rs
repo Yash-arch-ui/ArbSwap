@@ -101,6 +101,7 @@ pub mod arbswap {
         config.max_spread_bps = params.max_spread_bps;
         config.max_quote_size = params.max_quote_size;
         config.max_inventory_bps = params.max_inventory_bps;
+        config.min_bond = params.min_bond;
         config.bump = ctx.bumps.config;
 
         ctx.accounts.quote_state.bump = ctx.bumps.quote_state;
@@ -409,6 +410,21 @@ pub mod arbswap {
             ctx.accounts.keeper.key() == ctx.accounts.config.keeper,
             ErrorCode::NotKeeper
         );
+        // D-07: when a minimum bond is configured, the keeper must be bonded.
+        if ctx.accounts.config.min_bond > 0 {
+            let data = ctx
+                .accounts
+                .keeper_bond
+                .try_borrow_data()
+                .map_err(|_| error!(ErrorCode::NotBonded))?;
+            let bond = KeeperBond::try_deserialize(&mut &data[..])
+                .map_err(|_| error!(ErrorCode::NotBonded))?;
+            require!(
+                bond.keeper == ctx.accounts.keeper.key()
+                    && bond.bond >= ctx.accounts.config.min_bond,
+                ErrorCode::NotBonded
+            );
+        }
         let clock = Clock::get()?;
         require!(
             update.update_slot > ctx.accounts.quote_state.update_slot
@@ -821,6 +837,7 @@ pub mod arbswap {
         config.max_spread_bps = update.max_spread_bps;
         config.max_quote_size = update.max_quote_size;
         config.max_inventory_bps = update.max_inventory_bps;
+        config.min_bond = update.min_bond;
         ctx.accounts.pending_config.activate_slot = u64::MAX;
         emit!(ParamsApplied {
             slot: Clock::get()?.slot
@@ -965,6 +982,7 @@ pub struct ParamsUpdate {
     pub max_spread_bps: u32,
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
+    pub min_bond: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -988,6 +1006,7 @@ pub struct InitParams {
     pub max_spread_bps: u32,
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
+    pub min_bond: u64,
     pub offsets_bps: [u32; LEVELS],
     pub weights_bps: [u32; LEVELS],
 }
@@ -1060,6 +1079,7 @@ pub struct Config {
     pub max_spread_bps: u32,
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
+    pub min_bond: u64,
     pub bump: u8,
 }
 /// Pending timelocked parameter change (F-17), seeded `[b"pending", vault]`.
@@ -1137,7 +1157,7 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*3 + 2*4 + 8*6 + 4*4 + 8 + 4 + 1)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*3 + 2*4 + 8*7 + 4*4 + 8 + 4 + 1)]
     pub config: Box<Account<'info, Config>>,
     #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*3 + 16*3 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
@@ -1278,6 +1298,9 @@ pub struct UpdateQuote<'info> {
     #[account(mut,seeds=[b"quote",vault.key().as_ref()],bump=quote_state.bump)]
     pub quote_state: Box<Account<'info, QuoteState>>,
     pub price_update: Box<Account<'info, PriceUpdateV2>>,
+    /// CHECK: the keeper bond PDA, only deserialised when `min_bond > 0`.
+    #[account(seeds=[b"keeper", vault.key().as_ref(), keeper.key().as_ref()], bump)]
+    pub keeper_bond: UncheckedAccount<'info>,
 }
 #[derive(Accounts)]
 pub struct Swap<'info> {
@@ -1421,7 +1444,7 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+40+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=admin, space=8+32+8+48+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }
@@ -1602,6 +1625,8 @@ pub enum ErrorCode {
     TimelockNotElapsed,
     #[msg("Insufficient keeper bond")]
     InsufficientBond,
+    #[msg("Keeper is not bonded")]
+    NotBonded,
     #[msg("Spread out of bounds")]
     SpreadOutOfBounds,
     #[msg("Quote expired")]

@@ -27,7 +27,8 @@
 | Foreign program rejection | Token-2022 owned accounts rejected by `Program<Token>` before the instruction body | Pass |
 | Wind-down control | Admin-only `wind_down`, then `update_quote` is `Paused` (`wind_down_is_admin_only_and_pauses_quotes`) | Pass |
 | Update-slot monotonicity | `stored < update_slot <= clock.slot`; a future slot is rejected (`future_update_slot_is_rejected`) | Pass |
-| Keeper quote parity | Inventory skew is decimal-aware (F-03) and the spread/depth/directional terms match the reference (F-09); `research/sim/test_keeper_parity.py` + keeper unit tests | Pass for the tested cases; EWMA time-normalisation still open |
+| Keeper quote parity | Inventory skew is decimal-aware (F-03) and the spread/depth/directional terms match the reference (F-09 fixed); `research/sim/test_keeper_parity.py` + keeper unit tests | Pass |
+| Keeper bond gate (D-07) | `Config.min_bond > 0` requires the keeper to hold a `KeeperBond` of at least `min_bond`; unbonded quotes are rejected (`update_quote_requires_a_keeper_bond`) | Pass |
 | Executed-level binding | `update_quote` binds every level to `anchor ± (spread + extra + outer offset)` and the reservation to `max_inventory_bps`; outer offset capped at 500 bps (F-04); `level_far_from_the_anchor_is_rejected`, `reservation_outside_the_inventory_band_is_rejected` | Pass |
 | Deposit pull / tickets | Deposit pulls only what the minted shares need; tickets are reusable; `total_shares` grows on every mint; claim zeroes the ticket (F-10) | Pass |
 | Share inflation | Deposit requires `shares > 0`; a donation cannot mint zero shares (`donation_cannot_mint_zero_shares`); `MIN_LIQUIDITY` burned (F-11) | Mitigated (no ERC-4626 virtual shares) |

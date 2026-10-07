@@ -132,8 +132,8 @@ impl Default for KeeperParams {
             spread_min_bps: 1,
             spread_max_bps: 50,
             inventory_coeff_bps: 5,
-            volatility_coeff_bps: 2,
-            confidence_coeff_bps: 1,
+            volatility_coeff_bps: 10_000,
+            confidence_coeff_bps: 10_000,
             confidence_max_bps: 10,
             age_coeff_bps: 1,
             jump_extra_bps: 5,
@@ -272,20 +272,22 @@ pub fn compute_quote(
     let reservation_price = mul_div(tick.price_q64, reservation_factor, BPS)?;
 
     let sigma = state.sigma_q64();
-    // Keep sub-basis-point resolution: `coeff * sigma_fraction * 10^4`. The old
-    // form floored sigma to whole bps first and then divided by 10^4 again, so
-    // the volatility term was always zero for realistic sigma (audit F-09).
-    let vol_term_bps = mul_div(
-        sigma.saturating_mul(params.volatility_coeff_bps as u128),
-        BPS,
-        Q64,
-    )?;
+    // F-09: match `quote_math.compute_half_spread` exactly. The reference works
+    // in price *fractions* with dimensionless coefficients; its term is
+    // `coeff * signal(grasp as a fraction)`. The keeper stores each coefficient
+    // as `reference_coeff * 10_000`, so the bps term is
+    // `coefficient_bps * signal_fraction`. (The earlier form multiplied by 10^4
+    // again, so the volatility term was always zero for realistic sigma.)
+    let vol_term_bps = mul_div(params.volatility_coeff_bps as u128, sigma, Q64)?;
+    let inventory_term_bps =
+        (params.inventory_coeff_bps as u128).saturating_mul(q_bps.unsigned_abs()) / BPS;
     let confidence_term_bps =
         (params.confidence_coeff_bps as u128).saturating_mul(tick.confidence_bps as u128) / BPS;
     let age_term_bps = (params.age_coeff_bps as u128)
         .saturating_mul(age.saturating_sub(params.grace_slots) as u128);
     let raw_spread = (params.spread_floor_bps as u128)
         .saturating_add(vol_term_bps)
+        .saturating_add(inventory_term_bps)
         .saturating_add(confidence_term_bps)
         .saturating_add(age_term_bps)
         .saturating_add(if state.jump {
@@ -517,6 +519,7 @@ pub struct UpdateQuotePlan {
     pub config: Address,
     pub quote_state: Address,
     pub price_update: Address,
+    pub keeper_bond: Address,
     pub recent_blockhash: Hash,
     pub compute_unit_limit: u32,
 }
@@ -539,6 +542,7 @@ pub fn build_update_quote_transaction(
             AccountMeta::new_readonly(plan.config, false),
             AccountMeta::new(plan.quote_state, false),
             AccountMeta::new_readonly(plan.price_update, false),
+            AccountMeta::new_readonly(plan.keeper_bond, false),
         ],
         data,
     };
@@ -748,6 +752,7 @@ mod tests {
             config: Address::new_from_array([3u8; 32]),
             quote_state: Address::new_from_array([4u8; 32]),
             price_update: Address::new_from_array([5u8; 32]),
+            keeper_bond: Address::new_from_array([6u8; 32]),
             recent_blockhash: Hash::default(),
             compute_unit_limit: 60_000,
         };
@@ -834,6 +839,7 @@ mod tests {
             config: Address::new_from_array([3u8; 32]),
             quote_state: Address::new_from_array([4u8; 32]),
             price_update: Address::new_from_array([5u8; 32]),
+            keeper_bond: Address::new_from_array([6u8; 32]),
             recent_blockhash: Hash::default(),
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
         };

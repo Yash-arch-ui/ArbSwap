@@ -33,7 +33,8 @@ SPREAD_FLOOR = 1
 SPREAD_MIN = 1
 SPREAD_MAX = 50
 INVENTORY_COEFF = 5
-CONFIDENCE_COEFF = 1
+VOLATILITY_COEFF = 10_000
+CONFIDENCE_COEFF = 10_000
 CONFIDENCE_MAX_BPS = 10
 JUMP_EXTRA = 5
 JUMP_COOLDOWN = 5_000
@@ -69,11 +70,12 @@ def expected(
     reservation = price_q64 * factor // BPS
 
     # sigma = 0 for `single`, so the volatility term is zero; the confidence
-    # term rounds to zero but the confidence *throttle* does not.
+    # term and the *inventory* term both contribute (F-09 alignment).
     raw_spread = (
         SPREAD_FLOOR
+        + VOLATILITY_COEFF * 0 // BPS
+        + INVENTORY_COEFF * abs(q_bps) // BPS
         + CONFIDENCE_COEFF * CONFIDENCE_BPS // BPS
-        + 0
         + 0
     )
     spread = max(SPREAD_MIN, min(SPREAD_MAX, raw_spread))
@@ -231,4 +233,7 @@ def test_keeper_pricing_matches_the_simulator_reference():
             <= 2e-4 * reference.reservation_price
         )
         assert abs(got["depth"] / 10_000 - reference.depth_mult) <= 1e-9
+        # F-09: the spread now matches the reference; the only slack is the
+        # keeper's whole-bps inventory quantum.
+        assert abs(got["spread"] / 10_000 - reference.half_spread) <= 1.5e-4
 

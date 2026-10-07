@@ -7,9 +7,9 @@
 //! - `single <price_q64> <base> <quote> [previous_price] [base_atom_scale]`:
 //!   one quote for differential tests against the Python reference.
 //! - `live <hermes_url> <rpc_url> <program_id> <vault> <config> <quote_state>
-//!   <base_reserve> <quote_reserve> <price_update> <keeper_keypair.json>
-//!   [base_atom_scale]`: the streaming loop. Reads Pyth Hermes, reads reserves
-//!   over JSON-RPC, and submits `update_quote` transactions.
+//!   <base_reserve> <quote_reserve> <price_update> <keeper_bond> <keeper.json>
+//!   [base_atom_scale] [priority_micro_lamports_per_cu]`: the streaming loop.
+//!   Reads Pyth Hermes, reads reserves over JSON-RPC, and submits `update_quote`.
 //!
 //! The default transports are dry-run/replay; nothing here embeds a private key.
 
@@ -49,8 +49,8 @@ fn main() {
             );
             println!(
                 "arbswap-keeper live <hermes_url> <rpc_url> <program_id> <vault> <config> \
-                 <quote_state> <base_reserve> <quote_reserve> <price_update> <keeper.json> \
-                 [base_atom_scale]"
+                 <quote_state> <base_reserve> <quote_reserve> <price_update> <keeper_bond> \
+                 <keeper.json> [base_atom_scale] [priority_micro_lamports_per_cu]"
             );
             println!("CSV: slot,publish_time,price_q64,confidence_bps,base_reserve,quote_reserve");
         }
@@ -318,13 +318,14 @@ fn live(args: Vec<String>) {
     let base_reserve: Address = get(6, "base_reserve").parse().expect("base_reserve");
     let quote_reserve: Address = get(7, "quote_reserve").parse().expect("quote_reserve");
     let price_update: Address = get(8, "price_update").parse().expect("price_update");
-    let keeper = read_keypair(&get(9, "keeper_keypair"));
+    let keeper_bond: Address = get(9, "keeper_bond").parse().expect("keeper_bond");
+    let keeper = read_keypair(&get(10, "keeper_keypair"));
     let base_atom_scale: u128 = args
-        .get(10)
+        .get(11)
         .map(|value| value.parse().expect("base_atom_scale"))
         .unwrap_or(1);
     let priority_micro_lamports_per_cu: u64 = args
-        .get(11)
+        .get(12)
         .map(|value| value.parse().expect("priority_micro_lamports_per_cu"))
         .unwrap_or(1_000);
     let interval = Duration::from_millis(400);
@@ -376,6 +377,7 @@ fn live(args: Vec<String>) {
                 config,
                 quote_state,
                 price_update,
+                keeper_bond,
                 recent_blockhash: blockhash,
                 compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
             };

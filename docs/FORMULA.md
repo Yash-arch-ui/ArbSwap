@@ -157,10 +157,12 @@ absolute-inventory term. Report the distinction in calibration results.
 
 **Status:** SPEC/HEURISTIC. No coefficient is a theorem or a promise.
 
-**Known divergence (audit F-09):** the keeper's spread omits the `s_min` clamp,
-the directional add-on, the `confidence_max` cutoff and the jump cool-down, so
-keeper quotes do not equal the simulator's for the same tick. That gap is
-tracked as a P3 parity item (Task 5).
+The keeper (`keeper/src/lib.rs`) implements this formula with the same unit
+convention as the reference: each coefficient is `reference_coeff × 10_000`, so
+a bps term is `coefficient_bps × signal(as a fraction)`. The volatility,
+inventory, confidence and age terms and the `[spread_min, spread_max]` clamp are
+all present; `research/sim/test_keeper_parity.py` checks the spread against
+`quote_math.compute_quote` within the bps quantum (audit **F-09 fixed**).
 
 ## 5. Directional Add-On
 

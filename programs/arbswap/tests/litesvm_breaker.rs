@@ -4,7 +4,7 @@ use arbswap::{Config, Level, LevelUpdate, QuoteState, QuoteUpdate, Vault};
 use litesvm::LiteSVM;
 
 mod common;
-use common::{anchor_ladder, ANCHOR_SQRT};
+use common::{anchor_ladder, pda, ANCHOR_SQRT};
 use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, VerificationLevel};
 use pythnet_sdk::messages::PriceFeedMessage;
 use sha2::{Digest, Sha256};
@@ -213,6 +213,7 @@ fn update_quote_executes_only_with_full_pyth_account() {
         max_spread_bps: 50,
         max_quote_size: 1_000_000,
         max_inventory_bps: 10_000,
+        min_bond: 0,
         bump: config_bump,
     };
     let quote_state = QuoteState {
@@ -316,6 +317,14 @@ fn update_quote_executes_only_with_full_pyth_account() {
             AccountMeta::new_readonly(config_address, false),
             AccountMeta::new(quote_address, false),
             AccountMeta::new_readonly(pyth_address, false),
+            AccountMeta::new_readonly(
+                pda(
+                    &[b"keeper", vault_address.as_ref(), payer_address.as_ref()],
+                    &program_id,
+                )
+                .0,
+                false,
+            ),
         ],
         data,
     };

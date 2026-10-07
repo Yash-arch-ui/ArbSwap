@@ -39,6 +39,7 @@ fn params(base_mint: Address, quote_mint: Address, admin: &Keypair) -> InitParam
         max_spread_bps: 50,
         max_quote_size: 1_000_000,
         max_inventory_bps: 2_000,
+        min_bond: 0,
         offsets_bps: OFFSETS,
         weights_bps: WEIGHTS,
     }

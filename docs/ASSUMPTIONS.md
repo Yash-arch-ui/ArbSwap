@@ -342,11 +342,14 @@ the funded **devnet deploy + initialize_program**, scripted in
   `update_quote` via `sendTransaction`. It is not run in this environment (no
   devnet keeper key), but the transaction bytes and account order are unit-tested
   offline.
-- **Replay parity (T3.3):** `test_keeper_parity.py` now also checks the keeper's
-  anchor and reservation against `quote_math.compute_quote` (anchor within 1e-6,
-  reservation within the keeper's whole-bps skew quantum, depth exact). The
-  spread coefficient *scale* still differs from the float reference (F-09), so
-  it is compared structurally, not numerically.
+- **Replay parity (T3.3):** `test_keeper_parity.py` checks the keeper's anchor,
+  reservation, **spread** and depth against `quote_math.compute_quote`. The
+  spread formula now matches the reference exactly: each keeper coefficient is
+  the reference coefficient × 10^4, so a bps term is
+  `coefficient_bps * signal_fraction` (the earlier form multiplied by 10^4
+  again, making the volatility term zero — audit **F-09 fixed**). Defaults are
+  aligned (`volatility_coeff_bps`/`confidence_coeff_bps` = 10_000 = 1.0, an
+  inventory term is included).
 - **Keeper-outage safe expiry (T3.3 gate):** `keeper_outage_lets_the_quote_expire`
   shows that with no updates the quote expires, swaps revert, and the public
   breaker pauses the vault.
@@ -355,5 +358,9 @@ the funded **devnet deploy + initialize_program**, scripted in
   `slash_keeper` is admin-only, bounded by the bond, and sends slashed tokens to
   the quote reserve booked to insurance; `claim_keeper_reward` is keeper-only
   and pays exactly the accrued `keeper_base`/`keeper_quote` buckets then zeroes
-  them. No path moves vault principal. `update_quote` still uses the MVP keeper
-  allowlist (D-07 open); bonding is available and tested but not yet required.
+  them. No path moves vault principal.
+- **D-07 resolved (bonded keepers required when configured):** `Config.min_bond`
+  (init + timelocked `set_params`) gates `update_quote`; when `min_bond > 0` the
+  keeper must own a `KeeperBond` with `bond >= min_bond`, else `NotBonded`.
+  `min_bond = 0` keeps the allowlist MVP. Test:
+  `update_quote_requires_a_keeper_bond` (unbonded rejected, bonded accepted).
