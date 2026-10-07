@@ -483,3 +483,31 @@ Named causality tests: `research/sim/test_causality.py::test_quote_live_at_t_ign
 - No source file was modified during this audit. The only filesystem write was `docs/P1_RESULTS.md`, produced by running the committed `report.py` to test reproduction; it was **restored** with `git checkout -- docs/P1_RESULTS.md`.
 - Wall-clock times are warm-cache; cold builds were not measured.
 - Claims tagged UNVERIFIED were not executed in this session.
+
+---
+
+## 11. Post-audit closure update (2026-10-07)
+
+Findings closed after this report was written (each with a test or a scoped
+decision). See `ASSUMPTIONS.md` A-17/A-18/A-19 for detail.
+
+| Finding | Status | Evidence |
+|---|---|---|
+| F-01 pre-registered headline not reproducible | **Closed** | `study.py` + `research/data/results/*.json` committed; `docs/P1_RESULTS.md` regenerated |
+| F-02 study S2 tuple bug | **Closed** | fixed; `test_study.py` smoke-tests every phase |
+| F-03 keeper decimals skew | **Closed** | `base*price/2^64/base_atom_scale`; keeper unit + parity tests |
+| F-04 executed levels unbound | **Closed** | anchor-band + inventory-band checks; two negative tests (was the devnet blocker) |
+| F-05 cheap-update/CU | **Closed** | `swap` 201,119 → 33,676 CU; update restated at 12,802 |
+| F-06 trip_breaker CU | **Closed** | the 7,051/10,051 split is a harness artifact; documented |
+| F-07 golden-vector independence | **Closed** | FORMULA §14 states the differential-vs-independent status |
+| F-08 LVR budget not wired | **Closed (scoped out)** | budget claim dropped; σ-target throttle documented |
+| F-10 deposit over-pull / tickets | **Closed** | partial pull, reusable tickets, `total_shares` bug fixed |
+| F-11 no virtual shares | **Closed (mitigated)** | `shares > 0` + burned min-liquidity; no 4626 offset |
+| F-13 doc drift / report clash | **Closed** | FORMULA reconciled; `P1_SYNTHETIC.md` split; README repro |
+| F-14 mint constraints | **Closed** | trader/claim accounts constrain mint |
+| F-15 update_slot policy | **Decision recorded** | rule `stored < update_slot <= clock.slot`, future slot rejected |
+| F-16 flow_n units/dead field | **Closed** | consistent units; documented as not-yet-priced |
+| F-17 no set_params | **Closed** | timelocked `set_params`/`apply_params` |
+| F-18 wind_down untested | **Closed** | `wind_down_is_admin_only_and_pauses_quotes` |
+| F-19 study.py untracked | **Closed** | committed |
+| Live RPC/private-key keeper | **Code present; devnet run open** | transaction builder + `LiveSender`; no funded run performed |
