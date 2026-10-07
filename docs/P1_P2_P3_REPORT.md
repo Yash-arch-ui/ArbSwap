@@ -74,10 +74,25 @@ P2 oracle verification:
   and decoded confidence equality.
 - The public breaker trips only from stored quote expiry, never caller-supplied
   oracle fields.
-- LiteSVM executes the built SBF breaker path and records 10,050 CU for the
-  expired-quote breaker instruction.
-- Full token-funded deposit/update/swap/withdraw lifecycle and devnet deployment
-  remain separate gates.
+- LiteSVM executes the built SBF program and records exact consumption for the
+  money path:
+
+  | Instruction | CU |
+  |---|---|
+  | `update_quote` | 12,802 |
+  | `trip_breaker` | 7,051 |
+  | `swap` | 201,119 |
+
+  `swap` exceeds the 200,000 CU transaction default, so callers must attach a
+  `ComputeBudgetProgram` instruction requesting at least ~250,000 CU. The
+  dominant cost is the 256-iteration restoring division in
+  `arb_math::wide::U256::div_rem`, used by the Q64.64 ladder walk.
+- A token-funded fixture (`tests/litesvm_lifecycle.rs`) drives deposit →
+  `update_quote` → swap → expiry/breaker/reset → withdraw/crank/claim in one
+  LiteSVM instance and asserts per-holder and global value conservation,
+  rejection of Token-2022 accounts, and rejection of untrusted or stale Pyth
+  accounts.
+- Devnet deployment remains a separate gate.
 
 ## P3: Keeper
 
@@ -120,8 +135,10 @@ P3 remaining deployment boundary:
 | P1 replay/report pipeline | Complete | `docs/P1_RESULTS.md` |
 | P2 program compilation | Complete | `anchor build` |
 | P2 native tests | Complete | `cargo test --workspace` |
-| P2 security/expiry integration | Complete | LiteSVM SBF test; 10,050 CU measured |
-| P2 token-funded lifecycle/devnet gate | Pending | Deposit/update/swap/withdraw fixture and deployment required |
+| P2 security/expiry integration | Complete | LiteSVM SBF tests: expiry breaker, Pyth verification, Token-2022 rejection |
+| P2 token-funded lifecycle | Complete | `tests/litesvm_lifecycle.rs`: deposit/quote/swap/breaker/withdraw + value conservation |
+| P2 CU measurements | Complete | `update_quote` 12,802 / `trip_breaker` 7,051 / `swap` 201,119 |
+| P2 devnet gate | Pending | On-chain deployment required |
 | P3 keeper core/replay | Complete | keeper unit tests and binary |
 | P3 live sender/devnet parity gate | Pending | RPC transport + differential replay required |
 

@@ -374,14 +374,20 @@ dependencies = [
  "arb-math",
  "litesvm",
  "pyth-solana-receiver-sdk",
+ "pythnet-sdk",
  "sha2 0.10.9",
  "solana-account",
  "solana-address 2.6.1",
+ "solana-clock",
+ "solana-compute-budget",
  "solana-instruction",
  "solana-keypair",
  "solana-message",
+ "solana-program-option",
+ "solana-program-pack",
  "solana-signer",
  "solana-transaction",
+ "spl-token-interface",
 ]
 
 [[package]]
