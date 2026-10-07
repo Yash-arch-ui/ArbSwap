@@ -62,8 +62,10 @@ pub fn pda(seeds: &[&[u8]], program: &Address) -> (Address, u8) {
 
 pub fn load_arbswap(svm: &mut LiteSVM) -> Address {
     let program_id = to_address(arbswap::ID);
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/deploy/arbswap.so");
-    svm.add_program(program_id, &std::fs::read(path).unwrap()).unwrap();
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/deploy/arbswap.so");
+    svm.add_program(program_id, &std::fs::read(path).unwrap())
+        .unwrap();
     program_id
 }
 
@@ -74,10 +76,18 @@ pub fn airdrop(svm: &mut LiteSVM, key: &Keypair, lamports: u64) {
 /// `signers[0]` is the fee payer; every other entry must be a non-fee-payer
 /// signer the instruction requires (Anchor marks freshly `init`-created
 /// accounts as signers even when they are not PDAs).
-pub fn send(svm: &mut LiteSVM, signers: &[&Keypair], instruction: Instruction) -> litesvm::types::TransactionResult {
+pub fn send(
+    svm: &mut LiteSVM,
+    signers: &[&Keypair],
+    instruction: Instruction,
+) -> litesvm::types::TransactionResult {
     svm.expire_blockhash();
     let payer_address = to_address(signers[0].pubkey());
-    let tx = Transaction::new(signers, Message::new(&[instruction], Some(&payer_address)), svm.latest_blockhash());
+    let tx = Transaction::new(
+        signers,
+        Message::new(&[instruction], Some(&payer_address)),
+        svm.latest_blockhash(),
+    );
     svm.send_transaction(tx)
 }
 
@@ -87,7 +97,11 @@ pub fn assert_anchor_error(result: litesvm::types::TransactionResult, error_name
     let failure = result.expect_err(&format!("expected anchor error `{error_name}`"));
     let expected = format!("Error Code: {error_name}");
     assert!(
-        failure.meta.logs.iter().any(|line| line.contains(&expected)),
+        failure
+            .meta
+            .logs
+            .iter()
+            .any(|line| line.contains(&expected)),
         "expected `{expected}` in logs:\n{}",
         failure.meta.logs.join("\n")
     );
@@ -119,12 +133,16 @@ pub fn pyth_account(
 }
 
 fn set_token_account_data(svm: &mut LiteSVM, key: Address, data: Vec<u8>) {
-    svm.set_account(key, Account {
-        lamports: 1_000_000_000,
-        data,
-        owner: to_address(anchor_spl::token::ID),
-        ..Account::default()
-    }).unwrap();
+    svm.set_account(
+        key,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: to_address(anchor_spl::token::ID),
+            ..Account::default()
+        },
+    )
+    .unwrap();
 }
 
 pub fn set_token_mint(svm: &mut LiteSVM, key: Address, decimals: u8, authority: Pubkey) {
@@ -140,7 +158,13 @@ pub fn set_token_mint(svm: &mut LiteSVM, key: Address, decimals: u8, authority: 
     set_token_account_data(svm, key, data);
 }
 
-pub fn set_token_account(svm: &mut LiteSVM, key: Address, mint: Address, owner: Pubkey, amount: u64) {
+pub fn set_token_account(
+    svm: &mut LiteSVM,
+    key: Address,
+    mint: Address,
+    owner: Pubkey,
+    amount: u64,
+) {
     let token = StateAccount {
         mint,
         owner,
@@ -158,7 +182,14 @@ pub fn set_token_account(svm: &mut LiteSVM, key: Address, mint: Address, owner: 
 
 /// Same bytes as `set_token_account`, but the account is owned by an arbitrary
 /// program so the classic `Program<Token>` constraint rejects it.
-pub fn set_foreign_token_account(svm: &mut LiteSVM, key: Address, mint: Address, owner: Pubkey, amount: u64, account_owner: Address) {
+pub fn set_foreign_token_account(
+    svm: &mut LiteSVM,
+    key: Address,
+    mint: Address,
+    owner: Pubkey,
+    amount: u64,
+    account_owner: Address,
+) {
     let token = StateAccount {
         mint,
         owner,
@@ -171,12 +202,16 @@ pub fn set_foreign_token_account(svm: &mut LiteSVM, key: Address, mint: Address,
     };
     let mut data = vec![0u8; StateAccount::LEN];
     StateAccount::pack(token, &mut data).unwrap();
-    svm.set_account(key, Account {
-        lamports: 1_000_000_000,
-        data,
-        owner: account_owner,
-        ..Account::default()
-    }).unwrap();
+    svm.set_account(
+        key,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: account_owner,
+            ..Account::default()
+        },
+    )
+    .unwrap();
 }
 
 pub fn token_amount(svm: &LiteSVM, key: Address) -> u64 {

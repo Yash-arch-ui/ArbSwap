@@ -38,7 +38,12 @@ struct Keys {
 
 impl Keys {
     fn new() -> Self {
-        Self { admin: Keypair::new(), keeper: Keypair::new(), lp: Keypair::new(), trader: Keypair::new() }
+        Self {
+            admin: Keypair::new(),
+            keeper: Keypair::new(),
+            lp: Keypair::new(),
+            trader: Keypair::new(),
+        }
     }
 }
 
@@ -84,7 +89,8 @@ fn expected_swap_out() -> u128 {
             liquidity: level.liquidity,
         })
         .collect();
-    let result = arb_math::walk_ladder(&levels, arb_math::Side::Ask, AMOUNT_IN as u128 - fee).unwrap();
+    let result =
+        arb_math::walk_ladder(&levels, arb_math::Side::Ask, AMOUNT_IN as u128 - fee).unwrap();
     assert_eq!(result.remaining, 0, "ladder must absorb the whole input");
     assert!(result.out > 0);
     result.out
@@ -146,13 +152,40 @@ impl Fixture {
         let lp_quote = Address::new_unique();
         let trader_base = Address::new_unique();
         let trader_quote = Address::new_unique();
-        set_token_account(&mut svm, lp_base, base_mint, keys.lp.pubkey(), 10_000_000_000);
-        set_token_account(&mut svm, lp_quote, quote_mint, keys.lp.pubkey(), 10_000_000_000);
-        set_token_account(&mut svm, trader_base, base_mint, keys.trader.pubkey(), 10_000_000_000);
-        set_token_account(&mut svm, trader_quote, quote_mint, keys.trader.pubkey(), 10_000_000_000);
+        set_token_account(
+            &mut svm,
+            lp_base,
+            base_mint,
+            keys.lp.pubkey(),
+            10_000_000_000,
+        );
+        set_token_account(
+            &mut svm,
+            lp_quote,
+            quote_mint,
+            keys.lp.pubkey(),
+            10_000_000_000,
+        );
+        set_token_account(
+            &mut svm,
+            trader_base,
+            base_mint,
+            keys.trader.pubkey(),
+            10_000_000_000,
+        );
+        set_token_account(
+            &mut svm,
+            trader_quote,
+            quote_mint,
+            keys.trader.pubkey(),
+            10_000_000_000,
+        );
 
         let lp_address = to_address(keys.lp.pubkey());
-        let (vault, _) = pda(&[b"vault", base_mint.as_ref(), quote_mint.as_ref()], &program_id);
+        let (vault, _) = pda(
+            &[b"vault", base_mint.as_ref(), quote_mint.as_ref()],
+            &program_id,
+        );
         let (config, _) = pda(&[b"config", vault.as_ref()], &program_id);
         let (quote_state, _) = pda(&[b"quote", vault.as_ref()], &program_id);
         let (deposit_ticket, _) = pda(&[b"dep", vault.as_ref(), lp_address.as_ref()], &program_id);
@@ -212,14 +245,22 @@ impl Fixture {
             params,
         };
         fixture.initialize_vault(&keys.admin);
-        set_token_account(&mut fixture.svm, fixture.lp_shares, fixture.share_mint, keys.lp.pubkey(), 0);
+        set_token_account(
+            &mut fixture.svm,
+            fixture.lp_shares,
+            fixture.share_mint,
+            keys.lp.pubkey(),
+            0,
+        );
         fixture
     }
 
     fn initialize_vault(&mut self, admin: &Keypair) {
         let instruction = ix(
             self.program_id,
-            arbswap::instruction::InitializeVault { params: self.params },
+            arbswap::instruction::InitializeVault {
+                params: self.params,
+            },
             arbswap::accounts::InitializeVault {
                 admin: to_address(admin.pubkey()),
                 vault: self.vault,
@@ -246,10 +287,20 @@ impl Fixture {
         send(&mut self.svm, &signers, instruction).expect("initialize_vault failed");
     }
 
-    fn deposit(&mut self, user: &Keypair, base_amount: u64, quote_amount: u64, min_shares: u64) -> litesvm::types::TransactionResult {
+    fn deposit(
+        &mut self,
+        user: &Keypair,
+        base_amount: u64,
+        quote_amount: u64,
+        min_shares: u64,
+    ) -> litesvm::types::TransactionResult {
         let instruction = ix(
             self.program_id,
-            arbswap::instruction::Deposit { base_amount, quote_amount, min_shares },
+            arbswap::instruction::Deposit {
+                base_amount,
+                quote_amount,
+                min_shares,
+            },
             arbswap::accounts::Deposit {
                 user: to_address(user.pubkey()),
                 vault: self.vault,
@@ -269,35 +320,116 @@ impl Fixture {
         send(&mut self.svm, &[user], instruction)
     }
 
-    fn post_pyth(&mut self, price: i64, conf: u64, publish_time: i64, verification: VerificationLevel) -> Address {
+    fn post_pyth(
+        &mut self,
+        price: i64,
+        conf: u64,
+        publish_time: i64,
+        verification: VerificationLevel,
+    ) -> Address {
         let key = Address::new_unique();
-        let account = pyth_account(FEED_ID, price, conf, PYTH_EXPONENT, publish_time, verification);
+        let account = pyth_account(
+            FEED_ID,
+            price,
+            conf,
+            PYTH_EXPONENT,
+            publish_time,
+            verification,
+        );
         self.svm
-            .set_account(key, solana_account::Account {
-                lamports: 1_000_000_000,
-                data: account_data(&account),
-                owner: to_address(pyth_solana_receiver_sdk::ID),
-                ..solana_account::Account::default()
-            })
+            .set_account(
+                key,
+                solana_account::Account {
+                    lamports: 1_000_000_000,
+                    data: account_data(&account),
+                    owner: to_address(pyth_solana_receiver_sdk::ID),
+                    ..solana_account::Account::default()
+                },
+            )
             .unwrap();
         key
     }
 
-    fn post_pyth_with_feed(&mut self, feed_id: [u8; 32], price: i64, conf: u64, publish_time: i64) -> Address {
+    fn post_pyth_with_feed(
+        &mut self,
+        feed_id: [u8; 32],
+        price: i64,
+        conf: u64,
+        publish_time: i64,
+    ) -> Address {
         let key = Address::new_unique();
-        let account = pyth_account(feed_id, price, conf, PYTH_EXPONENT, publish_time, VerificationLevel::Full);
+        let account = pyth_account(
+            feed_id,
+            price,
+            conf,
+            PYTH_EXPONENT,
+            publish_time,
+            VerificationLevel::Full,
+        );
         self.svm
-            .set_account(key, solana_account::Account {
-                lamports: 1_000_000_000,
-                data: account_data(&account),
-                owner: to_address(pyth_solana_receiver_sdk::ID),
-                ..solana_account::Account::default()
-            })
+            .set_account(
+                key,
+                solana_account::Account {
+                    lamports: 1_000_000_000,
+                    data: account_data(&account),
+                    owner: to_address(pyth_solana_receiver_sdk::ID),
+                    ..solana_account::Account::default()
+                },
+            )
             .unwrap();
         key
     }
 
-    fn update_quote(&mut self, keeper: &Keypair, price_update: Address, update: QuoteUpdate) -> litesvm::types::TransactionResult {
+    /// Post a well-formed `PriceUpdateV2` account owned by an arbitrary program
+    /// so the Anchor `Account<PriceUpdateV2>` owner check is exercised.
+    fn post_pyth_owned_by(
+        &mut self,
+        owner: Address,
+        price: i64,
+        conf: u64,
+        publish_time: i64,
+    ) -> Address {
+        let key = Address::new_unique();
+        let account = pyth_account(
+            FEED_ID,
+            price,
+            conf,
+            PYTH_EXPONENT,
+            publish_time,
+            VerificationLevel::Full,
+        );
+        self.svm
+            .set_account(
+                key,
+                solana_account::Account {
+                    lamports: 1_000_000_000,
+                    data: account_data(&account),
+                    owner,
+                    ..solana_account::Account::default()
+                },
+            )
+            .unwrap();
+        key
+    }
+
+    fn wind_down(&mut self, admin: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::WindDown {},
+            arbswap::accounts::WindDown {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+            },
+        );
+        send(&mut self.svm, &[admin], instruction)
+    }
+
+    fn update_quote(
+        &mut self,
+        keeper: &Keypair,
+        price_update: Address,
+        update: QuoteUpdate,
+    ) -> litesvm::types::TransactionResult {
         let instruction = ix(
             self.program_id,
             arbswap::instruction::UpdateQuote { update },
@@ -312,7 +444,13 @@ impl Fixture {
         send(&mut self.svm, &[keeper], instruction)
     }
 
-    fn swap(&mut self, trader: &Keypair, amount_in: u64, min_out: u64, min_version: u64) -> litesvm::types::TransactionResult {
+    fn swap(
+        &mut self,
+        trader: &Keypair,
+        amount_in: u64,
+        min_out: u64,
+        min_version: u64,
+    ) -> litesvm::types::TransactionResult {
         let instruction = ix(
             self.program_id,
             arbswap::instruction::Swap {
@@ -368,27 +506,59 @@ fn pyth_verification_rejects_untrusted_or_stale_updates() {
     let mut fixture = Fixture::new(&keys);
     let update = quote_update(SLOT);
 
-    let partial = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Partial { num_signatures: 1 });
-    assert_anchor_error(fixture.update_quote(&keys.keeper, partial, update), "InvalidOracle");
+    let partial = fixture.post_pyth(
+        PYTH_PRICE,
+        1,
+        PUBLISH_TIME,
+        VerificationLevel::Partial { num_signatures: 1 },
+    );
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, partial, update),
+        "InvalidOracle",
+    );
 
     let wrong_feed = fixture.post_pyth_with_feed([9u8; 32], PYTH_PRICE, 1, PUBLISH_TIME);
-    assert_anchor_error(fixture.update_quote(&keys.keeper, wrong_feed, update), "InvalidOracle");
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, wrong_feed, update),
+        "InvalidOracle",
+    );
 
     let stale = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME - 100, VerificationLevel::Full);
-    assert_anchor_error(fixture.update_quote(&keys.keeper, stale, update), "InvalidOracle");
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, stale, update),
+        "InvalidOracle",
+    );
 
-    let wide_conf = fixture.post_pyth(PYTH_PRICE, 100_000_000, PUBLISH_TIME, VerificationLevel::Full);
-    assert_anchor_error(fixture.update_quote(&keys.keeper, wide_conf, update), "WideConfidence");
+    let wide_conf = fixture.post_pyth(
+        PYTH_PRICE,
+        100_000_000,
+        PUBLISH_TIME,
+        VerificationLevel::Full,
+    );
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, wide_conf, update),
+        "WideConfidence",
+    );
 
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
     let mut bad_price = update;
     bad_price.oracle_price = 151 << 64;
-    assert_anchor_error(fixture.update_quote(&keys.keeper, honest, bad_price), "OraclePriceMismatch");
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, bad_price),
+        "OraclePriceMismatch",
+    );
 
-    assert_anchor_error(fixture.update_quote(&keys.keeper, honest, quote_update(0)), "NonMonotonicSlot");
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, quote_update(0)),
+        "NonMonotonicSlot",
+    );
     assert_anchor_error(fixture.update_quote(&keys.lp, honest, update), "NotKeeper");
 
-    assert_eq!(fixture.quote_state_value().version, 0, "no rejected update may commit");
+    assert_eq!(
+        fixture.quote_state_value().version,
+        0,
+        "no rejected update may commit"
+    );
 
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
     fixture
@@ -400,6 +570,70 @@ fn pyth_verification_rejects_untrusted_or_stale_updates() {
     assert_eq!(quote.oracle_publish_time, PUBLISH_TIME);
     assert_eq!(quote.oracle_conf_bps, CONF_BPS);
     assert_eq!(quote.levels[0].sqrt_lo, ladder()[0].sqrt_lo);
+}
+
+/// A well-formed Pyth account that is not owned by the receiver program must be
+/// rejected by Anchor's `Account<PriceUpdateV2>` owner check.
+#[test]
+fn pyth_account_owner_must_be_the_receiver_program() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let impostor = fixture.program_id;
+    let forged =
+        fixture.post_pyth_owned_by(impostor, PYTH_PRICE, 1, PUBLISH_TIME);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, forged, quote_update(SLOT)),
+        "AccountOwnedByWrongProgram",
+    );
+    assert_eq!(fixture.quote_state_value().version, 0);
+}
+
+/// The payload confidence must equal the confidence decoded from Pyth, not
+/// merely sit under the configured maximum. `conf = 2_000_000` decodes to 2 bps
+/// (within `max_conf_bps = 10`) while the payload claims 1 bps, so only the
+/// equality check can reject it.
+#[test]
+fn oracle_confidence_must_match_the_payload() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let mismatched =
+        fixture.post_pyth(PYTH_PRICE, 2_000_000, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, mismatched, quote_update(SLOT)),
+        "WideConfidence",
+    );
+    assert_eq!(fixture.quote_state_value().version, 0);
+}
+
+/// `wind_down` is admin-only, flips the vault status, and stops further quotes.
+#[test]
+fn wind_down_is_admin_only_and_pauses_quotes() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    assert_anchor_error(fixture.wind_down(&keys.lp), "Unauthorized");
+    fixture
+        .wind_down(&keys.admin)
+        .expect("admin may wind down");
+    assert_eq!(fixture.vault_state().status, 2, "WIND_DOWN");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, quote_update(SLOT)),
+        "Paused",
+    );
+}
+
+/// `update_quote` may not stamp a slot in the future (the current rule is
+/// `stored < update_slot <= clock.slot`).
+#[test]
+fn future_update_slot_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, quote_update(SLOT + 1_000_000)),
+        "NonMonotonicSlot",
+    );
+    assert_eq!(fixture.quote_state_value().version, 0);
 }
 
 /// Token-2022 owned accounts must be rejected by the classic `Program<Token>`
@@ -420,7 +654,11 @@ fn token_2022_accounts_are_rejected() {
 
     let instruction = ix(
         fixture.program_id,
-        arbswap::instruction::Deposit { base_amount: LP_BASE_DEPOSIT, quote_amount: LP_QUOTE_DEPOSIT, min_shares: 1 },
+        arbswap::instruction::Deposit {
+            base_amount: LP_BASE_DEPOSIT,
+            quote_amount: LP_QUOTE_DEPOSIT,
+            min_shares: 1,
+        },
         arbswap::accounts::Deposit {
             user: to_address(keys.lp.pubkey()),
             vault: fixture.vault,
@@ -440,11 +678,19 @@ fn token_2022_accounts_are_rejected() {
     let result = send(&mut fixture.svm, &[&keys.lp], instruction);
     let failure = result.expect_err("Token-2022 owned account must be rejected");
     assert!(
-        failure.meta.logs.iter().any(|line| line.contains("Error Code: AccountOwnedByWrongProgram")),
+        failure
+            .meta
+            .logs
+            .iter()
+            .any(|line| line.contains("Error Code: AccountOwnedByWrongProgram")),
         "expected AccountOwnedByWrongProgram in logs:\n{}",
         failure.meta.logs.join("\n")
     );
-    assert_eq!(token_amount(&fixture.svm, fixture.lp_shares), 0, "no shares minted");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.lp_shares),
+        0,
+        "no shares minted"
+    );
 }
 
 /// The full P2 money path with the fee/value invariants the review asked for.
@@ -457,10 +703,20 @@ fn lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value() {
     fixture
         .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
         .expect("first deposit failed");
-    assert_eq!(token_amount(&fixture.svm, fixture.base_reserve), LP_BASE_DEPOSIT);
-    assert_eq!(token_amount(&fixture.svm, fixture.quote_reserve), LP_QUOTE_DEPOSIT);
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.base_reserve),
+        LP_BASE_DEPOSIT
+    );
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.quote_reserve),
+        LP_QUOTE_DEPOSIT
+    );
     assert_eq!(token_amount(&fixture.svm, fixture.lp_shares), FIRST_SHARES);
-    assert_eq!(token_amount(&fixture.svm, fixture.share_lock), 1, "min-liquidity lock");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.share_lock),
+        1,
+        "min-liquidity lock"
+    );
     assert_eq!(fixture.vault_state().total_shares, TOTAL_SHARES);
     assert_eq!(fixture.config_state().keeper, keys.keeper.pubkey());
 
@@ -492,23 +748,41 @@ fn lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value() {
     // Trader pays the full input; the vault pays exactly the quoted output.
     assert_eq!(quote_after, quote_before + AMOUNT_IN);
     assert_eq!(base_before - base_after, expected_out as u64);
-    assert_eq!(trader_quote_before - token_amount(&fixture.svm, fixture.trader_quote), AMOUNT_IN);
-    assert_eq!(token_amount(&fixture.svm, fixture.trader_base) - trader_base_before, expected_out as u64);
+    assert_eq!(
+        trader_quote_before - token_amount(&fixture.svm, fixture.trader_quote),
+        AMOUNT_IN
+    );
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.trader_base) - trader_base_before,
+        expected_out as u64
+    );
 
     // Fees are bucketed, never more than the fee actually taken.
     assert!(buckets_after > buckets_before, "fee split must be non-zero");
-    assert!(buckets_after - buckets_before <= FEE, "buckets must not exceed the fee");
+    assert!(
+        buckets_after - buckets_before <= FEE,
+        "buckets must not exceed the fee"
+    );
     // LP-owned quote only loses the bucketed fees, never the raw input.
     assert_eq!(
         quote_after - buckets_after - (quote_before - buckets_before),
         AMOUNT_IN - (buckets_after - buckets_before)
     );
-    assert_eq!(vault.total_shares, TOTAL_SHARES, "swap must not mint shares");
+    assert_eq!(
+        vault.total_shares, TOTAL_SHARES,
+        "swap must not mint shares"
+    );
 
     // --- negative swap guards -----------------------------------------
     assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, 0, 2), "VersionTooOld");
-    assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, (expected_out as u64) + 1, 1), "SlippageExceeded");
-    assert_anchor_error(fixture.swap(&keys.trader, MAX_QUOTE_SIZE + 1, 0, 1), "CapacityExceeded");
+    assert_anchor_error(
+        fixture.swap(&keys.trader, AMOUNT_IN, (expected_out as u64) + 1, 1),
+        "SlippageExceeded",
+    );
+    assert_anchor_error(
+        fixture.swap(&keys.trader, MAX_QUOTE_SIZE + 1, 0, 1),
+        "CapacityExceeded",
+    );
 
     // --- expiry, breaker, reset ---------------------------------------
     let expiry_slot = fixture.quote_state_value().expiry_slot;
@@ -518,7 +792,10 @@ fn lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value() {
     let trip = ix(
         fixture.program_id,
         arbswap::instruction::TripBreaker,
-        arbswap::accounts::TripBreaker { vault: fixture.vault, quote_state: fixture.quote_state },
+        arbswap::accounts::TripBreaker {
+            vault: fixture.vault,
+            quote_state: fixture.quote_state,
+        },
     );
     send(&mut fixture.svm, &[&keys.lp], trip).expect("trip_breaker failed");
     assert_eq!(fixture.vault_state().status, 1, "vault paused after expiry");
@@ -528,10 +805,17 @@ fn lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value() {
     let reset = ix(
         fixture.program_id,
         arbswap::instruction::ResetBreaker,
-        arbswap::accounts::ResetBreaker { admin: to_address(keys.admin.pubkey()), vault: fixture.vault },
+        arbswap::accounts::ResetBreaker {
+            admin: to_address(keys.admin.pubkey()),
+            vault: fixture.vault,
+        },
     );
     send(&mut fixture.svm, &[&keys.admin], reset).expect("reset_breaker failed");
-    assert_eq!(fixture.vault_state().status, 0, "vault active after admin reset");
+    assert_eq!(
+        fixture.vault_state().status,
+        0,
+        "vault active after admin reset"
+    );
 
     // --- withdrawal ----------------------------------------------------
     let shares = token_amount(&fixture.svm, fixture.lp_shares);
@@ -557,7 +841,10 @@ fn lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value() {
     let crank = ix(
         fixture.program_id,
         arbswap::instruction::CrankEpoch,
-        arbswap::accounts::CrankEpoch { vault: fixture.vault, config: fixture.config },
+        arbswap::accounts::CrankEpoch {
+            vault: fixture.vault,
+            config: fixture.config,
+        },
     );
     send(&mut fixture.svm, &[&keys.lp], crank).expect("crank_epoch failed");
     assert_eq!(fixture.vault_state().epoch, 1);
@@ -596,7 +883,11 @@ fn lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value() {
     send(&mut fixture.svm, &[&keys.lp], claim).expect("claim_withdraw failed");
 
     assert_eq!(fixture.vault_state().total_shares, total - shares);
-    assert_eq!(token_amount(&fixture.svm, fixture.share_lock), 1, "lock survives the claim");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.share_lock),
+        1,
+        "lock survives the claim"
+    );
     assert_eq!(
         token_amount(&fixture.svm, fixture.lp_base) - lp_base_before,
         expected_base_out as u64

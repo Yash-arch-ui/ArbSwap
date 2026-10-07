@@ -241,3 +241,31 @@ explains the audit's F-06 "7,051 vs 10,051" disagreement — the two numbers are
 the same instruction measured two ways. Consequence: no caller needs a
 compute-budget bump, and `research/sim/costs.py` `CU_SWAP` is 33,676. The "cheap
 update" claim is still **not** supported for `update_quote`.
+
+## A-18. Task 5/6 keeper parity and security tests — VERIFIED (2026-10-07)
+Keeper (`keeper/src/lib.rs`) parity fixes:
+- **F-03 (decimals):** the inventory value is now `base * price_q64 / 2^64 /
+  base_atom_scale`. The old `base * price_q64` omitted the Q64 shift and any
+  token-decimals conversion, so the imbalance saturated at its bound for every
+  realistic reserve. `base_atom_scale = 10^(base_decimals - quote_decimals)`
+  (`1000` for SOL 9 / USDC 6). Regression: a balanced 1000 SOL / 150,000 USDC
+  vault now quotes at the anchor (`keeper` unit test + Python parity test).
+- **F-09 (spread):** the volatility term keeps sub-basis-point resolution
+  (`coeff * sigma_fraction * 10^4`); the previous form floored sigma to whole
+  bps and divided by 10^4 again, so it was always zero. Spread now clamps to
+  `[spread_min_bps, spread_max_bps]`; the depth throttle includes the confidence
+  factor, jump cool-down and depth budget (F-08); the directional add-on is
+  computed and encoded into the `update_quote` payload (previously hard-coded 0).
+- `research/sim/test_keeper_parity.py` now covers non-zero inventory skew, the
+  mixed SOL/USDC decimals case, and the directional add-on, mirroring the
+  integer formulas (including Rust's truncate-toward-zero signed division).
+Remaining divergence (documented in FORMULA.md and the keeper docstring): the
+EWMA is not time-normalised and the keeper emits ask-side levels only; the F-04
+binding of executed levels to the anchor is a separate programme task.
+
+Security tests added (`programs/arbswap/tests/litesvm_lifecycle.rs`):
+- `pyth_account_owner_must_be_the_receiver_program` (Anchor owner check),
+- `oracle_confidence_must_match_the_payload` (decoded > 1 bps but within
+  `max_conf_bps`, so only the equality check fires),
+- `wind_down_is_admin_only_and_pauses_quotes` (F-18 + authority),
+- `future_update_slot_is_rejected` (F-15 rule as implemented).

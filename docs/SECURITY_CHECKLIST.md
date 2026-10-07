@@ -4,11 +4,11 @@
 |---|---|---|
 | Signer checks | `Signer` on admin, user, keeper, trader paths | Pass |
 | PDA seeds/canonical bumps | Anchor `seeds` constraints on vault/config/quote/tickets | Pass |
-| Pyth owner | `Account<PriceUpdateV2>` enforces Pyth Receiver owner | Pass |
+| Pyth owner | `Account<PriceUpdateV2>` enforces Pyth Receiver owner; `pyth_account_owner_must_be_the_receiver_program` forges the owner | Pass |
 | Pyth feed ID | `Config.pyth_feed_id` compared to `PriceUpdateV2` | Pass |
 | Pyth verification | `get_price_no_older_than` requires `Full` verification | Pass |
 | Pyth freshness | Pyth publish time checked against configured maximum age | Pass |
-| Pyth price/confidence | Decoded Q64 price and confidence must equal instruction fields | Pass |
+| Pyth price/confidence | Decoded Q64 price and confidence must equal instruction fields; `oracle_confidence_must_match_the_payload` isolates the equality check | Pass |
 | Token-2022 rejection | Instructions require the classic `Program<Token>`; Token-2022 is not accepted | Pass for unsupported extensions |
 | Duplicate mutable accounts | Address/mint/owner constraints on reserve and user accounts | Pass in declared contexts |
 | Reinitialization | `init`/PDA constraints prevent account reuse | Pass in declared contexts |
@@ -23,6 +23,10 @@
 | Live RPC/private-key keeper | Deployment transport and devnet run | Open |
 | CU measurements | LiteSVM `compute_units_consumed`: `update_quote` 12,802, `trip_breaker` 7,051, `swap` 33,676 | Pass |
 | Foreign program rejection | Token-2022 owned accounts rejected by `Program<Token>` before the instruction body | Pass |
+| Wind-down control | Admin-only `wind_down`, then `update_quote` is `Paused` (`wind_down_is_admin_only_and_pauses_quotes`) | Pass |
+| Update-slot monotonicity | `stored < update_slot <= clock.slot`; a future slot is rejected (`future_update_slot_is_rejected`) | Pass |
+| Keeper quote parity | Inventory skew is decimal-aware (F-03) and the spread/depth/directional terms match the reference (F-09); `research/sim/test_keeper_parity.py` + keeper unit tests | Pass for the tested cases; EWMA time-normalisation still open |
+| Executed-level binding | On-chain `swap` accepts keeper `levels` on shape alone, not bound to the anchor (F-04) | **Open — top devnet blocker** |
 
 ## Compute budget
 
