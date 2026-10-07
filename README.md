@@ -14,7 +14,7 @@ Formerly "TruQuote" (working name); all spec documents use the old name.
 | P1 | Independent Python reference, vectors, simulator, replay/report pipeline | ✅ |
 | P2 | Anchor accounts, custody, verified Pyth guards, swaps, withdrawals, breakers | ✅ build/test; lifecycle/devnet gate open |
 | P3 | Rust keeper core, direct price replay, update gating, P2 payload encoder | ✅ dry-run; live RPC gate open |
-| P4 | Analytics, fees, dashboard | ⬜ |
+| P4 | Analytics, fees, dashboard | ✅ indexer + metrics + static dashboard (`analytics/`); Next.js UI still scaffold |
 | P5 | Attacker bots, fuzzing, aggregator adapter | ⬜ |
 | P6 | Reproducibility, demo, docs | ⬜ |
 
@@ -99,6 +99,7 @@ speed; never claim an unmeasured result; report losing regimes.
 ## Documents
 
 - `docs/ARCHITECTURE.md` — component map, data model, instruction surface, trust boundaries.
+- `docs/ANALYTICS.md` — P4 indexer, metrics (with paper sources), and dashboard.
 - `docs/BUILD_PLAN.md` — the full specification (imported, verbatim).
 - `docs/ASSUMPTIONS.md` — what is verified vs assumed (read before coding).
 - `docs/FORMULA.md` — the math source map and open decisions.

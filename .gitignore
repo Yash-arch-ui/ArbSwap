@@ -19,3 +19,6 @@ target/deploy/*.json
 BuilderPlan.md
 MasterPlan.md
 NOTES.md
+
+# Generated analytics output (dashboard, event dumps)
+analytics/out/
