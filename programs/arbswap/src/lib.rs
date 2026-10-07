@@ -14,6 +14,8 @@ const WIND_DOWN: u8 = 2;
 /// further than `max_spread_bps + this` from the oracle price.
 const MAX_LEVEL_OFFSET_BPS: u32 = 500;
 const BPS_DENOM: u32 = 10_000;
+/// Timelock between `set_params` and `apply_params` (F-17): ~1 day at 400 ms.
+const TIMELOCK_SLOTS: u64 = 216_000;
 
 #[program]
 pub mod arbswap {
@@ -175,6 +177,10 @@ pub mod arbswap {
             by_base.min(by_quote) as u64
         };
         require!(shares >= min_shares, ErrorCode::SlippageExceeded);
+        // F-11: never mint zero shares. A donation-inflation attacker who bloats
+        // a reserve cannot make a subsequent deposit succeed with 0 shares; the
+        // transaction reverts and the depositor keeps their tokens.
+        require!(shares > 0, ErrorCode::InvalidAmount);
         // Pull only what the minted shares are worth; the imbalanced remainder
         // stays with the depositor instead of being donated to the pool
         // (audit F-10).
@@ -686,7 +692,7 @@ pub mod arbswap {
                     .accounts
                     .quote_state
                     .flow_n
-                    .checked_sub(amount_in as i128)
+                    .checked_sub(net as i128)
                     .ok_or(ErrorCode::MathOverflow)?;
             }
         }
@@ -738,6 +744,75 @@ pub mod arbswap {
         ctx.accounts.vault.status = WIND_DOWN;
         Ok(())
     }
+
+    /// F-17: admin proposes tunable parameters. They take effect only after
+    /// `apply_params` and at least `TIMELOCK_SLOTS` slots later.
+    pub fn set_params(ctx: Context<SetParams>, params: ParamsUpdate) -> Result<()> {
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.vault.admin,
+            ErrorCode::Unauthorized
+        );
+        require!(
+            (params.insurance_bps as u32 + params.keeper_bps as u32 + params.protocol_bps as u32)
+                <= 10_000,
+            ErrorCode::InvalidParams
+        );
+        let now = Clock::get()?.slot;
+        let pending = &mut ctx.accounts.pending_config;
+        pending.admin = ctx.accounts.admin.key();
+        pending.activate_slot = now.saturating_add(TIMELOCK_SLOTS);
+        pending.params = params;
+        pending.bump = ctx.bumps.pending_config;
+        emit!(ParamsProposed {
+            slot: now,
+            activate_slot: pending.activate_slot
+        });
+        Ok(())
+    }
+
+    /// Applies a previously proposed parameter set once the timelock elapsed.
+    pub fn apply_params(ctx: Context<ApplyParams>) -> Result<()> {
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.vault.admin
+                && ctx.accounts.pending_config.admin == ctx.accounts.admin.key(),
+            ErrorCode::Unauthorized
+        );
+        require!(
+            Clock::get()?.slot >= ctx.accounts.pending_config.activate_slot,
+            ErrorCode::TimelockNotElapsed
+        );
+        let update = ctx.accounts.pending_config.params;
+        let config = &mut ctx.accounts.config;
+        config.fee_bps = update.fee_bps;
+        config.insurance_bps = update.insurance_bps;
+        config.keeper_bps = update.keeper_bps;
+        config.protocol_bps = update.protocol_bps;
+        config.max_staleness_seconds = update.max_staleness_seconds;
+        config.max_conf_bps = update.max_conf_bps;
+        config.max_anchor_step_bps = update.max_anchor_step_bps;
+        config.max_spread_bps = update.max_spread_bps;
+        config.max_quote_size = update.max_quote_size;
+        config.max_inventory_bps = update.max_inventory_bps;
+        ctx.accounts.pending_config.activate_slot = u64::MAX;
+        emit!(ParamsApplied {
+            slot: Clock::get()?.slot
+        });
+        Ok(())
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
+pub struct ParamsUpdate {
+    pub fee_bps: u16,
+    pub insurance_bps: u16,
+    pub keeper_bps: u16,
+    pub protocol_bps: u16,
+    pub max_staleness_seconds: i64,
+    pub max_conf_bps: u32,
+    pub max_anchor_step_bps: u32,
+    pub max_spread_bps: u32,
+    pub max_quote_size: u64,
+    pub max_inventory_bps: u32,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -835,6 +910,14 @@ pub struct Config {
     pub max_inventory_bps: u32,
     pub bump: u8,
 }
+/// Pending timelocked parameter change (F-17), seeded `[b"pending", vault]`.
+#[account]
+pub struct PendingConfig {
+    pub admin: Pubkey,
+    pub activate_slot: u64,
+    pub params: ParamsUpdate,
+    pub bump: u8,
+}
 #[account]
 pub struct QuoteState {
     pub version: u64,
@@ -846,6 +929,10 @@ pub struct QuoteState {
     pub ask_extra_bps: u32,
     pub bid_extra_bps: u32,
     pub depth_mult_bps: u32,
+    /// Net base the vault has sold since the last quote update, in base atoms:
+    /// `+= base_out` when the vault sells base, `-= net_base_in` when it buys.
+    /// Recorded for future inventory pricing; the ladder does not read it yet
+    /// (the reservation skew already moves `p_res_sqrt`).
     pub flow_n: i128,
     pub oracle_publish_time: i64,
     pub oracle_conf_bps: u32,
@@ -1006,9 +1093,9 @@ pub struct ClaimWithdraw<'info> {
     pub share_lock: Box<Account<'info, TokenAccount>>,
     #[account(mut,constraint=withdraw_ticket.owner==user.key())]
     pub withdraw_ticket: Box<Account<'info, WithdrawTicket>>,
-    #[account(mut,constraint=user_base.owner==user.key())]
+    #[account(mut,constraint=user_base.owner==user.key(),constraint=user_base.mint==vault.base_mint)]
     pub user_base: Box<Account<'info, TokenAccount>>,
-    #[account(mut,constraint=user_quote.owner==user.key())]
+    #[account(mut,constraint=user_quote.owner==user.key(),constraint=user_quote.mint==vault.quote_mint)]
     pub user_quote: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
 }
@@ -1038,9 +1125,9 @@ pub struct Swap<'info> {
     pub base_reserve: Box<Account<'info, TokenAccount>>,
     #[account(mut,address=vault.quote_reserve)]
     pub quote_reserve: Box<Account<'info, TokenAccount>>,
-    #[account(mut,constraint=trader_base.owner==trader.key())]
+    #[account(mut,constraint=trader_base.owner==trader.key(),constraint=trader_base.mint==vault.base_mint)]
     pub trader_base: Box<Account<'info, TokenAccount>>,
-    #[account(mut,constraint=trader_quote.owner==trader.key())]
+    #[account(mut,constraint=trader_quote.owner==trader.key(),constraint=trader_quote.mint==vault.quote_mint)]
     pub trader_quote: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
 }
@@ -1084,6 +1171,28 @@ pub struct WindDown<'info> {
     pub admin: Signer<'info>,
     #[account(mut)]
     pub vault: Account<'info, Vault>,
+}
+
+#[derive(Accounts)]
+pub struct SetParams<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(init_if_needed, payer=admin, space=8+32+8+40+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    pub pending_config: Box<Account<'info, PendingConfig>>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ApplyParams<'info> {
+    pub admin: Signer<'info>,
+    #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(mut, seeds=[b"config", vault.key().as_ref()], bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut, seeds=[b"pending", vault.key().as_ref()], bump=pending_config.bump)]
+    pub pending_config: Box<Account<'info, PendingConfig>>,
 }
 
 /// Ceiling division for share maths; returns 0 when the denominator is 0.
@@ -1171,6 +1280,17 @@ pub struct BreakerReset {
     pub slot: u64,
 }
 
+#[event]
+pub struct ParamsProposed {
+    pub slot: u64,
+    pub activate_slot: u64,
+}
+
+#[event]
+pub struct ParamsApplied {
+    pub slot: u64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Unauthorized")]
@@ -1211,6 +1331,8 @@ pub enum ErrorCode {
     WideConfidence,
     #[msg("Anchor step too large")]
     AnchorStepTooLarge,
+    #[msg("Timelock has not elapsed")]
+    TimelockNotElapsed,
     #[msg("Spread out of bounds")]
     SpreadOutOfBounds,
     #[msg("Quote expired")]

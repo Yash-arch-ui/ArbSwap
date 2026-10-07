@@ -416,6 +416,42 @@ impl Fixture {
         send(&mut self.svm, &[admin], instruction)
     }
 
+    fn pending_config(&self) -> Address {
+        pda(&[b"pending", self.vault.as_ref()], &self.program_id).0
+    }
+
+    fn set_params(
+        &mut self,
+        admin: &Keypair,
+        params: arbswap::ParamsUpdate,
+    ) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::SetParams { params },
+            arbswap::accounts::SetParams {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+                pending_config: self.pending_config(),
+                system_program: anchor_lang::system_program::ID,
+            },
+        );
+        send(&mut self.svm, &[admin], instruction)
+    }
+
+    fn apply_params(&mut self, admin: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::ApplyParams {},
+            arbswap::accounts::ApplyParams {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+                config: self.config,
+                pending_config: self.pending_config(),
+            },
+        );
+        send(&mut self.svm, &[admin], instruction)
+    }
+
     fn update_quote(
         &mut self,
         keeper: &Keypair,
@@ -694,6 +730,57 @@ fn second_deposit_reuses_the_ticket_and_pulls_only_what_is_needed() {
         "some base must be pulled for the minted shares"
     );
     assert!(fixture.vault_state().total_shares > total_before);
+}
+
+/// F-11: a donation-inflation attacker who bloats a reserve cannot make a later
+/// deposit succeed with zero shares; the deposit reverts and the attacker gains
+/// nothing from the victim's tokens.
+#[test]
+fn donation_cannot_mint_zero_shares() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("first deposit");
+    // Attacker donates a massive base amount directly to the reserve.
+    set_token_account(
+        &mut fixture.svm,
+        fixture.base_reserve,
+        fixture.base_mint,
+        fixture.vault,
+        10_000_000_000_000_000_000,
+    );
+    // A one-atom deposit would round to zero shares; it must be rejected, not
+    // accepted for free.
+    let shares_before = token_amount(&fixture.svm, fixture.lp_shares);
+    assert_anchor_error(
+        fixture.deposit(&keys.lp, 1, 1, 0),
+        "InvalidAmount",
+    );
+    assert_eq!(token_amount(&fixture.svm, fixture.lp_shares), shares_before);
+}
+
+/// F-17: parameter changes are timelocked and admin-only.
+#[test]
+fn params_change_is_timelocked() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let update = arbswap::ParamsUpdate {
+        fee_bps: 5,
+        ..Default::default()
+    };
+    assert_anchor_error(fixture.set_params(&keys.lp, update), "Unauthorized");
+    fixture
+        .set_params(&keys.admin, update)
+        .expect("admin may propose");
+    assert_anchor_error(fixture.apply_params(&keys.admin), "TimelockNotElapsed");
+
+    let pending = read_state::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture
+        .apply_params(&keys.admin)
+        .expect("apply after the timelock");
+    assert_eq!(fixture.config_state().fee_bps, 5);
 }
 
 /// Token-2022 owned accounts must be rejected by the classic `Program<Token>`
