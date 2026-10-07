@@ -48,15 +48,7 @@ impl Keys {
 }
 
 fn ladder() -> [LevelUpdate; 6] {
-    let mut levels = [LevelUpdate::default(); 6];
-    let mut lo = 2_600_000_000_000_000_000u128;
-    for level in levels.iter_mut() {
-        level.sqrt_lo = lo;
-        level.sqrt_hi = lo + 1_000_000_000_000_000_000u128;
-        level.liquidity = 100_000_000_000_000_000_000_000_000u128;
-        lo += 1_000_000_000_000_000_000u128;
-    }
-    levels
+    anchor_ladder(ANCHOR_SQRT, 5, OFFSETS)
 }
 
 fn quote_update(update_slot: u64) -> QuoteUpdate {
@@ -210,7 +202,7 @@ impl Fixture {
             max_anchor_step_bps: 100,
             max_spread_bps: 50,
             max_quote_size: MAX_QUOTE_SIZE,
-            max_inventory_bps: 10_000,
+            max_inventory_bps: 2_000,
             offsets_bps: OFFSETS,
             weights_bps: WEIGHTS,
         };
@@ -632,6 +624,40 @@ fn future_update_slot_is_rejected() {
     assert_anchor_error(
         fixture.update_quote(&keys.keeper, honest, quote_update(SLOT + 1_000_000)),
         "NonMonotonicSlot",
+    );
+    assert_eq!(fixture.quote_state_value().version, 0);
+}
+
+/// F-04: every executed level must sit inside the anchor band. A level priced
+/// far from the oracle is rejected even though its shape is valid.
+#[test]
+fn level_far_from_the_anchor_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    let mut hostile = quote_update(SLOT);
+    // ~9x the anchor price on the first level: shape-valid, wildly mispriced.
+    hostile.levels[0].sqrt_lo = ANCHOR_SQRT * 3;
+    hostile.levels[0].sqrt_hi = ANCHOR_SQRT * 3 + 1;
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, hostile),
+        "LevelOutOfBounds",
+    );
+    assert_eq!(fixture.quote_state_value().version, 0);
+}
+
+/// F-04: the reservation price may not deviate from the anchor by more than
+/// `max_inventory_bps` (2000 bps = 20% in this fixture).
+#[test]
+fn reservation_outside_the_inventory_band_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    let mut skewed = quote_update(SLOT);
+    skewed.p_res_sqrt = ANCHOR_SQRT / 2; // price ~ -75% from the anchor
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, skewed),
+        "InventoryOutOfBounds",
     );
     assert_eq!(fixture.quote_state_value().version, 0);
 }

@@ -2,6 +2,9 @@ use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AccountSerialize, AnchorSerialize};
 use arbswap::{Config, Level, LevelUpdate, QuoteState, QuoteUpdate, Vault};
 use litesvm::LiteSVM;
+
+mod common;
+use common::{anchor_ladder, ANCHOR_SQRT};
 use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, VerificationLevel};
 use pythnet_sdk::messages::PriceFeedMessage;
 use sha2::{Digest, Sha256};
@@ -285,18 +288,14 @@ fn update_quote_executes_only_with_full_pyth_account() {
         },
     )
     .unwrap();
-    let levels = [LevelUpdate {
-        sqrt_lo: 1,
-        sqrt_hi: 2,
-        liquidity: 1,
-    }; 6];
+    let levels = anchor_ladder(ANCHOR_SQRT, 1, [1, 2, 3, 4, 5, 6]);
     let update = QuoteUpdate {
         update_slot: 1,
         oracle_publish_time: 1_000,
         oracle_price: 150u128 << 64,
         oracle_conf_bps: 1,
-        anchor_sqrt_price: 1,
-        p_res_sqrt: 1,
+        anchor_sqrt_price: ANCHOR_SQRT,
+        p_res_sqrt: ANCHOR_SQRT,
         half_spread_bps: 1,
         ask_extra_bps: 0,
         bid_extra_bps: 0,

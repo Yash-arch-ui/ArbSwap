@@ -4,6 +4,7 @@
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AccountSerialize, InstructionData, ToAccountMetas};
 use anchor_spl::token::spl_token::state::{Account as StateAccount, AccountState, Mint};
+use arbswap::LevelUpdate;
 use litesvm::LiteSVM;
 use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, VerificationLevel};
 use pythnet_sdk::messages::PriceFeedMessage;
@@ -19,6 +20,35 @@ use solana_transaction::Transaction;
 
 pub const OFFSETS: [u32; 6] = [2, 5, 10, 20, 40, 80];
 pub const WEIGHTS: [u32; 6] = [1000, 1500, 2000, 2000, 2000, 1500];
+/// `sqrt(150) * 2^64`, the anchor for a 150 USDC vault.
+pub const ANCHOR_SQRT: u128 = 225_887_000_000_000_000_000;
+
+/// An oracle-consistent ask ladder for the F-04 anchor binding: level `k`
+/// spans `anchor*(1 + spread + offset_{k-1})` to `anchor*(1 + spread + offset_k)`.
+pub fn anchor_ladder(anchor_sqrt: u128, spread_bps: u32, offsets: [u32; 6]) -> [LevelUpdate; 6] {
+    let anchor_price = arb_math::price_from_sqrt(anchor_sqrt).expect("anchor price");
+    let mut levels = [LevelUpdate::default(); 6];
+    let mut previous = 0u32;
+    for (index, level) in levels.iter_mut().enumerate() {
+        let lo_price = arb_math::mul_div_floor(
+            anchor_price,
+            (10_000 + spread_bps + previous) as u128,
+            10_000,
+        )
+        .expect("lo price");
+        let hi_price = arb_math::mul_div_floor(
+            anchor_price,
+            (10_000 + spread_bps + offsets[index]) as u128,
+            10_000,
+        )
+        .expect("hi price");
+        level.sqrt_lo = arb_math::sqrt_q64(lo_price).expect("sqrt_lo");
+        level.sqrt_hi = arb_math::sqrt_q64(hi_price).expect("sqrt_hi");
+        level.liquidity = 100_000_000_000_000_000_000_000_000;
+        previous = offsets[index];
+    }
+    levels
+}
 pub const FEED_ID: [u8; 32] = [7u8; 32];
 /// 150.0 with exponent -8.
 pub const PYTH_PRICE: i64 = 15_000_000_000;

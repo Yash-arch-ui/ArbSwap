@@ -9,6 +9,11 @@ const LEVELS: usize = 6;
 const ACTIVE: u8 = 0;
 const PAUSED: u8 = 1;
 const WIND_DOWN: u8 = 2;
+/// Hard cap on the outermost ladder offset, in bps, independent of the keeper
+/// payload (F-04). With the anchor binding below, no executed level can sit
+/// further than `max_spread_bps + this` from the oracle price.
+const MAX_LEVEL_OFFSET_BPS: u32 = 500;
+const BPS_DENOM: u32 = 10_000;
 
 #[program]
 pub mod arbswap {
@@ -425,6 +430,57 @@ pub mod arbswap {
                 .all(|l| l.sqrt_lo > 0 && l.sqrt_lo < l.sqrt_hi && l.liquidity > 0),
             ErrorCode::InvalidLadder
         );
+        // F-04: bind the executed ladder to the oracle anchor so a compromised
+        // or buggy keeper cannot quote arbitrarily bad prices. Every level's
+        // implied price must lie inside the anchor widened by the declared
+        // spread, the directional add-on and the outermost offset, and the
+        // reservation must stay within `max_inventory_bps` of the anchor.
+        require!(
+            update.offsets_bps[LEVELS - 1] <= MAX_LEVEL_OFFSET_BPS,
+            ErrorCode::InvalidLadder
+        );
+        let anchor_price =
+            arb_math::price_from_sqrt(update.anchor_sqrt_price).map_err(|_| ErrorCode::InvalidPrice)?;
+        require!(anchor_price > 0, ErrorCode::InvalidPrice);
+        let outer = update.offsets_bps[LEVELS - 1];
+        let ask_band = update
+            .half_spread_bps
+            .saturating_add(update.ask_extra_bps)
+            .saturating_add(outer)
+            .min(MAX_LEVEL_OFFSET_BPS);
+        let bid_band = update
+            .half_spread_bps
+            .saturating_add(update.bid_extra_bps)
+            .saturating_add(outer)
+            .min(MAX_LEVEL_OFFSET_BPS);
+        let upper = arb_math::mul_div_ceil(anchor_price, (BPS_DENOM + ask_band) as u128, BPS_DENOM as u128)
+            .ok_or(ErrorCode::MathOverflow)?;
+        let lower = arb_math::mul_div_floor(
+            anchor_price,
+            (BPS_DENOM - bid_band.min(BPS_DENOM - 1)) as u128,
+            BPS_DENOM as u128,
+        )
+        .ok_or(ErrorCode::MathOverflow)?;
+        let reservation =
+            arb_math::price_from_sqrt(update.p_res_sqrt).map_err(|_| ErrorCode::InvalidPrice)?;
+        let inventory = ctx.accounts.config.max_inventory_bps.min(BPS_DENOM - 1);
+        let res_upper =
+            arb_math::mul_div_ceil(anchor_price, (BPS_DENOM + inventory) as u128, BPS_DENOM as u128)
+                .ok_or(ErrorCode::MathOverflow)?;
+        let res_lower =
+            arb_math::mul_div_floor(anchor_price, (BPS_DENOM - inventory) as u128, BPS_DENOM as u128)
+                .ok_or(ErrorCode::MathOverflow)?;
+        require!(
+            reservation <= res_upper && reservation >= res_lower,
+            ErrorCode::InventoryOutOfBounds
+        );
+        for level in update.levels.iter() {
+            let lo =
+                arb_math::price_from_sqrt(level.sqrt_lo).map_err(|_| ErrorCode::InvalidPrice)?;
+            let hi =
+                arb_math::price_from_sqrt(level.sqrt_hi).map_err(|_| ErrorCode::InvalidPrice)?;
+            require!(lo >= lower && hi <= upper, ErrorCode::LevelOutOfBounds);
+        }
         let quote = &mut ctx.accounts.quote_state;
         quote.version = quote
             .version
@@ -1091,6 +1147,10 @@ pub enum ErrorCode {
     InvalidWeights,
     #[msg("Invalid ladder")]
     InvalidLadder,
+    #[msg("Level outside the anchor band")]
+    LevelOutOfBounds,
+    #[msg("Reservation outside the inventory band")]
+    InventoryOutOfBounds,
     #[msg("Invalid price")]
     InvalidPrice,
     #[msg("Invalid status")]
