@@ -36,11 +36,15 @@ The 99.991% variance-share figure appears in the **original** LVR paper v6
 (abstract, §1, §7.2) — no "secondary report" needed. σ²/8 for constant product is
 Example 3; narrow-liquidity LVR/V → ∞ (Master Plan R3) is Example 4.
 
-## A-05. Solana update-cost economics — VERIFIED
+## A-05. Solana update-cost economics — VERIFIED (measured 2026-10-07)
 propAMM paper §7.1: median updates 485–676 CU (Solana) vs ≥16,938 CU for a swap;
 HumidiFi reported ~300 → 47 CU per update. The <1,000 CU target in Build Plan
-§2.5 is conservative. Formal confirmation that ArbSwap's update + swap fit the
-CU limit remains a P2/P3 build-time test (Build Plan §17.14).
+§2.5 is conservative. **Measured on the built program (LiteSVM, 2026-10-07):**
+`update_quote` 12,802 CU, `swap` 33,676 CU (was 201,119 before the Task 2
+division rewrite), `trip_breaker` 7,051 CU. Both fit the 200,000 CU transaction
+default. The update is still ~19–26× the paper's propAMM median, so the "cheap
+update" claim is *not* supported for `update_quote`; it is dominated by Anchor
+account validation, not the ladder math (ASSUMPTIONS A-17).
 
 ## A-06. New prior art to read before demo — SKIMMED, deep read still OPEN
 **arXiv:2609.33799** — *Oracle-Parametrized Constant Function Market Makers*
@@ -174,7 +178,7 @@ gates.
   (mean 0.76 s) is a **HEURISTIC** — not measured on Solana. Replace with a
   live-mempool measurement before any P4 claim.
 - **Costs:** compute units are *measured* in LiteSVM (update 12,802 CU; swap
-  201,119 CU) → VERIFIED; `base_fee_lamports = 5000` is the protocol parameter;
+  33,676 CU) → VERIFIED; `base_fee_lamports = 5000` is the protocol parameter;
   `priority_micro_lamports_per_cu = 1000` is a **HEURISTIC** (priority fees are
   set by a leader auction). Gas and priority are converted to quote at the
   current reference SOL price.
@@ -208,3 +212,27 @@ gates.
    re-runs `__post_init__`, reseeding it). Regression:
    `test_run_venues_gives_every_venue_its_own_fresh_oracle`. The evaluate and S2
    phases were re-run; the headline E1 moved from ≈+290% to ≈+375%.
+
+## A-17. Task 2 compute-unit reduction — VERIFIED (measured 2026-10-07)
+The `swap` instruction cost 201,119 CU, above Solana's 200,000 CU transaction
+default, so every swap needed a `ComputeBudgetProgram` bump (audit F-05).
+Root cause: `arb_math::wide::U256::div_rem` was a restoring shift-subtract that
+always ran **256** single-bit rounds, and `U256::isqrt` ran ~96 rounds; both sit
+under every Q64.64 operation the ladder walk uses.
+- `div_rem` is now **Knuth Algorithm D** over 64-bit limbs (normalise, one
+  quotient limb per `u64`, estimate and correct `q_hat`, multiply-subtract).
+- `isqrt` is now **Newton's method** seeded from the bit length
+  (`x = 1 << ceil(bits/2)`), stopped at the first non-decreasing step — the
+  integer algorithm documented in the Python `math.isqrt` notes.
+Both return **bit-identical** results to the old routines, which is asserted by
+a differential fuzz test (`tests/properties.rs`: 20,000 random 1–4-limb
+dividends, 5,000 u128-range cases, and hand-picked edges); the Python↔Rust
+golden vectors are unchanged.
+
+Measured effect (LiteSVM, rebuilt SBF program): **`swap` 201,119 → 33,676 CU**
+(6.0×) and **`trip_breaker` 10,051 → 7,051 CU**, both now inside the 200,000
+default; `update_quote` is **unchanged at 12,802 CU** because it does not walk
+the ladder — it is dominated by Anchor account validation and Pyth verification,
+which live in the program, not `arb-math`. Consequence: no caller needs a
+compute-budget bump, and `research/sim/costs.py` `CU_SWAP` is 33,676. The "cheap
+update" claim is still **not** supported for `update_quote`.

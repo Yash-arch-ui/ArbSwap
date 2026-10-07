@@ -23,8 +23,10 @@ LAMPORTS_PER_SOL = 1_000_000_000.0
 BASE_FEE_LAMPORTS = 5_000
 
 # Measured on LiteSVM against the built program (docs/SECURITY_CHECKLIST.md).
+# `CU_SWAP` was 201,119 before the Task 2 division rewrite (`wide.rs` Knuth
+# Algorithm D); the swap instruction is now well inside the 200,000 CU default.
 CU_UPDATE_QUOTE = 12_802
-CU_SWAP = 201_119
+CU_SWAP = 33_676
 
 # Heuristic: a mid-priority keeper lands inside one or two slots most of the
 # time, with a thin tail when the network is congested. Probabilities sum to 1.

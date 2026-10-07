@@ -43,6 +43,113 @@ fn le(a: U256, b: U256) -> bool {
     a.cmp(&b) != Ordering::Greater
 }
 
+/// The original restoring shift-subtract division, kept only as an oracle for
+/// the Knuth Algorithm D implementation now in `wide.rs`.
+fn div_rem_reference(dividend: U256, divisor: U256) -> Option<(U256, U256)> {
+    if divisor.is_zero() {
+        return None;
+    }
+    let mut quotient = U256::ZERO;
+    let mut remainder = U256::ZERO;
+    let mut i = 256;
+    while i > 0 {
+        i -= 1;
+        remainder = remainder.shl(1);
+        if dividend.shr(i).0[0] & 1 == 1 {
+            remainder = remainder.checked_add(&U256::ONE).unwrap();
+        }
+        quotient = quotient.shl(1);
+        if remainder.cmp(&divisor) != Ordering::Less {
+            remainder = remainder.wrapping_sub(&divisor);
+            quotient = quotient.checked_add(&U256::ONE).unwrap();
+        }
+    }
+    Some((quotient, remainder))
+}
+
+fn u256_from_limbs(l0: u64, l1: u64, l2: u64, l3: u64) -> U256 {
+    U256([l0, l1, l2, l3])
+}
+
+#[test]
+fn division_matches_the_restoring_reference_on_edges() {
+    let max = u64::MAX;
+    let cases = [
+        (U256::ZERO, U256::ONE),
+        (U256::ZERO, u256_from_limbs(0, 0, 0, 1)),
+        (U256::ONE, U256::ONE),
+        (U256::ONE, u256_from_limbs(max, max, max, max)),
+        (u256_from_limbs(max, max, max, max), U256::ONE),
+        (u256_from_limbs(max, max, max, max), u256_from_limbs(max, max, max, max)),
+        (u256_from_limbs(0, 0, 0, 1), u256_from_limbs(1, 0, 0, 0)),
+        (u256_from_limbs(0, 0, 1, 0), u256_from_limbs(0, 0, 0, 1)),
+        (u256_from_limbs(5, 0, 0, 0), u256_from_limbs(2, 0, 0, 0)),
+        // Exact multiples at each limb boundary.
+        (u256_from_limbs(0, 0, 0, 3), u256_from_limbs(0, 0, 0, 3)),
+        (u256_from_limbs(0, 0, 0, 3), u256_from_limbs(0, 0, 0, 2)),
+        (u256_from_limbs(0, 7, 0, 0), u256_from_limbs(0, 1, 0, 0)),
+        (U256::ONE.shl(128), U256::ONE.shl(64)),
+        (U256::ONE.shl(200), u256_from_limbs(1, 1, 0, 0)),
+    ];
+    for (dividend, divisor) in cases {
+        assert_eq!(
+            dividend.div_rem(divisor),
+            div_rem_reference(dividend, divisor),
+            "dividend {dividend:?} divisor {divisor:?}"
+        );
+    }
+    assert_eq!(U256::ONE.div_rem(U256::ZERO), None);
+}
+
+#[test]
+fn division_matches_the_restoring_reference_on_random_inputs() {
+    let mut rng = Lcg(0xD1_71DE);
+    for _ in 0..20_000 {
+        // Build dividends and divisors with 1..=4 significant limbs so every
+        // Knuth D branch (including single-limb divisors and 4-limb divisors) is
+        // exercised.
+        let d_limbs = rng.range(1, 5) as usize;
+        let v_limbs = rng.range(1, d_limbs as u128 + 1) as usize;
+        let mut dividend = [0u64; 4];
+        let mut divisor = [0u64; 4];
+        for i in 0..d_limbs {
+            dividend[i] = rng.next();
+        }
+        for i in 0..v_limbs {
+            divisor[i] = rng.next();
+        }
+        if divisor[v_limbs - 1] == 0 {
+            divisor[v_limbs - 1] = 1;
+        }
+        let dividend = U256(dividend);
+        let divisor = U256(divisor);
+        let fast = dividend.div_rem(divisor);
+        let slow = div_rem_reference(dividend, divisor);
+        assert_eq!(fast, slow, "dividend {dividend:?} divisor {divisor:?}");
+        let (_, remainder) = fast.unwrap();
+        assert!(remainder.cmp(&divisor) == Ordering::Less);
+    }
+}
+
+#[test]
+fn division_matches_the_restoring_reference_for_u128_ranges() {
+    // The hot on-chain call sites divide a 256-bit product by a `u128`, so
+    // sweep that shape densely.
+    let mut rng = Lcg(0xBEEF);
+    for _ in 0..5_000 {
+        let a = rng.range(0, 1u128 << 120) as u128;
+        let b = rng.range(1, 1u128 << 64) as u128;
+        let dividend = U256::mul_u128(a, b);
+        let divisor = U256::from_u128(rng.range(1, 1u128 << 100) as u128);
+        assert_eq!(
+            dividend.div_rem(divisor),
+            div_rem_reference(dividend, divisor),
+            "dividend {dividend:?} divisor {divisor:?}"
+        );
+    }
+}
+
+
 #[test]
 fn sqrt_is_the_exact_floor() {
     let mut rng = Lcg(1);

@@ -81,12 +81,13 @@ P2 oracle verification:
   |---|---|
   | `update_quote` | 12,802 |
   | `trip_breaker` | 7,051 |
-  | `swap` | 201,119 |
+  | `swap` | 33,676 |
 
-  `swap` exceeds the 200,000 CU transaction default, so callers must attach a
-  `ComputeBudgetProgram` instruction requesting at least ~250,000 CU. The
-  dominant cost is the 256-iteration restoring division in
-  `arb_math::wide::U256::div_rem`, used by the Q64.64 ladder walk.
+  Every instruction fits the 200,000 CU transaction default. `swap` was
+  201,119 CU before the Task 2 rewrite of `arb_math::wide::U256::div_rem`
+  (256-round restoring shift-subtract → Knuth Algorithm D over 64-bit limbs)
+  and `U256::isqrt` (bit-wise restoring → Newton's method seeded from the bit
+  length), both bit-identical to the previous routines.
 - A token-funded fixture (`tests/litesvm_lifecycle.rs`) drives deposit →
   `update_quote` → swap → expiry/breaker/reset → withdraw/crank/claim in one
   LiteSVM instance and asserts per-holder and global value conservation,
@@ -137,7 +138,7 @@ P3 remaining deployment boundary:
 | P2 native tests | Complete | `cargo test --workspace` |
 | P2 security/expiry integration | Complete | LiteSVM SBF tests: expiry breaker, Pyth verification, Token-2022 rejection |
 | P2 token-funded lifecycle | Complete | `tests/litesvm_lifecycle.rs`: deposit/quote/swap/breaker/withdraw + value conservation |
-| P2 CU measurements | Complete | `update_quote` 12,802 / `trip_breaker` 7,051 / `swap` 201,119 |
+| P2 CU measurements | Complete | `update_quote` 12,802 / `trip_breaker` 7,051 / `swap` 33,676 |
 | P2 devnet gate | Pending | On-chain deployment required |
 | P3 keeper core/replay | Complete | keeper unit tests and binary |
 | P3 live sender/devnet parity gate | Pending | RPC transport + differential replay required |

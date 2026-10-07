@@ -182,54 +182,152 @@ impl U256 {
         }
     }
 
-    /// Floor integer square root, using the restoring binary method. Requires
-    /// only shifts, comparisons, addition, and subtraction, so it needs no
-    /// 512-bit division.
+    /// Floor integer square root.
+    ///
+    /// Newton's method seeded from the bit length, stopped at the first
+    /// non-decreasing step — the integer algorithm documented in the Python
+    /// `math.isqrt` notes. Seeded at or above the true root, it is monotone
+    /// decreasing and lands exactly on `floor(sqrt(value))`; the differential
+    /// property test asserts the same bracket as the reference.
     pub fn isqrt(value: U256) -> U256 {
         if value.is_zero() {
             return U256::ZERO;
         }
-        // Largest even exponent not exceeding bit_length - 1: 4^floor((bl-1)/2).
-        let bl = value.bit_length();
-        let mut bit = U256::ONE.shl((bl - 1) / 2 * 2);
-        let mut remainder = value;
-        let mut result = U256::ZERO;
-        while !bit.is_zero() {
-            let candidate = result.wrapping_add(&bit);
-            if remainder.cmp(&candidate) != Ordering::Less {
-                remainder = remainder.wrapping_sub(&candidate);
-                result = result.shr(1).wrapping_add(&bit);
-            } else {
-                result = result.shr(1);
+        let mut x = U256::ONE.shl((value.bit_length() + 1) / 2);
+        loop {
+            // value / x, floored. `x` is non-zero by construction.
+            let quotient = value.div_rem(x).expect("x is non-zero").0;
+            let y = x.wrapping_add(&quotient).shr(1);
+            if y.cmp(&x) != Ordering::Less {
+                return x;
             }
-            bit = bit.shr(2);
+            x = y;
         }
-        result
     }
 
     /// Checked floor division: `(quotient, remainder)`; `None` when `divisor`
-    /// is zero. Binary long division over the 256-bit width, so it never needs
-    /// a wider temporary.
+    /// is zero.
+    ///
+    /// Knuth Algorithm D over 64-bit limbs (base `2^64`), so a 256-bit division
+    /// costs a few dozen limb operations instead of the 256 single-bit
+    /// shift-subtract rounds the first implementation used. The result is
+    /// bit-identical to that restoring method; `tests/properties.rs` fuzzes the
+    /// two against each other.
     pub fn div_rem(self, divisor: U256) -> Option<(U256, U256)> {
         if divisor.is_zero() {
             return None;
         }
-        let dividend = self;
-        let mut quotient = U256::ZERO;
-        let mut remainder = U256::ZERO;
-        let mut i = 256;
-        while i > 0 {
-            i -= 1;
-            remainder = remainder.shl(1);
-            if dividend.shr(i).0[0] & 1 == 1 {
-                remainder = remainder.wrapping_add(&U256::ONE);
+        if self.cmp(&divisor) == Ordering::Less {
+            return Some((U256::ZERO, self));
+        }
+
+        // Significant limbs in the divisor (1..=4); the dividend is non-zero
+        // and at least the divisor here, so the quotient is non-zero.
+        let mut n = 4usize;
+        while divisor.0[n - 1] == 0 {
+            n -= 1;
+        }
+
+        // D1: normalise so the divisor's top limb has its high bit set.
+        let shift = divisor.0[n - 1].leading_zeros();
+
+        // u carries one extra limb; v is padded to four limbs.
+        let mut u = [0u64; 5];
+        u[..4].copy_from_slice(&self.0);
+        let mut v = [0u64; 4];
+        v[..n].copy_from_slice(&divisor.0[..n]);
+        if shift > 0 {
+            let mut carry = 0u64;
+            for limb in u.iter_mut() {
+                let value = *limb;
+                *limb = (value << shift) | carry;
+                carry = value >> (64 - shift);
             }
-            quotient = quotient.shl(1);
-            if remainder.cmp(&divisor) != Ordering::Less {
-                remainder = remainder.wrapping_sub(&divisor);
-                quotient = quotient.wrapping_add(&U256::ONE);
+            let mut carry = 0u64;
+            for limb in v[..n].iter_mut() {
+                let value = *limb;
+                *limb = (value << shift) | carry;
+                carry = value >> (64 - shift);
             }
         }
-        Some((quotient, remainder))
+
+        const BASE: u128 = 1 << 64;
+        const LOW_MASK: u128 = (1 << 64) - 1;
+        let mut quotient = [0u64; 4];
+
+        // D2-D7: one quotient limb per step, most significant first.
+        let mut j = 4 - n;
+        loop {
+            // D3: estimate the quotient limb from the top two limbs.
+            let top = ((u[j + n] as u128) << 64) | (u[j + n - 1] as u128);
+            let mut q_hat = top / (v[n - 1] as u128);
+            let mut r_hat = top % (v[n - 1] as u128);
+            loop {
+                let too_big = q_hat >= BASE
+                    || (n >= 2
+                        && q_hat * (v[n - 2] as u128)
+                            > ((r_hat << 64) | (u[j + n - 2] as u128)));
+                if !too_big {
+                    break;
+                }
+                q_hat -= 1;
+                r_hat += v[n - 1] as u128;
+                if r_hat >= BASE {
+                    break;
+                }
+            }
+            debug_assert!(q_hat < BASE, "quotient limb estimate escaped u64");
+
+            // D4: multiply the divisor by q_hat and subtract from u.
+            let mut borrow: u128 = 0;
+            let mut carry: u128 = 0;
+            for i in 0..n {
+                let product = q_hat * (v[i] as u128) + carry;
+                carry = product >> 64;
+                let low = product & LOW_MASK;
+                let value = u[j + i] as u128;
+                if value < low + borrow {
+                    u[j + i] = (value + BASE - low - borrow) as u64;
+                    borrow = 1;
+                } else {
+                    u[j + i] = (value - low - borrow) as u64;
+                    borrow = 0;
+                }
+            }
+            let value = u[j + n] as u128;
+            let negative = value < carry + borrow;
+            u[j + n] = value.wrapping_sub(carry).wrapping_sub(borrow) as u64;
+
+            if negative {
+                // D6: the estimate was one too large; add the divisor back.
+                q_hat -= 1;
+                let mut carry: u128 = 0;
+                for i in 0..n {
+                    let sum = (u[j + i] as u128) + (v[i] as u128) + carry;
+                    u[j + i] = sum as u64;
+                    carry = sum >> 64;
+                }
+                u[j + n] = u[j + n].wrapping_add(carry as u64);
+            }
+
+            quotient[j] = q_hat as u64;
+            if j == 0 {
+                break;
+            }
+            j -= 1;
+        }
+
+        // D8: the remainder is the low `n` limbs, un-normalised.
+        let mut remainder = [0u64; 4];
+        remainder[..n].copy_from_slice(&u[..n]);
+        if shift > 0 {
+            let mut carry = 0u64;
+            for i in (0..n).rev() {
+                let value = remainder[i];
+                remainder[i] = (value >> shift) | carry;
+                carry = value << (64 - shift);
+            }
+        }
+        Some((U256(quotient), U256(remainder)))
     }
 }

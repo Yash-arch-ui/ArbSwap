@@ -21,7 +21,7 @@
 | SBF execution | LiteSVM executes the built program | Pass |
 | Token-funded full lifecycle | Deposit → update_quote → swap → expiry/breaker/reset → withdraw/crank/claim in one LiteSVM fixture with global value conservation (`tests/litesvm_lifecycle.rs`) | Pass |
 | Live RPC/private-key keeper | Deployment transport and devnet run | Open |
-| CU measurements | LiteSVM `compute_units_consumed`: `update_quote` 12,802, `trip_breaker` 7,051, `swap` 201,119 | Pass |
+| CU measurements | LiteSVM `compute_units_consumed`: `update_quote` 12,802, `trip_breaker` 7,051, `swap` 33,676 | Pass |
 | Foreign program rejection | Token-2022 owned accounts rejected by `Program<Token>` before the instruction body | Pass |
 
 ## Compute budget
@@ -34,13 +34,17 @@ CU to *measure* true consumption rather than hitting the ceiling.
 |---|---|
 | `update_quote` | 12,802 |
 | `trip_breaker` | 7,051 |
-| `swap` | 201,119 |
+| `swap` | 33,676 |
 
-`swap` exceeds the 200,000 CU transaction default, so a caller must attach a
-`ComputeBudgetProgram` instruction requesting at least ~250,000 CU (mainnet
-maximum per transaction is 1,400,000). Every other instruction fits the
-default. The dominant cost is the 256-iteration restoring division in
-`arb_math::wide::U256::div_rem`, used by the Q64.64 ladder walk.
+Every instruction now fits the 200,000 CU transaction default, so no caller
+needs a `ComputeBudgetProgram` bump. After the Task 2 division rewrite,
+`swap` fell 201,119 → 33,676 CU and `trip_breaker` 10,051 → 7,051 CU:
+`arb_math::wide::U256::div_rem` was a 256-round restoring shift-subtract and is
+now Knuth Algorithm D over 64-bit limbs, and `U256::isqrt` is Newton's method
+seeded from the bit length. Both are bit-identical to the old routines
+(differential fuzz test in `crates/arb-math/tests/properties.rs`).
+`update_quote` is unchanged at 12,802 CU: it does not walk the ladder and is
+dominated by Anchor account validation and Pyth verification.
 
 No mainnet or funded deployment is approved while the Live RPC/private-key
 keeper row remains Open.
