@@ -236,6 +236,7 @@ impl Fixture {
             share_lock_kp,
             params,
         };
+        fixture.initialize_program(&keys.admin);
         fixture.initialize_vault(&keys.admin);
         set_token_account(
             &mut fixture.svm,
@@ -247,6 +248,59 @@ impl Fixture {
         fixture
     }
 
+    fn program_config(&self) -> Address {
+        pda(&[b"program"], &self.program_id).0
+    }
+
+    fn trip_breaker(&mut self, payer: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::TripBreaker {},
+            arbswap::accounts::TripBreaker {
+                vault: self.vault,
+                quote_state: self.quote_state,
+            },
+        );
+        send(&mut self.svm, &[payer], instruction)
+    }
+
+    fn reset_breaker(&mut self, admin: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::ResetBreaker {},
+            arbswap::accounts::ResetBreaker {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+            },
+        );
+        send(&mut self.svm, &[admin], instruction)
+    }
+
+    fn crank_epoch(&mut self, payer: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::CrankEpoch {},
+            arbswap::accounts::CrankEpoch {
+                vault: self.vault,
+                config: self.config,
+            },
+        );
+        send(&mut self.svm, &[payer], instruction)
+    }
+
+    fn initialize_program(&mut self, admin: &Keypair) {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::InitializeProgram {},
+            arbswap::accounts::InitializeProgram {
+                admin: to_address(admin.pubkey()),
+                program_config: self.program_config(),
+                system_program: anchor_lang::system_program::ID,
+            },
+        );
+        send(&mut self.svm, &[admin], instruction).expect("initialize_program failed");
+    }
+
     fn initialize_vault(&mut self, admin: &Keypair) {
         let instruction = ix(
             self.program_id,
@@ -255,6 +309,7 @@ impl Fixture {
             },
             arbswap::accounts::InitializeVault {
                 admin: to_address(admin.pubkey()),
+                program_config: self.program_config(),
                 vault: self.vault,
                 config: self.config,
                 quote_state: self.quote_state,
@@ -607,8 +662,7 @@ fn pyth_account_owner_must_be_the_receiver_program() {
     let keys = Keys::new();
     let mut fixture = Fixture::new(&keys);
     let impostor = fixture.program_id;
-    let forged =
-        fixture.post_pyth_owned_by(impostor, PYTH_PRICE, 1, PUBLISH_TIME);
+    let forged = fixture.post_pyth_owned_by(impostor, PYTH_PRICE, 1, PUBLISH_TIME);
     assert_anchor_error(
         fixture.update_quote(&keys.keeper, forged, quote_update(SLOT)),
         "AccountOwnedByWrongProgram",
@@ -639,9 +693,7 @@ fn wind_down_is_admin_only_and_pauses_quotes() {
     let keys = Keys::new();
     let mut fixture = Fixture::new(&keys);
     assert_anchor_error(fixture.wind_down(&keys.lp), "Unauthorized");
-    fixture
-        .wind_down(&keys.admin)
-        .expect("admin may wind down");
+    fixture.wind_down(&keys.admin).expect("admin may wind down");
     assert_eq!(fixture.vault_state().status, 2, "WIND_DOWN");
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
     assert_anchor_error(
@@ -753,10 +805,7 @@ fn donation_cannot_mint_zero_shares() {
     // A one-atom deposit would round to zero shares; it must be rejected, not
     // accepted for free.
     let shares_before = token_amount(&fixture.svm, fixture.lp_shares);
-    assert_anchor_error(
-        fixture.deposit(&keys.lp, 1, 1, 0),
-        "InvalidAmount",
-    );
+    assert_anchor_error(fixture.deposit(&keys.lp, 1, 1, 0), "InvalidAmount");
     assert_eq!(token_amount(&fixture.svm, fixture.lp_shares), shares_before);
 }
 
@@ -781,6 +830,148 @@ fn params_change_is_timelocked() {
         .apply_params(&keys.admin)
         .expect("apply after the timelock");
     assert_eq!(fixture.config_state().fee_bps, 5);
+}
+
+/// The program admin is claimed once; a second claim must fail.
+#[test]
+fn initialize_program_is_one_time() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let instruction = ix(
+        fixture.program_id,
+        arbswap::instruction::InitializeProgram {},
+        arbswap::accounts::InitializeProgram {
+            admin: to_address(keys.lp.pubkey()),
+            program_config: fixture.program_config(),
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    assert!(
+        send(&mut fixture.svm, &[&keys.lp], instruction).is_err(),
+        "the program config PDA must not be re-initialized"
+    );
+}
+
+/// Admin-only controls cannot be driven by a non-admin.
+#[test]
+fn admin_only_controls_reject_non_admins() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    assert_anchor_error(fixture.reset_breaker(&keys.lp), "Unauthorized");
+    assert_anchor_error(fixture.wind_down(&keys.lp), "Unauthorized");
+    assert_anchor_error(
+        fixture.set_params(
+            &keys.lp,
+            arbswap::ParamsUpdate {
+                fee_bps: 1,
+                ..Default::default()
+            },
+        ),
+        "Unauthorized",
+    );
+}
+
+/// The epoch crank is time-gated and permissionless.
+#[test]
+fn crank_epoch_before_its_interval_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    assert_anchor_error(fixture.crank_epoch(&keys.trader), "EpochNotReached");
+}
+
+/// Slippage, version and size guards on `swap`, all on one quoted vault.
+#[test]
+fn swap_enforces_slippage_version_and_size() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+
+    assert_anchor_error(
+        fixture.swap(&keys.trader, AMOUNT_IN, u64::MAX, 1),
+        "SlippageExceeded",
+    );
+    assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, 0, 2), "VersionTooOld");
+    assert_anchor_error(
+        fixture.swap(&keys.trader, MAX_QUOTE_SIZE + 1, 0, 1),
+        "CapacityExceeded",
+    );
+}
+
+/// An expired quote stops swaps.
+#[test]
+fn swap_rejects_expired_quote() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    let expiry = fixture.quote_state_value().expiry_slot;
+    fixture.warp_to_slot(expiry + 1);
+    assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, 0, 1), "QuoteExpired");
+}
+
+/// A wound-down vault stops swaps.
+#[test]
+fn swap_stops_after_wind_down() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    fixture.wind_down(&keys.admin).expect("wind down");
+    assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, 0, 1), "Paused");
+}
+
+/// Account substitution: a withdraw request must use a token account of the
+/// vault's share mint, not an attacker-chosen account.
+#[test]
+fn request_withdraw_rejects_a_foreign_share_account() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    // A token account owned by the LP but of the *base* mint.
+    let foreign = Address::new_unique();
+    set_token_account(
+        &mut fixture.svm,
+        foreign,
+        fixture.base_mint,
+        keys.lp.pubkey(),
+        1_000,
+    );
+    let instruction = ix(
+        fixture.program_id,
+        arbswap::instruction::RequestWithdraw { shares: 1 },
+        arbswap::accounts::RequestWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            share_lock: fixture.share_lock,
+            deposit_ticket: fixture.deposit_ticket,
+            user_shares: foreign,
+            withdraw_ticket: fixture.withdraw_ticket,
+            token_program: token_program_id(),
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    assert_anchor_error(
+        send(&mut fixture.svm, &[&keys.lp], instruction),
+        "ConstraintRaw",
+    );
 }
 
 /// Token-2022 owned accounts must be rejected by the classic `Program<Token>`

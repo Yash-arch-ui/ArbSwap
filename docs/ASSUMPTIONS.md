@@ -301,3 +301,25 @@ Security tests added (`programs/arbswap/tests/litesvm_lifecycle.rs`):
   signs the transaction and exposes `LiveSender` (the caller injects the RPC
   submit closure). The signed bytes and account order are unit-tested offline;
   a funded devnet submission has not been performed (no keys/RPC here).
+
+## A-20. Phase 2 completion — attack vectors closed (2026-10-07)
+Additional vectors found in a full instruction/account review and closed:
+- **Initialize front-run:** `initialize_vault` derives the vault PDA from the
+  mint pair alone, so anyone could have squatted it. A one-time
+  `initialize_program` now claims a program admin, and `initialize_vault`
+  requires `program_config.admin == admin`. Tests:
+  `litesvm_security.rs::only_the_program_admin_can_initialize_a_vault`,
+  `a_non_admin_cannot_initialize_a_vault`, `initialize_program_is_one_time`.
+- **Account substitution on withdrawal:** `RequestBody.user_shares` now also
+  constrains `mint == vault.share_mint` (was owner-only).
+  Test: `request_withdraw_rejects_a_foreign_share_account`.
+- **Admin-only controls:** `reset_breaker`, `wind_down`, `set_params` reject
+  non-admins (`admin_only_controls_reject_non_admins`); `crank_epoch` is
+  time-gated and permissionless by design; `swap` enforces slippage, version,
+  size, expiry and pause (`swap_enforces_slippage_version_and_size`,
+  `swap_rejects_expired_quote`, `swap_stops_after_wind_down`).
+Every account in every instruction is now constrained by PDA seed, address,
+owner and mint. Arithmetic is checked (`arb-math`/`checked_*`); there are no
+`remaining_accounts` and no arbitrary CPI. The only remaining P2 gate item is
+the funded **devnet deploy + initialize_program**, scripted in
+`scripts/devnet_deploy.sh`.

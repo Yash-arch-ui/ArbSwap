@@ -215,8 +215,7 @@ fn put_u128(out: &mut Vec<u8>, value: u128) {
 ///
 /// `previous_price_q64 == 0` means there is no prior tick and both are zero.
 /// `coeff_bps` is the dimensionless coefficient in bps (`10_000` == 1.0).
-fn directional_addon(price_q64: u128, previous_price_q64: u128,
-                     coeff_bps: u32) -> (u32, u32) {
+fn directional_addon(price_q64: u128, previous_price_q64: u128, coeff_bps: u32) -> (u32, u32) {
     if previous_price_q64 == 0 || price_q64 == 0 {
         return (0, 0);
     }
@@ -276,23 +275,33 @@ pub fn compute_quote(
     // Keep sub-basis-point resolution: `coeff * sigma_fraction * 10^4`. The old
     // form floored sigma to whole bps first and then divided by 10^4 again, so
     // the volatility term was always zero for realistic sigma (audit F-09).
-    let vol_term_bps =
-        mul_div(sigma.saturating_mul(params.volatility_coeff_bps as u128), BPS, Q64)?;
+    let vol_term_bps = mul_div(
+        sigma.saturating_mul(params.volatility_coeff_bps as u128),
+        BPS,
+        Q64,
+    )?;
     let confidence_term_bps =
         (params.confidence_coeff_bps as u128).saturating_mul(tick.confidence_bps as u128) / BPS;
-    let age_term_bps =
-        (params.age_coeff_bps as u128).saturating_mul(age.saturating_sub(params.grace_slots) as u128);
+    let age_term_bps = (params.age_coeff_bps as u128)
+        .saturating_mul(age.saturating_sub(params.grace_slots) as u128);
     let raw_spread = (params.spread_floor_bps as u128)
         .saturating_add(vol_term_bps)
         .saturating_add(confidence_term_bps)
         .saturating_add(age_term_bps)
-        .saturating_add(if state.jump { params.jump_extra_bps as u128 } else { 0 });
+        .saturating_add(if state.jump {
+            params.jump_extra_bps as u128
+        } else {
+            0
+        });
     let spread = raw_spread
         .min(params.spread_max_bps as u128)
         .max(params.spread_min_bps as u128);
 
-    let (ask_extra_bps, bid_extra_bps) =
-        directional_addon(tick.price_q64, previous_price_q64, params.directional_coeff_bps);
+    let (ask_extra_bps, bid_extra_bps) = directional_addon(
+        tick.price_q64,
+        previous_price_q64,
+        params.directional_coeff_bps,
+    );
     let ask_spread = spread.saturating_add(ask_extra_bps as u128);
 
     // Depth throttle (Section 5.9): min(sigma-target factor, confidence factor,
@@ -459,8 +468,7 @@ pub fn build_update_quote_transaction(
         ),
         update_quote,
     ];
-    let mut transaction =
-        Transaction::new_with_payer(&instructions, Some(&plan.keeper));
+    let mut transaction = Transaction::new_with_payer(&instructions, Some(&plan.keeper));
     transaction.sign(&[keeper], plan.recent_blockhash.clone());
     transaction
 }

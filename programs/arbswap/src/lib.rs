@@ -21,7 +21,23 @@ const TIMELOCK_SLOTS: u64 = 216_000;
 pub mod arbswap {
     use super::*;
 
+    /// One-time deployer bootstrap. Claims the program admin role so a
+    /// subsequent `initialize_vault` cannot be front-run for a mint pair
+    /// (the vault PDA is derived from the mints alone).
+    pub fn initialize_program(ctx: Context<InitializeProgram>) -> Result<()> {
+        ctx.accounts.program_config.admin = ctx.accounts.admin.key();
+        ctx.accounts.program_config.bump = ctx.bumps.program_config;
+        emit!(ProgramInitialized {
+            admin: ctx.accounts.admin.key()
+        });
+        Ok(())
+    }
+
     pub fn initialize_vault(ctx: Context<InitializeVault>, params: InitParams) -> Result<()> {
+        require!(
+            ctx.accounts.program_config.admin == ctx.accounts.admin.key(),
+            ErrorCode::Unauthorized
+        );
         require!(
             params.base_mint != params.quote_mint,
             ErrorCode::InvalidMint
@@ -187,13 +203,15 @@ pub mod arbswap {
         let (pull_base, pull_quote) = if total_shares == 0 {
             (base_amount, quote_amount)
         } else {
-            let needed_base =
-                ceil_div_u128(shares as u128 * base_net as u128, total_shares as u128)
-                    .min(base_amount as u128) as u64;
+            let needed_base = ceil_div_u128(shares as u128 * base_net as u128, total_shares as u128)
+                .min(base_amount as u128) as u64;
             let needed_quote =
                 ceil_div_u128(shares as u128 * quote_net as u128, total_shares as u128)
                     .min(quote_amount as u128) as u64;
-            require!(needed_base > 0 && needed_quote > 0, ErrorCode::InvalidAmount);
+            require!(
+                needed_base > 0 && needed_quote > 0,
+                ErrorCode::InvalidAmount
+            );
             (needed_base, needed_quote)
         };
         token::transfer(ctx.accounts.base_transfer_ctx(), pull_base)?;
@@ -475,8 +493,8 @@ pub mod arbswap {
             update.offsets_bps[LEVELS - 1] <= MAX_LEVEL_OFFSET_BPS,
             ErrorCode::InvalidLadder
         );
-        let anchor_price =
-            arb_math::price_from_sqrt(update.anchor_sqrt_price).map_err(|_| ErrorCode::InvalidPrice)?;
+        let anchor_price = arb_math::price_from_sqrt(update.anchor_sqrt_price)
+            .map_err(|_| ErrorCode::InvalidPrice)?;
         require!(anchor_price > 0, ErrorCode::InvalidPrice);
         let outer = update.offsets_bps[LEVELS - 1];
         let ask_band = update
@@ -489,8 +507,12 @@ pub mod arbswap {
             .saturating_add(update.bid_extra_bps)
             .saturating_add(outer)
             .min(MAX_LEVEL_OFFSET_BPS);
-        let upper = arb_math::mul_div_ceil(anchor_price, (BPS_DENOM + ask_band) as u128, BPS_DENOM as u128)
-            .ok_or(ErrorCode::MathOverflow)?;
+        let upper = arb_math::mul_div_ceil(
+            anchor_price,
+            (BPS_DENOM + ask_band) as u128,
+            BPS_DENOM as u128,
+        )
+        .ok_or(ErrorCode::MathOverflow)?;
         let lower = arb_math::mul_div_floor(
             anchor_price,
             (BPS_DENOM - bid_band.min(BPS_DENOM - 1)) as u128,
@@ -500,12 +522,18 @@ pub mod arbswap {
         let reservation =
             arb_math::price_from_sqrt(update.p_res_sqrt).map_err(|_| ErrorCode::InvalidPrice)?;
         let inventory = ctx.accounts.config.max_inventory_bps.min(BPS_DENOM - 1);
-        let res_upper =
-            arb_math::mul_div_ceil(anchor_price, (BPS_DENOM + inventory) as u128, BPS_DENOM as u128)
-                .ok_or(ErrorCode::MathOverflow)?;
-        let res_lower =
-            arb_math::mul_div_floor(anchor_price, (BPS_DENOM - inventory) as u128, BPS_DENOM as u128)
-                .ok_or(ErrorCode::MathOverflow)?;
+        let res_upper = arb_math::mul_div_ceil(
+            anchor_price,
+            (BPS_DENOM + inventory) as u128,
+            BPS_DENOM as u128,
+        )
+        .ok_or(ErrorCode::MathOverflow)?;
+        let res_lower = arb_math::mul_div_floor(
+            anchor_price,
+            (BPS_DENOM - inventory) as u128,
+            BPS_DENOM as u128,
+        )
+        .ok_or(ErrorCode::MathOverflow)?;
         require!(
             reservation <= res_upper && reservation >= res_lower,
             ErrorCode::InventoryOutOfBounds
@@ -918,6 +946,12 @@ pub struct PendingConfig {
     pub params: ParamsUpdate,
     pub bump: u8,
 }
+/// Singleton program admin, seeded `[b"program"]` (set once at deploy).
+#[account]
+pub struct ProgramConfig {
+    pub admin: Pubkey,
+    pub bump: u8,
+}
 #[account]
 pub struct QuoteState {
     pub version: u64,
@@ -967,6 +1001,8 @@ pub struct WithdrawTicket {
 pub struct InitializeVault<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
+    #[account(seeds=[b"program"], bump = program_config.bump)]
+    pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
     #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*3 + 2*4 + 8*6 + 4*4 + 8 + 4 + 1)]
@@ -1050,7 +1086,7 @@ pub struct RequestWithdraw<'info> {
     pub share_lock: Box<Account<'info, TokenAccount>>,
     #[account(seeds=[b"dep",vault.key().as_ref(),user.key().as_ref()],bump=deposit_ticket.bump)]
     pub deposit_ticket: Box<Account<'info, DepositTicket>>,
-    #[account(mut, constraint=user_shares.owner==user.key())]
+    #[account(mut, constraint=user_shares.owner==user.key(), constraint=user_shares.mint==vault.share_mint)]
     pub user_shares: Box<Account<'info, TokenAccount>>,
     #[account(init_if_needed, payer=user, space=8+32+8+8+1, seeds=[b"wd", vault.key().as_ref(), user.key().as_ref()], bump)]
     pub withdraw_ticket: Box<Account<'info, WithdrawTicket>>,
@@ -1174,6 +1210,15 @@ pub struct WindDown<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeProgram<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(init, payer = admin, space = 8 + 32 + 1, seeds=[b"program"], bump)]
+    pub program_config: Account<'info, ProgramConfig>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct SetParams<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -1289,6 +1334,11 @@ pub struct ParamsProposed {
 #[event]
 pub struct ParamsApplied {
     pub slot: u64,
+}
+
+#[event]
+pub struct ProgramInitialized {
+    pub admin: Pubkey,
 }
 
 #[error_code]

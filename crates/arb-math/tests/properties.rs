@@ -80,7 +80,10 @@ fn division_matches_the_restoring_reference_on_edges() {
         (U256::ONE, U256::ONE),
         (U256::ONE, u256_from_limbs(max, max, max, max)),
         (u256_from_limbs(max, max, max, max), U256::ONE),
-        (u256_from_limbs(max, max, max, max), u256_from_limbs(max, max, max, max)),
+        (
+            u256_from_limbs(max, max, max, max),
+            u256_from_limbs(max, max, max, max),
+        ),
         (u256_from_limbs(0, 0, 0, 1), u256_from_limbs(1, 0, 0, 0)),
         (u256_from_limbs(0, 0, 1, 0), u256_from_limbs(0, 0, 0, 1)),
         (u256_from_limbs(5, 0, 0, 0), u256_from_limbs(2, 0, 0, 0)),
@@ -148,7 +151,6 @@ fn division_matches_the_restoring_reference_for_u128_ranges() {
         );
     }
 }
-
 
 #[test]
 fn sqrt_is_the_exact_floor() {

@@ -33,8 +33,13 @@ fn main() {
     }
 }
 
-fn single_quote(price: String, base: String, quote: String, previous: Option<String>,
-                base_scale: Option<String>) {
+fn single_quote(
+    price: String,
+    base: String,
+    quote: String,
+    previous: Option<String>,
+    base_scale: Option<String>,
+) {
     let tick = OracleTick {
         slot: 1,
         publish_time: 1,

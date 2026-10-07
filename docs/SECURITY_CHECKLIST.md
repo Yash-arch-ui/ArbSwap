@@ -10,6 +10,8 @@
 | Pyth freshness | Pyth publish time checked against configured maximum age | Pass |
 | Pyth price/confidence | Decoded Q64 price and confidence must equal instruction fields; `oracle_confidence_must_match_the_payload` isolates the equality check | Pass |
 | Token-2022 rejection | Instructions require the classic `Program<Token>`; Token-2022 is not accepted | Pass for unsupported extensions |
+| Initialize front-run | `initialize_program` claims the program admin once; only that admin may `initialize_vault`, so a vault PDA cannot be squatted (`litesvm_security.rs`) | Pass |
+| Account substitution | Every token account is constrained by owner and mint (deposit/withdraw/swap/claim); `request_withdraw_rejects_a_foreign_share_account` | Pass |
 | Duplicate mutable accounts | Address/mint/owner constraints on reserve and user accounts | Pass in declared contexts |
 | Reinitialization | `init`/PDA constraints prevent account reuse | Pass in declared contexts |
 | Checked arithmetic | `checked_*`, `arb-math`, bounded conversions | Pass |

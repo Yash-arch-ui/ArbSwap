@@ -193,7 +193,7 @@ impl U256 {
         if value.is_zero() {
             return U256::ZERO;
         }
-        let mut x = U256::ONE.shl((value.bit_length() + 1) / 2);
+        let mut x = U256::ONE.shl(value.bit_length().div_ceil(2));
         loop {
             // value / x, floored. `x` is non-zero by construction.
             let quotient = value.div_rem(x).expect("x is non-zero").0;
@@ -265,8 +265,7 @@ impl U256 {
             loop {
                 let too_big = q_hat >= BASE
                     || (n >= 2
-                        && q_hat * (v[n - 2] as u128)
-                            > ((r_hat << 64) | (u[j + n - 2] as u128)));
+                        && q_hat * (v[n - 2] as u128) > ((r_hat << 64) | (u[j + n - 2] as u128)));
                 if !too_big {
                     break;
                 }
