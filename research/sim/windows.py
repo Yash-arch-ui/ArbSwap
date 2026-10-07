@@ -169,3 +169,132 @@ def pre_registration_markdown() -> str:
     )
     lines.append("")
     return "\n".join(lines)
+
+
+# --- Execution protocol (amendment; see pre_registration_amendment_markdown) ---
+
+HOURS_PER_WINDOW = 168
+CALIBRATION_BLOCK_COUNT = 12
+CALIBRATION_BLOCK_SECONDS = 3_600
+# One-hour slice used by the slot and latency studies: 12:00-13:00 UTC on day
+# index 3 of each window (day 4 of the week).
+SLICE_HOUR_OF_WINDOW = 3 * 24 + 12
+CALIBRATION_SEED = 20261006
+HEADLINE_STEP_SECONDS = 0.4
+SOURCE_STEP_SECONDS = 1.0
+SLOT_SECONDS = 0.4
+KEEPER_INTERVAL_SECONDS = 1.0
+SENSITIVITY_STEP_SECONDS: tuple[float, ...] = (1.0, 0.1)
+SLOT_STUDY_SECONDS: tuple[float, ...] = (0.4, 0.6, 1.0)
+LATENCY_STUDY_SECONDS: tuple[float, ...] = (0.05, 0.2, 0.4, 1.0)
+SENSITIVITY_SEEDS: tuple[int, ...] = (20261006, 20261007, 20261008, 20261009, 20261010)
+
+
+def calibration_block_hours(count: int = CALIBRATION_BLOCK_COUNT) -> tuple[int, ...]:
+    """Hour-of-week index of each calibration block.
+
+    ``floor(k * 168 / count)`` spreads the blocks evenly over the whole week, so
+    night and day, weekday and weekend, are all represented without reading a
+    single price.
+    """
+    if count < 1 or count > HOURS_PER_WINDOW:
+        raise ValueError("block count must be in [1, 168]")
+    return tuple((k * HOURS_PER_WINDOW) // count for k in range(count))
+
+
+def window_hour_slice(window: Window) -> tuple[int, int]:
+    """Half-open hour range of the pre-registered study slice inside ``window``."""
+    start = SLICE_HOUR_OF_WINDOW
+    return start, start + 1
+
+
+def pre_registration_amendment_markdown() -> str:
+    """The execution protocol, fixed before any W1-W6 simulation is run.
+
+    The window rule above was already registered; this amendment fixes the
+    *how*: clock, calibration subsample, grid, objective, metrics and studies.
+    It is rendered into ``docs/P1_RESULTS.md`` ahead of every result table.
+    """
+    block_hours = calibration_block_hours()
+    lines = [
+        "## Pre-registration amendment (execution protocol)",
+        "",
+        "Committed before any W1-W6 simulation was run. The window rule above is "
+        "unchanged; this fixes the execution choices the original registration "
+        "left open. Everything not listed here follows the defaults in "
+        "`research/sim/engine.py` and `docs/ASSUMPTIONS.md` A-15.",
+        "",
+        "### 1. Clock",
+        "",
+        "| Parameter | Value |",
+        "|---|---|",
+        f"| headline simulation step | {HEADLINE_STEP_SECONDS} s (one slot) |",
+        f"| reference (source) sample | {SOURCE_STEP_SECONDS} s causal staircase |",
+        f"| slot length | {SLOT_SECONDS} s |",
+        f"| keeper update interval | {KEEPER_INTERVAL_SECONDS} s |",
+        f"| clock sensitivity runs | {', '.join(f'{s} s' for s in SENSITIVITY_STEP_SECONDS)} "
+        "(reported, never headline) |",
+        "",
+        "A coarser clock gives the arbitrageur fewer reaction opportunities, so a "
+        "1 s clock **understates** adverse selection (direction of the bias, "
+        "documented in ASSUMPTIONS A-15).",
+        "",
+        "### 2. Calibration (W1 only)",
+        "",
+        f"- **Blocks:** {CALIBRATION_BLOCK_COUNT} one-hour blocks of W1 at hour "
+        f"{', '.join(str(h) for h in block_hours)} of the week "
+        "(`floor(k*168/12)`, evenly spaced, chosen without reading a price).",
+        "- **Grid:** 81 candidates = 3 `spread_floor` x 3 `inventory_coeff` x "
+        "3 `volatility_coeff` x 3 `sigma_target`.",
+        "- **Score:** mean over the 12 blocks of "
+        "`hedged PnL - 1.0 x quiet-flow half-spread (bps)`, at the headline "
+        "clock, with measured CU costs debited from the vault.",
+        f"- **Seed:** {CALIBRATION_SEED} for every candidate, so candidates are "
+        "compared on identical flow draws.",
+        "- **Tie-break:** higher score, then smaller `inventory_coeff`, then "
+        "smaller `volatility_coeff`, then smaller `spread_floor`.",
+        "- The winner is frozen and used unchanged for W2-W6. W1 is never a "
+        "headline row.",
+        "",
+        "### 3. Held-out evaluation (W2-W6)",
+        "",
+        f"All five windows, all five venues, headline clock, seed "
+        f"{CALIBRATION_SEED}. Per window: hedged PnL, E1 vs B1, 2 s markout, "
+        "quiet half-spread, quote-versus-fill gap, trades, rejections / fill "
+        "rate, quote turnover, keeper update gas + priority per update and per "
+        "hour, and theory LVR of the passive pool's liquidity.",
+        "",
+        "Across windows the summary reports the equal-weighted mean, median, "
+        "best, worst and the **count of windows where ArbSwap >= B1** — never a "
+        "single pooled number, so the answer cannot depend on a hidden regime mix.",
+        "",
+        "### 4. Studies",
+        "",
+        "| ID | Study | Design |",
+        "|---|---|---|",
+        f"| S1 | clock sensitivity | W2-W6 at "
+        f"{', '.join(f'{s} s' for s in SENSITIVITY_STEP_SECONDS)}, ArbSwap and B1 |",
+        f"| S2 | slot length | `slot_seconds` in "
+        f"{', '.join(f'{s} s' for s in SLOT_STUDY_SECONDS)} on the study slice of "
+        "each labelled window |",
+        f"| S3 | oracle latency | {', '.join(f'{s} s' for s in LATENCY_STUDY_SECONDS)} "
+        "on a 100 ms aggTrades reference, same slices |",
+        f"| S4 | seed sensitivity | seeds {', '.join(str(s) for s in SENSITIVITY_SEEDS)} "
+        "on W2, ArbSwap and B1 |",
+        "| S5 | regime mix | per-window E1 plus mean / median / best / worst / win count |",
+        "",
+        "The study slice is **12:00-13:00 UTC on day 4 of each window** (hour "
+        f"{SLICE_HOUR_OF_WINDOW} of the week), fixed here without reading a price.",
+        "",
+        "### 5. What is *not* claimed",
+        "",
+        "- Flow (noise and informed) is synthetic; only the price path is real. "
+        "Markout, spread and PnL are therefore model outputs, not measurements of "
+        "live order flow.",
+        "- The priority-fee rate and the landing-delay distribution are heuristics "
+        "(ASSUMPTIONS A-15), so absolute PnL carries that uncertainty; "
+        "venue-vs-venue comparisons share it.",
+        "- A window in which ArbSwap loses is reported as a loss.",
+        "",
+    ]
+    return "\n".join(lines)

@@ -3,6 +3,10 @@
 Tune on earlier windows, test on later ones, freeze parameters before the test
 window. The objective is hedged PnL on the training fold minus a penalty for
 quiet-flow half-spread, so we do not accidentally reward toxic-flow harvesting.
+
+The registered protocol (pre-registration amendment, ``research/sim/windows.py``)
+calibrates on **12 pre-registered one-hour blocks of W1** at the headline clock,
+scores each candidate as the mean over blocks, and freezes the winner for W2-W6.
 """
 
 from __future__ import annotations
@@ -12,11 +16,19 @@ from typing import Callable, Iterable
 
 from research.reference.quote_math import QuoteParams
 from research.sim.engine import SimResult, simulate
+from research.sim.experiments import RunConfig
 from research.sim.flow import InformedFlow, NoiseFlow
 from research.sim.metrics import hedged_pnl, retail_half_spread_bps
 from research.sim.oracle import OracleModel
 from research.sim.price_source import PricePoint
 from research.sim.venues import VaultVenue
+
+# The registered grid: 3 x 3 x 3 x 3 = 81 candidates.
+SPREAD_FLOORS: tuple[float, ...] = (0.00005, 0.0001, 0.0002)
+INVENTORY_COEFFS: tuple[float, ...] = (0.0002, 0.0005, 0.001)
+VOLATILITY_COEFFS: tuple[float, ...] = (0.5, 1.0, 2.0)
+SIGMA_TARGETS: tuple[float, ...] = (0.00005, 0.0001, 0.0002)
+RISK_PENALTY = 1.0
 
 
 @dataclass(frozen=True)
@@ -46,8 +58,14 @@ def walk_forward_folds(points: list[PricePoint], *, folds: int = 3,
 
 def objective(params: QuoteParams, points: list[PricePoint], *,
               noise: NoiseFlow, informed: InformedFlow,
-              risk_penalty: float = 1.0) -> float:
-    """Score = hedged PnL - risk_penalty * quiet-flow half-spread."""
+              risk_penalty: float = RISK_PENALTY,
+              config: RunConfig | None = None) -> float:
+    """Score = hedged PnL - risk_penalty * quiet-flow half-spread (bps).
+
+    Runs at the pre-registered clock with measured CU costs debited from the
+    vault, so a candidate is scored exactly the way it will be evaluated.
+    """
+    config = config or RunConfig()
     venue = VaultVenue(params=params)
     result = simulate(
         venue_name="candidate",
@@ -56,6 +74,7 @@ def objective(params: QuoteParams, points: list[PricePoint], *,
         oracle=OracleModel(),
         noise=noise,
         informed=informed,
+        **config.simulate_kwargs(),
     )
     pnl = hedged_pnl(result.value_path, result.base_path, result.price_path)
     spread = _retail_spread(result)
@@ -68,7 +87,27 @@ def _retail_spread(result: SimResult) -> float:
     def price_at(second: int):
         return by_second.get(second)
 
-    return retail_half_spread_bps(result.trades, price_at)
+    return retail_half_spread_bps(result.trades, price_at,
+                                  step_seconds=result.step_seconds)
+
+
+def grid_candidates(base: QuoteParams | None = None) -> list[QuoteParams]:
+    """The registered 81-candidate grid, enumerated in a fixed order."""
+    base = base or QuoteParams()
+    return [
+        replace(
+            base,
+            spread_floor=floor,
+            spread_min=min(base.spread_min, floor),
+            inventory_coeff=inventory,
+            volatility_coeff=volatility,
+            sigma_target=sigma_target,
+        )
+        for floor in SPREAD_FLOORS
+        for inventory in INVENTORY_COEFFS
+        for volatility in VOLATILITY_COEFFS
+        for sigma_target in SIGMA_TARGETS
+    ]
 
 
 def grid_search(base: QuoteParams, *, spread_floors: Iterable[float],
@@ -94,10 +133,82 @@ def grid_search(base: QuoteParams, *, spread_floors: Iterable[float],
     return [(params, 0.0) for params in candidates]
 
 
+@dataclass(frozen=True)
+class CalibrationResult:
+    """The frozen winner plus the evidence that selected it."""
+
+    params: QuoteParams
+    score: float
+    per_block_scores: tuple[float, ...]
+    per_candidate_scores: tuple[float, ...]
+    block_hours: tuple[int, ...]
+
+    @property
+    def runner_up_score(self) -> float:
+        return sorted(self.per_candidate_scores, reverse=True)[1] \
+            if len(self.per_candidate_scores) > 1 else self.score
+
+
+def _selection_key(item: tuple[QuoteParams, float]):
+    """Best score first; on a tie prefer the smaller, more conservative coefficients."""
+    params, score = item
+    return (-score, params.inventory_coeff, params.volatility_coeff, params.spread_floor)
+
+
+def calibrate_blocks(blocks: list[list[PricePoint]], *,
+                     block_hours: tuple[int, ...],
+                     base: QuoteParams | None = None,
+                     config: RunConfig | None = None,
+                     objective_fn: Callable[[QuoteParams, list[PricePoint]], float] | None = None,
+                     ) -> CalibrationResult:
+    """Score every grid candidate on every block and freeze the winner.
+
+    ``objective_fn`` (signature ``(params, points) -> float``) may be supplied
+    for tests; production always uses :func:`objective` at the headline clock.
+    """
+    if not blocks:
+        raise ValueError("calibration needs at least one block")
+    if len(blocks) != len(block_hours):
+        raise ValueError("one hour label is required per block")
+    config = config or RunConfig()
+    noise = NoiseFlow(seed=config.seed)
+    informed = InformedFlow()
+
+    def score(params: QuoteParams) -> float:
+        if objective_fn is not None:
+            values = [objective_fn(params, block) for block in blocks]
+        else:
+            values = [objective(params, block, noise=noise, informed=informed,
+                                config=config) for block in blocks]
+        return sum(values) / len(values)
+
+    scored: list[tuple[QuoteParams, float]] = [
+        (params, score(params)) for params in grid_candidates(base)
+    ]
+    scored.sort(key=_selection_key)
+    winner, best = scored[0]
+    per_block = tuple(
+        objective_fn(winner, block) if objective_fn is not None
+        else objective(winner, block, noise=noise, informed=informed, config=config)
+        for block in blocks
+    )
+    return CalibrationResult(
+        params=winner,
+        score=best,
+        per_block_scores=per_block,
+        per_candidate_scores=tuple(s for _, s in scored),
+        block_hours=block_hours,
+    )
+
+
 def calibrate(points: list[PricePoint], *, folds: int = 3,
               objective_fn: Callable[[QuoteParams, list[PricePoint]], float] | None = None,
               **kwargs) -> tuple[QuoteParams, list[float]]:
-    """Run walk-forward selection and return the frozen parameters + test scores."""
+    """Run walk-forward selection and return the frozen parameters + test scores.
+
+    Kept for the synthetic-report path; the registered real-data protocol uses
+    :func:`calibrate_blocks`.
+    """
     base = kwargs.pop("base", QuoteParams())
     folds_data = walk_forward_folds(points, folds=folds)
     chosen = base
@@ -106,11 +217,12 @@ def calibrate(points: list[PricePoint], *, folds: int = 3,
     for fold in folds_data:
         grid = grid_search(
             chosen,
-            spread_floors=(0.00005, 0.0001, 0.0002),
-            inventory_coeffs=(0.0002, 0.0005, 0.001),
-            volatility_coeffs=(0.5, 1.0, 2.0),
+            spread_floors=SPREAD_FLOORS,
+            inventory_coeffs=INVENTORY_COEFFS,
+            volatility_coeffs=VOLATILITY_COEFFS,
         )
         scored = [(params, objective_fn(params, fold.train)) for params, _ in grid]
-        chosen = max(scored, key=lambda pair: pair[1])[0]
+        scored.sort(key=_selection_key)
+        chosen = scored[0][0]
         test_scores.append(objective_fn(chosen, fold.test))
     return chosen, test_scores

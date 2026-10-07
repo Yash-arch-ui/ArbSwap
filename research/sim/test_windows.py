@@ -7,11 +7,15 @@ from datetime import timedelta
 from research.sim.windows import (
     CALIBRATION_WINDOW,
     REGIMES,
+    SLICE_HOUR_OF_WINDOW,
     TEST_WINDOWS,
     WINDOWS,
     WindowStats,
     assign_regimes,
+    calibration_block_hours,
+    pre_registration_amendment_markdown,
     pre_registration_markdown,
+    window_hour_slice,
 )
 
 
@@ -76,3 +80,32 @@ def test_pre_registration_lists_every_window_date():
     test_rows = [line for line in text.splitlines()
                  if line.startswith("| W") and "held-out test" in line]
     assert len(test_rows) == 5
+
+
+def test_calibration_blocks_are_evenly_spaced_and_inside_the_week():
+    hours = calibration_block_hours()
+    assert hours == (0, 14, 28, 42, 56, 70, 84, 98, 112, 126, 140, 154)
+    assert len(set(hours)) == len(hours) == 12
+    assert all(0 <= hour < 168 for hour in hours)
+    gaps = {later - earlier for earlier, later in zip(hours, hours[1:])}
+    assert gaps == {14}, "blocks must be evenly spaced across the week"
+
+
+def test_study_slice_is_fixed_without_reading_a_price():
+    assert SLICE_HOUR_OF_WINDOW == 84
+    for window in WINDOWS:
+        start, end = window_hour_slice(window)
+        assert (start, end) == (84, 85)
+
+
+def test_amendment_freezes_the_clock_grid_and_studies():
+    text = pre_registration_amendment_markdown()
+    assert "before any W1-W6 simulation was run" in text
+    assert "0.4 s (one slot)" in text
+    assert "81 candidates" in text
+    assert "12 one-hour blocks" in text
+    assert "0, 14, 28, 42, 56, 70, 84, 98, 112, 126, 140, 154" in text
+    assert "count of windows where ArbSwap >= B1" in text
+    for study in ("S1", "S2", "S3", "S4", "S5"):
+        assert f"| {study} |" in text
+    assert "A window in which ArbSwap loses is reported as a loss." in text

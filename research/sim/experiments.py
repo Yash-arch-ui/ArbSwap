@@ -11,7 +11,7 @@ Baselines (Build Plan §8.2):
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from research.reference.quote_math import QuoteParams
 from research.sim.costs import CostModel
@@ -27,9 +27,48 @@ from research.sim.metrics import (
 from research.sim.oracle import OracleModel
 from research.sim.price_source import PricePoint, Regime, synthetic_series
 from research.sim.venues import PassivePool, VaultVenue
+from research.sim.windows import (
+    CALIBRATION_SEED,
+    HEADLINE_STEP_SECONDS,
+    KEEPER_INTERVAL_SECONDS,
+    SLOT_SECONDS,
+    SOURCE_STEP_SECONDS,
+)
 
 VENUE_ORDER = ("B1_passive", "B2_fixed_spread", "B3_no_throttle",
                "B4_no_honesty", "ArbSwap")
+
+
+@dataclass(frozen=True)
+class RunConfig:
+    """Pre-registered clock, seed and cost settings for a batch of runs.
+
+    Defaults come from ``research/sim/windows.py`` (the pre-registration
+    amendment), so any run that forgets to choose a clock still lands on the
+    registered one.
+    """
+
+    seed: int = CALIBRATION_SEED
+    step_seconds: float = HEADLINE_STEP_SECONDS
+    source_step_seconds: float = SOURCE_STEP_SECONDS
+    slot_seconds: float = SLOT_SECONDS
+    keeper_update_interval_seconds: float = KEEPER_INTERVAL_SECONDS
+    costs: CostModel = field(default_factory=CostModel)
+
+    def replace(self, **kwargs) -> "RunConfig":
+        from dataclasses import replace as _replace
+
+        return _replace(self, **kwargs)
+
+    def simulate_kwargs(self) -> dict:
+        return {
+            "seed": self.seed,
+            "step_seconds": self.step_seconds,
+            "source_step_seconds": self.source_step_seconds,
+            "slot_seconds": self.slot_seconds,
+            "keeper_update_interval_seconds": self.keeper_update_interval_seconds,
+            "costs": self.costs,
+        }
 
 
 @dataclass
@@ -42,6 +81,22 @@ class VenueReport:
     sigma: float
     trades: int
     rejects: int
+    turnover_quote: float = 0.0
+    update_count: int = 0
+    update_cost_quote: float = 0.0
+    update_gas_quote: float = 0.0
+    update_priority_quote: float = 0.0
+    swap_cost_quote: float = 0.0
+
+    @property
+    def fill_rate(self) -> float:
+        """Share of attempted fills that executed (1.0 when nothing was tried)."""
+        attempted = self.trades + self.rejects
+        return self.trades / attempted if attempted else 1.0
+
+    @property
+    def cost_per_update_quote(self) -> float:
+        return self.update_cost_quote / self.update_count if self.update_count else 0.0
 
 
 def venue_set(params: QuoteParams, *, passive_fee: float = 0.0001,
@@ -82,29 +137,49 @@ def report(name: str, result: SimResult) -> VenueReport:
         sigma=realized_volatility_per_sqrt_second(result.price_path, step_seconds=step),
         trades=len(result.trades),
         rejects=result.rejects,
+        turnover_quote=sum(trade.quote_amount for trade in result.trades),
+        update_count=result.quote_updates,
+        update_cost_quote=result.update_cost_quote,
+        update_gas_quote=result.update_gas_quote,
+        update_priority_quote=result.update_priority_quote,
+        swap_cost_quote=result.swap_cost_quote,
     )
 
 
 def run_venues(points: list[PricePoint], *, params: QuoteParams,
-               seed: int = 20261006, depth_budget: float = 1.0,
+               config: RunConfig | None = None,
+               depth_budget: float = 1.0,
                noise: NoiseFlow | None = None,
                informed: InformedFlow | None = None,
                passive_fee: float = 0.0001,
                vault_fee_bps: float = 1.0,
                oracle: OracleModel | None = None,
+               seed: int | None = None,
+               step_seconds: float | None = None,
+               source_step_seconds: float | None = None,
+               slot_seconds: float | None = None,
+               keeper_update_interval_seconds: float | None = None,
                costs: CostModel | None = None,
-               step_seconds: float = 1.0,
-               source_step_seconds: float = 1.0,
-               slot_seconds: float = 0.4,
-               keeper_update_interval_seconds: float = 1.0,
                record_quotes: bool = False) -> dict[str, VenueReport]:
     """Run every venue on the same path with the same flow draws.
 
-    All oracle-anchored vaults (B2/B3/B4/ArbSwap) pay the keeper's real
-    measured gas and priority fee; the passive pool B1 has no keeper and pays
-    nothing. Swap transaction costs are recorded on the result but never
-    debited, because the swapper signs that transaction.
+    ``config`` supplies the pre-registered clock/seed/costs; any keyword given
+    explicitly overrides it. All oracle-anchored vaults (B2/B3/B4/ArbSwap) pay
+    the keeper's measured gas and priority fee; the passive pool B1 has no
+    keeper and pays nothing. Swap transaction costs are recorded on the result
+    but never debited, because the swapper signs that transaction.
     """
+    config = config or RunConfig()
+    step_seconds = config.step_seconds if step_seconds is None else step_seconds
+    source_step_seconds = (config.source_step_seconds if source_step_seconds is None
+                           else source_step_seconds)
+    slot_seconds = config.slot_seconds if slot_seconds is None else slot_seconds
+    keeper_update_interval_seconds = (
+        config.keeper_update_interval_seconds if keeper_update_interval_seconds is None
+        else keeper_update_interval_seconds)
+    costs = config.costs if costs is None else costs
+    seed = config.seed if seed is None else seed
+
     noise = noise or NoiseFlow(seed=seed)
     informed = informed or InformedFlow()
     oracle = oracle or OracleModel()
