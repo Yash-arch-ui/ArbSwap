@@ -23,9 +23,11 @@ backtest describes the product.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import math
+from dataclasses import dataclass, field, replace
 
 from research.reference.quote_math import (
+    LadderLevel,
     Quote,
     QuoteParams,
     VolatilityState,
@@ -214,6 +216,13 @@ class VaultVenue:
         fee = amount_in * self.fee_bps / 10_000.0
         net_in = amount_in - fee
         output, _, _ = walk_ladder(levels, net_in, flow_n=0.0)
+        # The ladder was sized from the reserves at the last refresh; several
+        # fills can land before the next one. Never pay out more than the vault
+        # actually holds — on chain this is an insufficient-liquidity failure.
+        if side == "buy" and output > self.base:
+            raise ValueError("insufficient base reserve")
+        if side == "sell" and output > self.quote:
+            raise ValueError("insufficient quote reserve")
 
         quoted_out = _output_for(self.displayed_quote, side, amount_in, self.fee_bps)
         if (
@@ -235,8 +244,56 @@ class VaultVenue:
         """Average execution price of a single fill, without mutating state."""
         return self._preview_fill(side, amount_in)[1]
 
+    def _consume(self, side: str, net_in: float) -> None:
+        """Remove the filled capacity from the displayed ladder.
+
+        On chain a swap moves the stored quote and every later swap in the same
+        quote window sees the remaining depth. Without this, ``preview``/``fill``
+        would keep re-walking the original ladder and a fast arbitrageur could
+        drain the vault many times over between two ``update_quote`` calls.
+        """
+        if self.quote_state is None or net_in <= 0:
+            return
+        is_ask = side == "buy"
+        levels = self.quote_state.asks if is_ask else self.quote_state.bids
+        remaining = net_in
+        updated: list[LadderLevel] = []
+        for level in levels:
+            if remaining <= 1e-15:
+                updated.append(level)
+                continue
+            if is_ask:
+                max_in = level.liquidity * (math.sqrt(level.hi) - math.sqrt(level.lo))
+                used = min(remaining, max_in)
+                if used <= 0:
+                    updated.append(level)
+                    continue
+                remaining -= used
+                if used >= max_in * (1 - 1e-12):
+                    continue
+                new_lo = (math.sqrt(level.lo) + used / level.liquidity) ** 2
+                updated.append(replace(level, lo=new_lo))
+            else:
+                max_in = level.liquidity * (1.0 / math.sqrt(level.lo)
+                                            - 1.0 / math.sqrt(level.hi))
+                used = min(remaining, max_in)
+                if used <= 0:
+                    updated.append(level)
+                    continue
+                remaining -= used
+                if used >= max_in * (1 - 1e-12):
+                    continue
+                new_hi = 1.0 / (1.0 / math.sqrt(level.hi) + used / level.liquidity) ** 2
+                updated.append(replace(level, hi=new_hi))
+        if is_ask:
+            self.quote_state = replace(self.quote_state, asks=tuple(updated))
+        else:
+            self.quote_state = replace(self.quote_state, bids=tuple(updated))
+
     def fill(self, side: str, amount_in: float) -> Fill:
         output, exec_price, gap_bps, quoted_out = self._preview_fill(side, amount_in)
+        fee = amount_in * self.fee_bps / 10_000.0
+        self._consume(side, amount_in - fee)
         if side == "buy":
             self.base -= output
             self.quote += amount_in

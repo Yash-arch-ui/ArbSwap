@@ -153,3 +153,49 @@ and confidence equality. The public breaker uses stored quote expiry only. P3
 still has a deterministic dry-run sender rather than live RPC/private-key
 transport; local lifecycle tests and devnet deployment remain pre-production
 gates.
+
+## A-15. Simulation clock and cost model (Task 1) — CLOCK DECIDED, COST MIX VERIFIED/HEURISTIC
+- **Headline clock:** `step_seconds = 0.4` (Solana slot-native) with
+  `source_step_seconds = 1.0` (the reference series is observed on a 1 s
+  staircase; the vault reacts on a 400 ms grid). 1 s and 0.1 s runs are reported
+  as **clock sensitivity only**, never as headline numbers.
+  *Direction of the bias:* a coarser clock hands the arbitrageur fewer reaction
+  opportunities, so a 1 s clock **understates** adverse selection on a lagging
+  oracle. Measured (synthetic crash, 20 min, seed 4): vault hedged PnL 12.78 at
+  1 s vs 9.64 at 400 ms vs 8.66 at 100 ms — 400 ms and 100 ms have converged,
+  1 s has not. Asserted in `test_simulation_clock_is_a_sensitivity_not_a_free_parameter`.
+- **Slot and landing:** `slot_seconds = 0.4`; keeper decisions sit on a
+  wall-clock grid (multiples of `keeper_update_interval_seconds`) and are taken
+  at the first slot boundary at or after the target, so decision times, decision
+  counts and the order of the landing-delay draws are identical on any
+  simulation clock (`test_keeper_decision_grid_does_not_depend_on_the_simulation_clock`).
+  Landing = `ceil((t + delay) / slot) · slot`.
+  `LANDING_DELAY_SECONDS = ((0.4,0.55),(0.8,0.25),(1.2,0.12),(2.0,0.05),(3.2,0.03))`
+  (mean 0.76 s) is a **HEURISTIC** — not measured on Solana. Replace with a
+  live-mempool measurement before any P4 claim.
+- **Costs:** compute units are *measured* in LiteSVM (update 12,802 CU; swap
+  201,119 CU) → VERIFIED; `base_fee_lamports = 5000` is the protocol parameter;
+  `priority_micro_lamports_per_cu = 1000` is a **HEURISTIC** (priority fees are
+  set by a leader auction). Gas and priority are converted to quote at the
+  current reference SOL price.
+- **Cost attribution:** update gas + priority are debited from the vault's quote
+  on every refresh (the vault pays for its own crank); swap costs are recorded
+  on `SimResult` but **not** debited, because the swapper signs that transaction.
+- **Volatility clock:** the EWMA variance advances on *reference samples*, not on
+  loop iterations, so the spread does not silently change with the simulation
+  clock (bit-identical at `step_seconds = 1.0`).
+
+## A-16. Three simulator defects found and fixed during Task 1 (2026-10-07)
+1. **Displayed-ladder double-spend (high).** `VaultVenue.fill` consumed reserves
+   but left `quote_state` intact, so every fill inside one `update_quote` window
+   re-walked the original ladder and a fast arbitrageur could drain the vault many
+   times between two keeper updates (gross turnover 120,850 on a 100 ms clock vs
+   43,378 on a 400 ms clock). Fixed by `_consume()`, which removes the filled span
+   from the displayed levels. Regression: `test_ladder_capacity_is_spent_once_per_quote_window`.
+2. **Insolvency.** `_preview_fill` raises instead of driving a reserve negative
+   (a negative base reserve previously broke `inventory_imbalance`).
+3. **Zero-profit arbitrage sizing (high).** `_informed_trade` sized to the
+   *average-price* breakeven, producing self-sustaining round trips that donated
+   fees to the passive benchmark (B1 gross turnover ≈ 5.3M/h before the fix,
+   ≈ 237k/h after). Replaced with golden-section maximisation of the *marginal*
+   profit (`reference·out − in` for a buy, `in·(out′ − reference)` for a sell).

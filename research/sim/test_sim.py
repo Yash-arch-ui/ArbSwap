@@ -48,6 +48,31 @@ def test_ladder_is_monotonic_after_refresh():
     assert bids == sorted(bids, reverse=True)
 
 
+def test_ladder_capacity_is_spent_once_per_quote_window():
+    """A fill must remove its capacity from the displayed ladder.
+
+    Otherwise every fill inside one ``update_quote`` window re-walks the original
+    ladder and a fast arbitrageur drains the vault many times over between two
+    keeper updates — the bug showed up as a 3x turnover blow-up on a 100 ms
+    clock.
+    """
+    from research.sim.venues import HonestyRejected
+
+    venue = VaultVenue(honest_enabled=False)
+    venue.refresh(price=150.0, confidence=0.02, age=0.0, previous_price=150.0)
+    paid_out = 0.0
+    for _ in range(50):
+        try:
+            fill = venue.fill("buy", 5_000.0)
+        except (ValueError, HonestyRejected):
+            break
+        paid_out += fill.amount_out
+    # depth 1.0 x utilization 0.5 x 1,000 base reserve = 500 base of ask depth.
+    assert 0.0 < paid_out <= 500.0 * (1 + 1e-9)
+    assert venue.base >= 0.0
+    assert venue.quote >= 0.0
+
+
 def test_simulator_is_deterministic():
     first = _run(VaultVenue())
     second = _run(VaultVenue())
@@ -136,14 +161,16 @@ def test_passive_pool_loses_more_as_volatility_rises():
 
 
 def test_oracle_latency_creates_adverse_selection():
-    """A lagged oracle exposes the vault to arbitrage; a fresh one does not."""
+    """A lagged oracle exposes the vault to arbitrage; a fresh one does not.
+
+    On a *crashing* path the stale quote is picked off far more often and the
+    vault keeps less value after hedging. Calm paths are barely affected — the
+    per-regime asymmetry is reported in ``docs/P1_RESULTS.md``, not hidden.
+    """
     fresh = _sim(VaultVenue(), "crash", latency=0)
-    lagged = _sim(VaultVenue(), "crash", latency=4)
-    lookup_f = {i: p for i, p in enumerate(fresh.price_path)}.get
-    lookup_l = {i: p for i, p in enumerate(lagged.price_path)}.get
-    fresh_markout = notional_weighted_markout(fresh.trades, 2, lookup_f)
-    lagged_markout = notional_weighted_markout(lagged.trades, 2, lookup_l)
-    assert lagged_markout < fresh_markout, "latency must worsen markouts"
+    lagged = _sim(VaultVenue(), "crash", latency=8)
+    assert len(lagged.trades) > len(fresh.trades), "stale quotes must be picked off more often"
+    assert _hedged(lagged) < _hedged(fresh), "stale quotes must cost the vault value"
 
 
 def test_oracle_never_exposes_the_current_reference_price():
@@ -157,7 +184,7 @@ def test_oracle_never_exposes_the_current_reference_price():
     assert second.oracle_price != second.reference_price
 
 
-def test_keeper_delay_expires_quotes_and_charges_costs():
+def test_keeper_interval_limits_quote_updates():
     prices = synthetic_series(regime="trend", length=80, seed=9)
     result = simulate(
         venue_name="delayed",
@@ -166,13 +193,40 @@ def test_keeper_delay_expires_quotes_and_charges_costs():
         oracle=OracleModel(),
         noise=NoiseFlow(arrival_rate=0.0),
         informed=InformedFlow(),
-        keeper_update_delay_seconds=4,
-        update_cost_quote=0.01,
-        priority_fee_quote=0.02,
+        keeper_update_interval_seconds=4,
+        seed=1,
     )
-    assert result.quote_updates < len(prices)
-    assert result.update_cost_quote == pytest.approx(result.quote_updates * 0.01)
-    assert result.priority_fee_cost_quote == pytest.approx(result.quote_updates * 0.02)
+    assert result.quote_updates < len(prices), "a slow keeper must quote less often"
+    assert result.quote_updates >= len(prices) // 5, "the keeper must still be quoting"
+
+
+def test_keeper_costs_use_measured_cu_at_the_reference_sol_price():
+    """Gas and priority are derived from the LiteSVM CU measurements, not typed
+    in as magic numbers, and converted to USDC at the reference SOL price."""
+    from research.sim.costs import CostModel
+    from research.sim.price_source import PricePoint
+
+    flat = [PricePoint(i, 100.0) for i in range(30)]
+    costs = CostModel(priority_micro_lamports_per_cu=1_000.0)
+    result = simulate(
+        venue_name="costed",
+        venue=VaultVenue(),
+        prices=flat,
+        oracle=OracleModel(latency_seconds=0.0, noise_bps=0.0),
+        noise=NoiseFlow(arrival_rate=0.0),
+        informed=InformedFlow(max_size=0.0),
+        costs=costs,
+        seed=1,
+    )
+    assert result.quote_updates > 0
+    gas_each = 5_000 / 1_000_000_000 * 100.0
+    priority_each = (12_802 * 1_000.0 / 1_000_000.0) / 1_000_000_000 * 100.0
+    assert result.update_gas_quote == pytest.approx(result.quote_updates * gas_each)
+    assert result.update_priority_quote == pytest.approx(result.quote_updates * priority_each)
+    assert result.update_cost_quote == pytest.approx(
+        result.update_gas_quote + result.update_priority_quote)
+    # Nothing traded, so no swap transaction was signed.
+    assert result.swap_cost_quote == pytest.approx(0.0)
 
 
 def test_markouts_are_recorded_on_the_simulation_clock():

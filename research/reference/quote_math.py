@@ -61,18 +61,31 @@ class VolatilityState:
     jump_flag: bool = False
 
     def update(self, price: float, *, lam_short: float = 0.94,
-               lam_medium: float = 0.99, jump_multiple: float = 4.0) -> "VolatilityState":
+               lam_medium: float = 0.99, jump_multiple: float = 4.0,
+               step_seconds: float = 1.0) -> "VolatilityState":
+        """One EWMA observation spaced ``step_seconds`` apart from the last one.
+
+        The decay coefficients and the innovation are expressed **per second**,
+        so the estimated variance rate does not depend on the simulation clock
+        (both are unchanged at ``step_seconds == 1``).
+        """
         if price <= 0 or not math.isfinite(price):
             raise ValueError("price must be finite and positive")
+        if step_seconds <= 0:
+            raise ValueError("step_seconds must be positive")
         if self.previous_price is None:
             return replace(self, previous_price=price, jump_flag=False)
         if self.previous_price <= 0:
             raise ValueError("previous price must be positive")
         ret = math.log(price / self.previous_price)
-        short = lam_short * self.variance_short + (1 - lam_short) * ret * ret
-        medium = lam_medium * self.variance_medium + (1 - lam_medium) * ret * ret
+        decay_short = lam_short ** step_seconds
+        decay_medium = lam_medium ** step_seconds
+        innovation = ret * ret / step_seconds
+        short = decay_short * self.variance_short + (1 - decay_short) * innovation
+        medium = decay_medium * self.variance_medium + (1 - decay_medium) * innovation
         sigma = math.sqrt(short)
-        jump = sigma > 0 and abs(ret) > jump_multiple * sigma
+        threshold = jump_multiple * sigma * math.sqrt(step_seconds)
+        jump = sigma > 0 and abs(ret) > threshold
         return VolatilityState(short, medium, price, jump)
 
     @property

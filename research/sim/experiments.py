@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from research.reference.quote_math import QuoteParams
+from research.sim.costs import CostModel
 from research.sim.engine import SimResult, simulate
 from research.sim.flow import InformedFlow, NoiseFlow
 from research.sim.metrics import (
@@ -69,13 +70,16 @@ def _price_lookup(result: SimResult):
 
 def report(name: str, result: SimResult) -> VenueReport:
     lookup = _price_lookup(result)
+    step = result.step_seconds
+    markout_steps = max(1, round(2.0 / step))
     return VenueReport(
         name=name,
         hedged_pnl=hedged_pnl(result.value_path, result.base_path, result.price_path),
-        markout_2s_bps=notional_weighted_markout(result.trades, 2, lookup),
-        quiet_half_spread_bps=retail_half_spread_bps(result.trades, lookup),
+        markout_2s_bps=notional_weighted_markout(result.trades, markout_steps, lookup),
+        quiet_half_spread_bps=retail_half_spread_bps(result.trades, lookup,
+                                                     step_seconds=step),
         gap_bps=notional_weighted_gap(result.trades),
-        sigma=realized_volatility_per_sqrt_second(result.price_path),
+        sigma=realized_volatility_per_sqrt_second(result.price_path, step_seconds=step),
         trades=len(result.trades),
         rejects=result.rejects,
     )
@@ -87,12 +91,23 @@ def run_venues(points: list[PricePoint], *, params: QuoteParams,
                informed: InformedFlow | None = None,
                passive_fee: float = 0.0001,
                vault_fee_bps: float = 1.0,
-               keeper_update_delay_seconds: int = 1,
-               update_cost_quote: float = 0.01,
-               priority_fee_quote: float = 0.001) -> dict[str, VenueReport]:
-    """Run every venue on the same path with the same flow draws."""
+               oracle: OracleModel | None = None,
+               costs: CostModel | None = None,
+               step_seconds: float = 1.0,
+               source_step_seconds: float = 1.0,
+               slot_seconds: float = 0.4,
+               keeper_update_interval_seconds: float = 1.0,
+               record_quotes: bool = False) -> dict[str, VenueReport]:
+    """Run every venue on the same path with the same flow draws.
+
+    All oracle-anchored vaults (B2/B3/B4/ArbSwap) pay the keeper's real
+    measured gas and priority fee; the passive pool B1 has no keeper and pays
+    nothing. Swap transaction costs are recorded on the result but never
+    debited, because the swapper signs that transaction.
+    """
     noise = noise or NoiseFlow(seed=seed)
     informed = informed or InformedFlow()
+    oracle = oracle or OracleModel()
     reports: dict[str, VenueReport] = {}
     for name, venue in venue_set(params, passive_fee=passive_fee,
                                  vault_fee_bps=vault_fee_bps).items():
@@ -100,13 +115,17 @@ def run_venues(points: list[PricePoint], *, params: QuoteParams,
             venue_name=name,
             venue=venue,
             prices=points,
-            oracle=OracleModel(),
+            oracle=oracle,
             noise=noise,
             informed=informed,
             depth_budget=depth_budget,
-            keeper_update_delay_seconds=keeper_update_delay_seconds,
-            update_cost_quote=update_cost_quote if name == "ArbSwap" else 0.0,
-            priority_fee_quote=priority_fee_quote if name == "ArbSwap" else 0.0,
+            costs=costs,
+            step_seconds=step_seconds,
+            source_step_seconds=source_step_seconds,
+            slot_seconds=slot_seconds,
+            keeper_update_interval_seconds=keeper_update_interval_seconds,
+            seed=seed,
+            record_quotes=record_quotes,
         )
         reports[name] = report(name, result)
     return reports

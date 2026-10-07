@@ -41,10 +41,13 @@ def markout_bps(trade: TradeRecord, future_price: float) -> float:
 
 def notional_weighted_markout(trades: list[TradeRecord], horizon: int,
                               price_at) -> float:
-    """Notional-weighted mean markout at ``horizon`` seconds after each fill.
+    """Notional-weighted mean markout ``horizon`` **steps** after each fill.
 
-    ``price_at(second)`` returns the mid at an absolute second.
+    ``price_at(step)`` returns the mid at a simulation step index. Callers on a
+    non-1-second clock pass ``horizon = round(seconds / step_seconds)``.
     """
+    if horizon < 0:
+        raise ValueError("horizon must be non-negative")
     total_weight = 0.0
     total = 0.0
     for trade in trades:
@@ -56,21 +59,26 @@ def notional_weighted_markout(trades: list[TradeRecord], horizon: int,
     return total / total_weight if total_weight else 0.0
 
 
-def is_quiet(trade: TradeRecord, price_at) -> bool:
+def is_quiet(trade: TradeRecord, price_at, *, step_seconds: float = 1.0) -> bool:
     """Quiet flow: reference moved < 1 bps over the trailing 6 seconds."""
-    before = price_at(trade.second - 5)
-    after = price_at(trade.second + 1)
+    if step_seconds <= 0:
+        raise ValueError("step_seconds must be positive")
+    lookback = max(1, round(5.0 / step_seconds))
+    forward = max(1, round(1.0 / step_seconds))
+    before = price_at(trade.second - lookback)
+    after = price_at(trade.second + forward)
     if before is None or after is None or before <= 0:
         return False
     return abs(after - before) / before < 0.0001
 
 
-def retail_half_spread_bps(trades: list[TradeRecord], price_at) -> float:
+def retail_half_spread_bps(trades: list[TradeRecord], price_at, *,
+                           step_seconds: float = 1.0) -> float:
     """Notional-weighted half-spread on quiet fills only."""
     total_weight = 0.0
     total = 0.0
     for trade in trades:
-        if not is_quiet(trade, price_at) or trade.mid_at_fill <= 0:
+        if not is_quiet(trade, price_at, step_seconds=step_seconds) or trade.mid_at_fill <= 0:
             continue
         half = 10_000.0 * abs(trade.exec_price - trade.mid_at_fill) / trade.mid_at_fill
         total += trade.notional * half
@@ -135,8 +143,11 @@ def lvr_discrete(sigma_per_sqrt_second: float, liquidity_value: float,
     return (sigma_per_sqrt_second**2 / 8.0) * liquidity_value * seconds
 
 
-def realized_volatility_per_sqrt_second(prices: list[float]) -> float:
-    """Estimate sigma from a per-second price path via squared log returns."""
+def realized_volatility_per_sqrt_second(prices: list[float], *,
+                                        step_seconds: float = 1.0) -> float:
+    """Estimate sigma per sqrt(second) from a path sampled every ``step_seconds``."""
+    if step_seconds <= 0:
+        raise ValueError("step_seconds must be positive")
     if len(prices) < 2:
         return 0.0
     total = 0.0
@@ -144,4 +155,4 @@ def realized_volatility_per_sqrt_second(prices: list[float]) -> float:
         if previous <= 0 or current <= 0:
             continue
         total += math.log(current / previous) ** 2
-    return math.sqrt(total / (len(prices) - 1))
+    return math.sqrt(total / ((len(prices) - 1) * step_seconds))
