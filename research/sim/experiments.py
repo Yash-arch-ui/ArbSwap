@@ -11,7 +11,7 @@ Baselines (Build Plan §8.2):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from research.reference.quote_math import QuoteParams
 from research.sim.costs import CostModel
@@ -168,6 +168,12 @@ def run_venues(points: list[PricePoint], *, params: QuoteParams,
     the keeper's measured gas and priority fee; the passive pool B1 has no
     keeper and pays nothing. Swap transaction costs are recorded on the result
     but never debited, because the swapper signs that transaction.
+
+    Every venue gets its **own fresh copy** of the oracle (and the same
+    ``NoiseFlow`` seed), so the venues differ only in their quoting logic. A
+    shared ``OracleModel`` is stateful: handing one instance to every venue
+    gives each a different stretch of the noise stream and silently breaks the
+    paired comparison.
     """
     config = config or RunConfig()
     step_seconds = config.step_seconds if step_seconds is None else step_seconds
@@ -182,15 +188,17 @@ def run_venues(points: list[PricePoint], *, params: QuoteParams,
 
     noise = noise or NoiseFlow(seed=seed)
     informed = informed or InformedFlow()
-    oracle = oracle or OracleModel()
+    oracle_template = oracle
     reports: dict[str, VenueReport] = {}
     for name, venue in venue_set(params, passive_fee=passive_fee,
                                  vault_fee_bps=vault_fee_bps).items():
+        venue_oracle = (OracleModel() if oracle_template is None
+                        else replace(oracle_template))
         result = simulate(
             venue_name=name,
             venue=venue,
             prices=points,
-            oracle=oracle,
+            oracle=venue_oracle,
             noise=noise,
             informed=informed,
             depth_budget=depth_budget,

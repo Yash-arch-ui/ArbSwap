@@ -236,3 +236,38 @@ def test_markouts_are_recorded_on_the_simulation_clock():
     lookup = {i: p for i, p in enumerate(result.price_path)}.get
     markout = notional_weighted_markout(result.trades, 2, lookup)
     assert markout != 0.0
+
+
+def test_run_venues_gives_every_venue_its_own_fresh_oracle():
+    """A shared OracleModel is stateful: handing one instance to five venues
+    gives each a different stretch of the noise stream and breaks the paired
+    comparison. ArbSwap must match a standalone run with its own oracle."""
+    from research.sim.experiments import RunConfig, run_venues
+
+    prices = synthetic_series(regime="crash", length=400, seed=7)
+    config = RunConfig()
+    reports = run_venues(prices, params=QuoteParams(), config=config)
+
+    direct = simulate(
+        venue_name="ArbSwap",
+        venue=VaultVenue(params=QuoteParams(), fee_bps=1.0),
+        prices=prices,
+        oracle=OracleModel(),
+        noise=NoiseFlow(seed=config.seed),
+        informed=InformedFlow(),
+        **config.simulate_kwargs(),
+    )
+    expected = hedged_pnl(direct.value_path, direct.base_path, direct.price_path)
+    assert reports["ArbSwap"].hedged_pnl == pytest.approx(expected)
+    assert reports["ArbSwap"].trades == len(direct.trades)
+
+
+def test_run_venues_uses_an_oracle_template_without_mutating_it():
+    from research.sim.experiments import run_venues
+
+    prices = synthetic_series(regime="calm", length=200, seed=7)
+    template = OracleModel(latency_seconds=0.5, noise_bps=4.0)
+    first = run_venues(prices, params=QuoteParams(), oracle=template)
+    assert template.latency_seconds == 0.5 and template.noise_bps == 4.0
+    second = run_venues(prices, params=QuoteParams(), oracle=template)
+    assert first["ArbSwap"].hedged_pnl == pytest.approx(second["ArbSwap"].hedged_pnl)
