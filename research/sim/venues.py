@@ -58,22 +58,51 @@ class PassivePool:
     def price(self) -> float:
         return self.quote / self.base
 
-    def fill(self, side: str, amount_in: float) -> Fill:
+    def preview(self, side: str, amount_in: float) -> float:
+        """Average execution price of a single fill from the current reserves.
+
+        Pure: the pool state is untouched. The informed trader uses this (and
+        :meth:`preview_size`) to size an arbitrage without copying the venue on
+        every bisection probe; the numbers are identical to ``fill`` on a copy.
+        """
         if amount_in <= 0:
             raise ValueError("amount_in must be positive")
         if side == "buy":
-            quote_in = amount_in
-            net = quote_in * (1 - self.fee)
+            net = amount_in * (1 - self.fee)
             base_out = self.base * net / (self.quote + net)
+            if base_out <= 0:
+                raise ZeroDivisionError("no base out")
+            return amount_in / base_out
+        net = amount_in * (1 - self.fee)
+        quote_out = self.quote * net / (self.base + net)
+        return quote_out / amount_in
+
+    def preview_size(self, side: str, amount_in: float) -> tuple[float, float]:
+        """``(amount_out, exec_price)`` for a single fill, without mutating."""
+        if amount_in <= 0:
+            raise ValueError("amount_in must be positive")
+        if side == "buy":
+            net = amount_in * (1 - self.fee)
+            base_out = self.base * net / (self.quote + net)
+            if base_out <= 0:
+                raise ZeroDivisionError("no base out")
+            return base_out, amount_in / base_out
+        net = amount_in * (1 - self.fee)
+        quote_out = self.quote * net / (self.base + net)
+        return quote_out, quote_out / amount_in
+
+    def fill(self, side: str, amount_in: float) -> Fill:
+        if side == "buy":
+            quote_in = amount_in
+            base_out, exec_price = self.preview_size("buy", quote_in)
             self.base -= base_out
             self.quote += quote_in
-            return Fill(side, quote_in, base_out, quote_in / base_out, quote_in, -base_out)
+            return Fill(side, quote_in, base_out, exec_price, quote_in, -base_out)
         base_in = amount_in
-        net = base_in * (1 - self.fee)
-        quote_out = self.quote * net / (self.base + net)
+        quote_out, exec_price = self.preview_size("sell", base_in)
         self.base += base_in
         self.quote -= quote_out
-        return Fill(side, base_in, quote_out, quote_out / base_in, -quote_out, base_in)
+        return Fill(side, base_in, quote_out, exec_price, -quote_out, base_in)
 
 
 class HonestyRejected(ValueError):
@@ -167,7 +196,14 @@ class VaultVenue:
             )
         self.quote_state = quote
 
-    def fill(self, side: str, amount_in: float) -> Fill:
+    def _preview_fill(self, side: str, amount_in: float
+                      ) -> tuple[float, float, float, float | None]:
+        """Pure version of :meth:`fill`: ``(amount_out, exec_price, gap_bps, quoted_out)``.
+
+        Applies exactly the same checks (state present, positive input, ladder
+        walk, honest-execution rejection) but never mutates the venue, so the
+        informed trader can probe prices without copying the object.
+        """
         if self.quote_state is None:
             raise ValueError("refresh must be called before fill")
         if amount_in <= 0:
@@ -192,13 +228,23 @@ class VaultVenue:
             gap_bps = 10_000.0 * (quoted_out - output) / quoted_out
 
         if side == "buy":
+            return output, amount_in / output, gap_bps, quoted_out
+        return output, output / amount_in, gap_bps, quoted_out
+
+    def preview(self, side: str, amount_in: float) -> float:
+        """Average execution price of a single fill, without mutating state."""
+        return self._preview_fill(side, amount_in)[1]
+
+    def fill(self, side: str, amount_in: float) -> Fill:
+        output, exec_price, gap_bps, quoted_out = self._preview_fill(side, amount_in)
+        if side == "buy":
             self.base -= output
             self.quote += amount_in
-            return Fill(side, amount_in, output, amount_in / output, amount_in,
+            return Fill(side, amount_in, output, exec_price, amount_in,
                         -output, quoted_out, gap_bps)
         self.base += amount_in
         self.quote -= output
-        return Fill(side, amount_in, output, output / amount_in, -output, amount_in,
+        return Fill(side, amount_in, output, exec_price, -output, amount_in,
                     quoted_out, gap_bps)
 
     def value(self, reference_price: float) -> float:

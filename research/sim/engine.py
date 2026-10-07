@@ -7,10 +7,8 @@ from a seed and compared across venues B1/B2/B3/B4.
 
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass, field
 
-from research.reference.quote_math import VolatilityState
 from research.sim.flow import InformedFlow, NoiseFlow
 from research.sim.metrics import TradeRecord
 from research.sim.oracle import OracleModel
@@ -144,17 +142,16 @@ def _informed_trade(venue, reference: float, informed) -> tuple[str | None, floa
     A real arbitrageur compares the price they would *execute at* (the venue's
     ask/bid, including spread and impact) to fair value — not the mid — and
     trades only while that execution price beats the reference. Sizing uses a
-    bisection on a deep copy so the live venue is untouched until the caller
-    applies one fill.
+    bisection over the venue's pure ``preview`` (average execution price of a
+    single fill from the current state), so no venue copy is needed; the probe
+    numbers are identical to filling a deep copy.
     """
     if reference <= 0:
         return None, 0.0
-    epsilon = max(reference * 1e-9, 1e-12)
 
     def marginal(side: str) -> float | None:
-        trial = copy.deepcopy(venue)
         try:
-            return trial.fill(side, epsilon).exec_price
+            return venue.preview(side, max(reference * 1e-9, 1e-12))
         except (ValueError, ZeroDivisionError):
             return None
 
@@ -170,9 +167,8 @@ def _informed_trade(venue, reference: float, informed) -> tuple[str | None, floa
     low, high = 0.0, informed.max_size
     for _ in range(18):
         probe = (low + high) / 2.0
-        trial = copy.deepcopy(venue)
         try:
-            price = trial.fill(side, probe).exec_price
+            price = venue.preview(side, probe)
         except (ValueError, ZeroDivisionError):
             high = probe
             continue
