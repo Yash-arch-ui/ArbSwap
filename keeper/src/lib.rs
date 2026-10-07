@@ -5,13 +5,14 @@
 //! without changing quote calculation. All quote inputs and outputs are integer
 //! fixed-point values, matching the on-chain `arb-math` conventions.
 
-use arb_math::fixed::{sqrt_q64, Q64};
+use arb_math::fixed::sqrt_q64;
 use arb_math::quote::Level;
 use arb_math::wide::U256;
 use sha2::{Digest, Sha256};
 
 pub const LEVELS: usize = 6;
 pub const BPS: u128 = 10_000;
+pub const Q64: u128 = 1 << 64;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct OracleTick {

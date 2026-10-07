@@ -146,6 +146,35 @@ def test_oracle_latency_creates_adverse_selection():
     assert lagged_markout < fresh_markout, "latency must worsen markouts"
 
 
+def test_oracle_never_exposes_the_current_reference_price():
+    from research.sim.price_source import PricePoint
+
+    oracle = OracleModel(latency_seconds=1, noise_bps=0.0)
+    first = oracle.observe(PricePoint(0, 100.0))
+    second = oracle.observe(PricePoint(1, 110.0))
+    assert first.oracle_price == 100.0
+    assert second.oracle_price == 100.0
+    assert second.oracle_price != second.reference_price
+
+
+def test_keeper_delay_expires_quotes_and_charges_costs():
+    prices = synthetic_series(regime="trend", length=80, seed=9)
+    result = simulate(
+        venue_name="delayed",
+        venue=VaultVenue(),
+        prices=prices,
+        oracle=OracleModel(),
+        noise=NoiseFlow(arrival_rate=0.0),
+        informed=InformedFlow(),
+        keeper_update_delay_seconds=4,
+        update_cost_quote=0.01,
+        priority_fee_quote=0.02,
+    )
+    assert result.quote_updates < len(prices)
+    assert result.update_cost_quote == pytest.approx(result.quote_updates * 0.01)
+    assert result.priority_fee_cost_quote == pytest.approx(result.quote_updates * 0.02)
+
+
 def test_markouts_are_recorded_on_the_simulation_clock():
     """Guard against the regression where trades carried absolute seconds and
     every markout silently evaluated to zero."""

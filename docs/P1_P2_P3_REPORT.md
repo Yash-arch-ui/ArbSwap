@@ -51,6 +51,9 @@ Implemented in `programs/arbswap/src/lib.rs`:
 - Epoch advancement and queued pro-rata withdrawals
 - Quote updates with keeper authorization, monotonic slots, stale-oracle,
   confidence, spread, anchor-step, ladder, and depth bounds
+- Pyth Receiver `PriceUpdateV2` Full verification, configured feed-ID matching,
+  freshness validation, decoded Q64 price equality, and decoded confidence
+  equality
 - Constant-product ladder swap using the shared `arb-math` walk
 - Fee rounding through `arb-math`, plus insurance, keeper, and protocol bucket
   accounting excluded from LP reserve share value
@@ -64,14 +67,17 @@ Verification:
 - `anchor build` passes
 - `cargo test --workspace` passes
 
-P2 boundary still intentionally visible:
+P2 oracle verification:
 
-- Pyth account deserialization/CPI verification is not yet wired into
-  `update_quote`; caller-supplied oracle fields are bounded on-chain. This is a
-  security boundary, not a hidden assumption, and must be completed before
-  devnet funds or production deployment.
-- A local-validator/LiteSVM lifecycle test and devnet deployment are not claimed
-  by this report.
+- `update_quote` requires the Pyth Receiver `PriceUpdateV2` account, Full
+  verification, the configured feed ID, freshness, decoded Q64 price equality,
+  and decoded confidence equality.
+- The public breaker trips only from stored quote expiry, never caller-supplied
+  oracle fields.
+- LiteSVM executes the built SBF breaker path and records 10,050 CU for the
+  expired-quote breaker instruction.
+- Full token-funded deposit/update/swap/withdraw lifecycle and devnet deployment
+  remain separate gates.
 
 ## P3: Keeper
 
@@ -84,7 +90,7 @@ Implemented in `keeper/src/lib.rs` and `keeper/src/main.rs`:
 - `should_update` threshold, age, and first-quote logic
 - Adaptive priority-fee calculation with jump urgency
 - `QuoteSender` abstraction and deterministic dry-run sender
-- CSV replay mode:
+- CSV replay mode, including direct P1 `timestamp_ms,price` CSV input:
 
 ```text
 cargo run -p arbswap-keeper -- replay <slot,publish_time,price_q64,confidence_bps,base_reserve,quote_reserve.csv>
@@ -94,14 +100,17 @@ Verification:
 
 - Keeper unit tests pass for deterministic EWMA, quote/update gating, and
   priority-fee urgency
+- Independent Python quote-construction parity test passes for Rust keeper
+  anchor/reservation/spread/depth/ladder outputs
 - `cargo test --workspace` passes
 
-P3 boundary still intentionally visible:
+P3 remaining deployment boundary:
 
 - The sender is dry-run only; no private-key or live RPC transport was added.
-- Replay uses the shared Rust math crate but the quote-construction layer still
-  needs a differential vector suite against the Python simulator before the P3
-  devnet gate can be called passed.
+- Replay consumes P1 price CSVs directly in Rust; Python remains the independent
+  reference/reporting layer.
+- Quote construction has an independent Python differential suite covering
+  anchor, reservation, spread, depth, and ladder outputs.
 
 ## Verification Summary
 
@@ -111,7 +120,8 @@ P3 boundary still intentionally visible:
 | P1 replay/report pipeline | Complete | `docs/P1_RESULTS.md` |
 | P2 program compilation | Complete | `anchor build` |
 | P2 native tests | Complete | `cargo test --workspace` |
-| P2 local lifecycle/devnet gate | Pending | Pyth CPI + integration harness required |
+| P2 security/expiry integration | Complete | LiteSVM SBF test; 10,050 CU measured |
+| P2 token-funded lifecycle/devnet gate | Pending | Deposit/update/swap/withdraw fixture and deployment required |
 | P3 keeper core/replay | Complete | keeper unit tests and binary |
 | P3 live sender/devnet parity gate | Pending | RPC transport + differential replay required |
 

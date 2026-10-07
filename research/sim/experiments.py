@@ -86,7 +86,10 @@ def run_venues(points: list[PricePoint], *, params: QuoteParams,
                noise: NoiseFlow | None = None,
                informed: InformedFlow | None = None,
                passive_fee: float = 0.0001,
-               vault_fee_bps: float = 1.0) -> dict[str, VenueReport]:
+               vault_fee_bps: float = 1.0,
+               keeper_update_delay_seconds: int = 1,
+               update_cost_quote: float = 0.01,
+               priority_fee_quote: float = 0.001) -> dict[str, VenueReport]:
     """Run every venue on the same path with the same flow draws."""
     noise = noise or NoiseFlow(seed=seed)
     informed = informed or InformedFlow()
@@ -101,6 +104,9 @@ def run_venues(points: list[PricePoint], *, params: QuoteParams,
             noise=noise,
             informed=informed,
             depth_budget=depth_budget,
+            keeper_update_delay_seconds=keeper_update_delay_seconds,
+            update_cost_quote=update_cost_quote if name == "ArbSwap" else 0.0,
+            priority_fee_quote=priority_fee_quote if name == "ArbSwap" else 0.0,
         )
         reports[name] = report(name, result)
     return reports

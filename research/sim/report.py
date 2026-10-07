@@ -212,7 +212,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--real", type=Path, default=None,
                         help="optional CSV of real 1s reference prices")
-    parser.add_argument("--real-source", default="CEX 1s reference")
+    parser.add_argument("--real-source", default="Binance SOLUSDC 1s direct quote")
     parser.add_argument("--length", type=int, default=2_400)
     parser.add_argument("--seed", type=int, default=20261006)
     parser.add_argument("--out", type=Path, default=Path("docs/P1_RESULTS.md"))
@@ -240,7 +240,7 @@ def main() -> None:
             test = walk_forward_folds(window, folds=2)[-1].test
             sigma = realized_volatility_per_sqrt_second([p.price for p in test])
             real_results[label] = (chosen, _evaluate(test, chosen, seed=args.seed), sigma)
-        text += "\n\n" + render_real("Binance SOLUSDT 1s", real_results, args.real_source)
+        text += "\n\n" + render_real("direct USDC reference", real_results, args.real_source)
 
     args.out.write_text(text.rstrip() + "\n")
     print(text)

@@ -12,8 +12,8 @@ Formerly "TruQuote" (working name); all spec documents use the old name.
 |---|---|---|
 | P0 | Repo, toolchain, assumptions | ✅ |
 | P1 | Independent Python reference, vectors, simulator, replay/report pipeline | ✅ |
-| P2 | Anchor accounts, guards, custody, swaps, withdrawals, breakers | ✅ build/test; devnet gate open |
-| P3 | Rust keeper core, replay, update gating, P2 payload encoder | ✅ dry-run; live RPC gate open |
+| P2 | Anchor accounts, custody, verified Pyth guards, swaps, withdrawals, breakers | ✅ build/test; lifecycle/devnet gate open |
+| P3 | Rust keeper core, direct price replay, update gating, P2 payload encoder | ✅ dry-run; live RPC gate open |
 | P4 | Analytics, fees, dashboard | ⬜ |
 | P5 | Attacker bots, fuzzing, aggregator adapter | ⬜ |
 | P6 | Reproducibility, demo, docs | ⬜ |

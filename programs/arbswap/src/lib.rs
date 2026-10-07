@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 use arb_math::{walk_ladder, Level as MathLevel, Side as MathSide};
+use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 
 declare_id!("E8ptkpV626P2neR8v4Q9UCFHoD6AMAH2aTRsEQiNDN3U");
 
@@ -52,7 +53,8 @@ pub mod arbswap {
         config.epoch_slots = params.epoch_slots;
         config.grace_slots = params.grace_slots;
         config.expiry_slots = params.expiry_slots;
-        config.max_staleness_slots = params.max_staleness_slots;
+        config.max_staleness_seconds = params.max_staleness_seconds;
+        config.pyth_feed_id = params.pyth_feed_id;
         config.max_conf_bps = params.max_conf_bps;
         config.max_anchor_step_bps = params.max_anchor_step_bps;
         config.max_spread_bps = params.max_spread_bps;
@@ -155,9 +157,15 @@ pub mod arbswap {
         require!(ctx.accounts.keeper.key() == ctx.accounts.config.keeper, ErrorCode::NotKeeper);
         let clock = Clock::get()?;
         require!(update.update_slot > ctx.accounts.quote_state.update_slot && update.update_slot <= clock.slot, ErrorCode::NonMonotonicSlot);
-        require!(clock.slot.saturating_sub(update.oracle_publish_time as u64) <= ctx.accounts.config.max_staleness_slots, ErrorCode::StaleOracle);
-        require!(update.oracle_price > 0, ErrorCode::InvalidPrice);
-        require!(update.oracle_conf_bps <= ctx.accounts.config.max_conf_bps, ErrorCode::WideConfidence);
+        require!(update.oracle_price > 0 && update.oracle_publish_time >= 0, ErrorCode::InvalidPrice);
+        let feed = ctx.accounts.config.pyth_feed_id;
+        require!(ctx.accounts.config.max_staleness_seconds >= 0, ErrorCode::InvalidOracle);
+        let price = ctx.accounts.price_update.get_price_no_older_than(&clock, ctx.accounts.config.max_staleness_seconds as u64, &feed).map_err(|_| error!(ErrorCode::InvalidOracle))?;
+        require!(price.price > 0 && price.publish_time == update.oracle_publish_time, ErrorCode::InvalidOracle);
+        let pyth_price_q64 = pyth_price_q64(price.price, price.exponent).ok_or(ErrorCode::InvalidOracle)?;
+        require!(pyth_price_q64 == update.oracle_price, ErrorCode::OraclePriceMismatch);
+        let decoded_conf_bps = ((price.conf as u128).saturating_mul(10_000).saturating_add(price.price as u128 - 1) / price.price as u128) as u32;
+        require!(decoded_conf_bps <= ctx.accounts.config.max_conf_bps && update.oracle_conf_bps == decoded_conf_bps, ErrorCode::WideConfidence);
         require!(update.half_spread_bps <= ctx.accounts.config.max_spread_bps, ErrorCode::SpreadOutOfBounds);
         if ctx.accounts.quote_state.anchor_sqrt_price > 0 {
             let old = ctx.accounts.quote_state.anchor_sqrt_price;
@@ -212,13 +220,20 @@ pub mod arbswap {
         Ok(())
     }
 
-    pub fn trip_breaker(ctx: Context<TripBreaker>) -> Result<()> { ctx.accounts.vault.status = PAUSED; emit!(BreakerTripped { slot: Clock::get()?.slot }); Ok(()) }
+    pub fn trip_breaker(ctx: Context<TripBreaker>) -> Result<()> {
+        require!(ctx.accounts.vault.status == ACTIVE, ErrorCode::InvalidStatus);
+        let now = Clock::get()?.slot;
+        require!(ctx.accounts.quote_state.version > 0 && now >= ctx.accounts.quote_state.expiry_slot, ErrorCode::BreakerConditionNotMet);
+        ctx.accounts.vault.status = PAUSED;
+        emit!(BreakerTripped { slot: now });
+        Ok(())
+    }
     pub fn reset_breaker(ctx: Context<ResetBreaker>) -> Result<()> { require!(ctx.accounts.admin.key() == ctx.accounts.vault.admin, ErrorCode::Unauthorized); require!(ctx.accounts.vault.status == PAUSED, ErrorCode::InvalidStatus); ctx.accounts.vault.status = ACTIVE; emit!(BreakerReset { slot: Clock::get()?.slot }); Ok(()) }
     pub fn wind_down(ctx: Context<WindDown>) -> Result<()> { require!(ctx.accounts.admin.key() == ctx.accounts.vault.admin, ErrorCode::Unauthorized); ctx.accounts.vault.status = WIND_DOWN; Ok(()) }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
-pub struct InitParams { pub base_mint: Pubkey, pub quote_mint: Pubkey, pub keeper: Pubkey, pub fee_bps: u16, pub insurance_bps: u16, pub keeper_bps: u16, pub protocol_bps: u16, pub min_liquidity: u64, pub warmup_slots: u64, pub epoch_slots: u64, pub grace_slots: u64, pub expiry_slots: u64, pub max_staleness_slots: u64, pub max_conf_bps: u32, pub max_anchor_step_bps: u32, pub max_spread_bps: u32, pub max_quote_size: u64, pub max_inventory_bps: u32, pub offsets_bps: [u32; LEVELS], pub weights_bps: [u32; LEVELS] }
+ pub struct InitParams { pub base_mint: Pubkey, pub quote_mint: Pubkey, pub keeper: Pubkey, pub pyth_feed_id: [u8; 32], pub fee_bps: u16, pub insurance_bps: u16, pub keeper_bps: u16, pub protocol_bps: u16, pub min_liquidity: u64, pub warmup_slots: u64, pub epoch_slots: u64, pub grace_slots: u64, pub expiry_slots: u64, pub max_staleness_seconds: i64, pub max_conf_bps: u32, pub max_anchor_step_bps: u32, pub max_spread_bps: u32, pub max_quote_size: u64, pub max_inventory_bps: u32, pub offsets_bps: [u32; LEVELS], pub weights_bps: [u32; LEVELS] }
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
 pub struct LevelUpdate { pub sqrt_lo: u128, pub sqrt_hi: u128, pub liquidity: u128 }
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -229,7 +244,7 @@ pub enum SwapSide { BuyBase, SellBase }
 #[account]
  pub struct Vault { pub admin: Pubkey, pub base_mint: Pubkey, pub quote_mint: Pubkey, pub base_reserve: Pubkey, pub quote_reserve: Pubkey, pub share_mint: Pubkey, pub share_lock: Pubkey, pub total_shares: u64, pub insurance_base: u64, pub insurance_quote: u64, pub keeper_base: u64, pub keeper_quote: u64, pub protocol_base: u64, pub protocol_quote: u64, pub epoch: u64, pub epoch_start: u64, pub status: u8, pub bump: u8 }
 #[account]
-pub struct Config { pub admin: Pubkey, pub keeper: Pubkey, pub fee_bps: u16, pub insurance_bps: u16, pub keeper_bps: u16, pub protocol_bps: u16, pub min_liquidity: u64, pub warmup_slots: u64, pub epoch_slots: u64, pub grace_slots: u64, pub expiry_slots: u64, pub max_staleness_slots: u64, pub max_conf_bps: u32, pub max_anchor_step_bps: u32, pub max_spread_bps: u32, pub max_quote_size: u64, pub max_inventory_bps: u32, pub bump: u8 }
+ pub struct Config { pub admin: Pubkey, pub keeper: Pubkey, pub pyth_feed_id: [u8; 32], pub fee_bps: u16, pub insurance_bps: u16, pub keeper_bps: u16, pub protocol_bps: u16, pub min_liquidity: u64, pub warmup_slots: u64, pub epoch_slots: u64, pub grace_slots: u64, pub expiry_slots: u64, pub max_staleness_seconds: i64, pub max_conf_bps: u32, pub max_anchor_step_bps: u32, pub max_spread_bps: u32, pub max_quote_size: u64, pub max_inventory_bps: u32, pub bump: u8 }
 #[account]
 pub struct QuoteState { pub version: u64, pub update_slot: u64, pub expiry_slot: u64, pub anchor_sqrt_price: u128, pub p_res_sqrt: u128, pub half_spread_bps: u32, pub ask_extra_bps: u32, pub bid_extra_bps: u32, pub depth_mult_bps: u32, pub flow_n: i128, pub oracle_publish_time: i64, pub oracle_conf_bps: u32, pub levels: [Level; LEVELS], pub bump: u8 }
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -244,7 +259,7 @@ pub struct WithdrawTicket { pub owner: Pubkey, pub shares: u64, pub epoch: u64, 
 pub struct InitializeVault<'info> {
     #[account(mut)] pub admin: Signer<'info>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)] pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*2 + 2*4 + 8*6 + 4*4 + 8 + 4 + 1)] pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*3 + 2*4 + 8*6 + 4*4 + 8 + 4 + 1)] pub config: Box<Account<'info, Config>>,
     #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*3 + 16*3 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)] pub quote_state: Box<Account<'info, QuoteState>>,
     #[account(address = params.base_mint)] pub base_mint: Box<Account<'info, Mint>>,
     #[account(address = params.quote_mint)] pub quote_mint: Box<Account<'info, Mint>>,
@@ -270,14 +285,23 @@ impl<'info> RequestWithdraw<'info> { fn queue_transfer_ctx(&self)->CpiContext<'_
 #[derive(Accounts)] pub struct CrankEpoch<'info> { #[account(mut)] pub vault: Account<'info,Vault>, #[account(seeds=[b"config",vault.key().as_ref()],bump=config.bump)] pub config: Account<'info,Config> }
 #[derive(Accounts)] pub struct ClaimWithdraw<'info> { #[account(mut)] pub user: Signer<'info>, #[account(mut)] pub vault: Box<Account<'info,Vault>>, #[account(mut, address=vault.base_reserve)] pub base_reserve: Box<Account<'info,TokenAccount>>, #[account(mut,address=vault.quote_reserve)] pub quote_reserve: Box<Account<'info,TokenAccount>>, #[account(mut,address=vault.share_mint)] pub share_mint: Box<Account<'info,Mint>>, #[account(mut,address=vault.share_lock)] pub share_lock: Box<Account<'info,TokenAccount>>, #[account(mut,constraint=withdraw_ticket.owner==user.key())] pub withdraw_ticket: Box<Account<'info,WithdrawTicket>>, #[account(mut,constraint=user_base.owner==user.key())] pub user_base: Box<Account<'info,TokenAccount>>, #[account(mut,constraint=user_quote.owner==user.key())] pub user_quote: Box<Account<'info,TokenAccount>>, pub token_program: Program<'info,Token> }
 
-#[derive(Accounts)] pub struct UpdateQuote<'info> { pub keeper: Signer<'info>, #[account(mut)] pub vault: Box<Account<'info,Vault>>, #[account(seeds=[b"config",vault.key().as_ref()],bump=config.bump)] pub config: Box<Account<'info,Config>>, #[account(mut,seeds=[b"quote",vault.key().as_ref()],bump=quote_state.bump)] pub quote_state: Box<Account<'info,QuoteState>> }
+#[derive(Accounts)] pub struct UpdateQuote<'info> { pub keeper: Signer<'info>, #[account(mut)] pub vault: Box<Account<'info,Vault>>, #[account(seeds=[b"config",vault.key().as_ref()],bump=config.bump)] pub config: Box<Account<'info,Config>>, #[account(mut,seeds=[b"quote",vault.key().as_ref()],bump=quote_state.bump)] pub quote_state: Box<Account<'info,QuoteState>>, pub price_update: Box<Account<'info,PriceUpdateV2>> }
 #[derive(Accounts)] pub struct Swap<'info> { #[account(mut)] pub trader: Signer<'info>, #[account(mut)] pub vault: Box<Account<'info,Vault>>, #[account(seeds=[b"config",vault.key().as_ref()],bump=config.bump)] pub config: Box<Account<'info,Config>>, #[account(mut,seeds=[b"quote",vault.key().as_ref()],bump=quote_state.bump)] pub quote_state: Box<Account<'info,QuoteState>>, #[account(mut,address=vault.base_reserve)] pub base_reserve: Box<Account<'info,TokenAccount>>, #[account(mut,address=vault.quote_reserve)] pub quote_reserve: Box<Account<'info,TokenAccount>>, #[account(mut,constraint=trader_base.owner==trader.key())] pub trader_base: Box<Account<'info,TokenAccount>>, #[account(mut,constraint=trader_quote.owner==trader.key())] pub trader_quote: Box<Account<'info,TokenAccount>>, pub token_program: Program<'info,Token> }
 impl<'info> Swap<'info> { fn base_transfer_ctx(&self)->CpiContext<'_, '_, '_, 'info, Transfer<'info>> { CpiContext::new(self.token_program.key(),Transfer{from:self.trader_base.to_account_info(),to:self.base_reserve.to_account_info(),authority:self.trader.to_account_info()}) } fn quote_transfer_ctx(&self)->CpiContext<'_, '_, '_, 'info, Transfer<'info>> { CpiContext::new(self.token_program.key(),Transfer{from:self.trader_quote.to_account_info(),to:self.quote_reserve.to_account_info(),authority:self.trader.to_account_info()}) } }
-#[derive(Accounts)] pub struct TripBreaker<'info> { #[account(mut)] pub vault: Account<'info,Vault> }
+#[derive(Accounts)] pub struct TripBreaker<'info> { #[account(mut)] pub vault: Box<Account<'info,Vault>>, #[account(seeds=[b"quote",vault.key().as_ref()], bump)] pub quote_state: Box<Account<'info,QuoteState>> }
 #[derive(Accounts)] pub struct ResetBreaker<'info> { pub admin: Signer<'info>, #[account(mut)] pub vault: Account<'info,Vault> }
 #[derive(Accounts)] pub struct WindDown<'info> { pub admin: Signer<'info>, #[account(mut)] pub vault: Account<'info,Vault> }
 
 fn integer_sqrt(n: u128) -> u128 { let mut lo=0; let mut hi=1u128<<64; while lo+1<hi { let mid=(lo+hi)/2; if mid <= n/mid { lo=mid; } else { hi=mid; } } lo }
+
+fn pyth_price_q64(price: i64, exponent: i32) -> Option<u128> {
+    let positive = u128::try_from(price).ok()?;
+    if exponent >= 0 {
+        positive.checked_mul(10u128.checked_pow(exponent as u32)?)?.checked_mul(1u128 << 64)
+    } else {
+        positive.checked_mul(1u128 << 64)?.checked_div(10u128.checked_pow((-exponent) as u32)?)
+    }
+}
 
 #[event] pub struct VaultInitialized { pub slot:u64, pub vault:Pubkey }
 #[event] pub struct DepositEvent { pub slot:u64, pub shares:u64, pub base_amount:u64, pub quote_amount:u64 }
@@ -288,7 +312,7 @@ fn integer_sqrt(n: u128) -> u128 { let mut lo=0; let mut hi=1u128<<64; while lo+
 #[event] pub struct BreakerTripped { pub slot:u64 }
 #[event] pub struct BreakerReset { pub slot:u64 }
 
-#[error_code] pub enum ErrorCode { #[msg("Unauthorized")] Unauthorized, #[msg("Invalid mint")] InvalidMint, #[msg("Invalid params")] InvalidParams, #[msg("Invalid amount")] InvalidAmount, #[msg("Invalid weights")] InvalidWeights, #[msg("Invalid ladder")] InvalidLadder, #[msg("Invalid price")] InvalidPrice, #[msg("Invalid status")] InvalidStatus, #[msg("Math overflow")] MathOverflow, #[msg("Paused")] Paused, #[msg("Warmup not elapsed")] WarmupNotElapsed, #[msg("Stale oracle")] StaleOracle, #[msg("Wide confidence")] WideConfidence, #[msg("Anchor step too large")] AnchorStepTooLarge, #[msg("Spread out of bounds")] SpreadOutOfBounds, #[msg("Quote expired")] QuoteExpired, #[msg("Version too old")] VersionTooOld, #[msg("Slippage exceeded")] SlippageExceeded, #[msg("Capacity exceeded")] CapacityExceeded, #[msg("Epoch not reached")] EpochNotReached, #[msg("Not keeper")] NotKeeper, #[msg("Non-monotonic slot")] NonMonotonicSlot }
+#[error_code] pub enum ErrorCode { #[msg("Unauthorized")] Unauthorized, #[msg("Invalid mint")] InvalidMint, #[msg("Invalid params")] InvalidParams, #[msg("Invalid amount")] InvalidAmount, #[msg("Invalid weights")] InvalidWeights, #[msg("Invalid ladder")] InvalidLadder, #[msg("Invalid price")] InvalidPrice, #[msg("Invalid status")] InvalidStatus, #[msg("Breaker condition not met")] BreakerConditionNotMet, #[msg("Math overflow")] MathOverflow, #[msg("Paused")] Paused, #[msg("Warmup not elapsed")] WarmupNotElapsed, #[msg("Invalid oracle account or verification")] InvalidOracle, #[msg("Oracle price mismatch")] OraclePriceMismatch, #[msg("Stale oracle")] StaleOracle, #[msg("Wide confidence")] WideConfidence, #[msg("Anchor step too large")] AnchorStepTooLarge, #[msg("Spread out of bounds")] SpreadOutOfBounds, #[msg("Quote expired")] QuoteExpired, #[msg("Version too old")] VersionTooOld, #[msg("Slippage exceeded")] SlippageExceeded, #[msg("Capacity exceeded")] CapacityExceeded, #[msg("Epoch not reached")] EpochNotReached, #[msg("Not keeper")] NotKeeper, #[msg("Non-monotonic slot")] NonMonotonicSlot }
 
 #[cfg(test)]
 mod tests {
@@ -306,5 +330,13 @@ mod tests {
     fn default_level_is_rejected_by_quote_validation_shape() {
         let level = Level::default();
         assert!(level.sqrt_lo == 0 || level.sqrt_lo >= level.sqrt_hi || level.liquidity == 0);
+    }
+
+    #[test]
+    fn pyth_decimal_conversion_uses_q64_floor() {
+        let q64 = pyth_price_q64(150, -0).unwrap();
+        assert_eq!(q64, 150u128 << 64);
+        let q64_fraction = pyth_price_q64(15000, -2).unwrap();
+        assert_eq!(q64_fraction, 150u128 << 64);
     }
 }

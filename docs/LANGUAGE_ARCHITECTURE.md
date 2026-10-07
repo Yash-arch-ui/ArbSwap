@@ -32,9 +32,9 @@ project diagrams. The former `tq-math` name in the diagrams is now
 ```text
 P1 Python data/reference/simulator
         |
-        | export slot, publish_time, price_q64, confidence, reserves
+        | P1 price CSV: timestamp_ms, price
         v
-P3 Rust keeper -> arb-math -> Anchor/Borsh update_quote payload
+P3 Rust keeper -> checked decimal/Q64 conversion -> arb-math -> Anchor/Borsh update_quote payload
                                       |
                                       v
 P2 ArbSwap program -> on-chain bounds, expiry, ladder walk, custody

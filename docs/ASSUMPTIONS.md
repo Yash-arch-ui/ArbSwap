@@ -146,9 +146,10 @@ This figure appears in both spec documents (§1.2 / R14 context) but was not
 located in the sources skimmed on 2026-10-06. Re-check the propAMM paper's exact
 wording (or its underlying data) before citing it in the deck or README.
 
-## A-14. P2/P3 delivery boundary — VERIFIED IN CODE, PRODUCTION OPEN
-The P2 program enforces caller-supplied oracle freshness, confidence, anchor,
-quote, expiry, and ladder bounds, but does not yet deserialize and verify a Pyth
-`PriceUpdateV2` account in the same transaction. The P3 keeper has deterministic
-integer quote/replay logic and a dry-run sender, but no live RPC/private-key
-transport. These are explicit pre-devnet gates, not production claims.
+## A-14. P2/P3 delivery boundary — P2 ORACLE VERIFIED, PRODUCTION OPEN
+P2 `update_quote` now requires a Pyth Receiver `PriceUpdateV2` account with Full
+verification, the configured feed ID, freshness, decoded Q64 price equality,
+and confidence equality. The public breaker uses stored quote expiry only. P3
+still has a deterministic dry-run sender rather than live RPC/private-key
+transport; local lifecycle tests and devnet deployment remain pre-production
+gates.

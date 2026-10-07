@@ -269,8 +269,9 @@ half_spread_bps <= max_spread_bps
 update_slot > previous_update_slot
 ```
 
-Pyth account ownership, feed identity, and verified price decoding are a
-required production gate and must be added before funds are used.
+P2 now verifies Pyth Receiver account ownership, Full verification, feed
+identity, freshness, decoded price equality, and confidence equality. Live
+transport/deployment remains separate from this mathematical validation.
 
 ## 12. Flow Accumulator
 

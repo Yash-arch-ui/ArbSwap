@@ -30,6 +30,9 @@ class SimResult:
     base_path: list[float] = field(default_factory=list)
     price_path: list[float] = field(default_factory=list)
     rejects: int = 0
+    quote_updates: int = 0
+    update_cost_quote: float = 0.0
+    priority_fee_cost_quote: float = 0.0
 
 
 def venue_mid(venue) -> float:
@@ -51,6 +54,9 @@ def simulate(
     noise: NoiseFlow,
     informed: InformedFlow,
     depth_budget: float = 1.0,
+    keeper_update_delay_seconds: int = 1,
+    update_cost_quote: float = 0.0,
+    priority_fee_quote: float = 0.0,
 ) -> SimResult:
     noise_orders = {second: [] for second in range(len(prices))}
     for second, side, size in noise.arrivals(len(prices)):
@@ -63,23 +69,30 @@ def simulate(
     previous_price: float | None = None
     cash_flow = 0.0
     rejects = 0
+    quote_updates = 0
+    update_cost_total = 0.0
+    priority_fee_total = 0.0
+    last_update_second = -1
 
     for index, point in enumerate(prices):
         reference = point.price
         tick = oracle.observe(point)
+        quote_fresh = True
         if isinstance(venue, VaultVenue):
             venue.volatility = venue.volatility.update(tick.oracle_price)
             age = point.second - tick.publish_second
-            venue.refresh(
-                price=tick.oracle_price,
-                confidence=tick.confidence,
-                age=age,
-                previous_price=previous_price,
-                depth_budget=depth_budget,
-            )
+            if last_update_second < 0 or index % max(1, keeper_update_delay_seconds) == 0:
+                venue.refresh(price=tick.oracle_price, confidence=tick.confidence, age=age,
+                              previous_price=previous_price, depth_budget=depth_budget)
+                quote_updates += 1
+                last_update_second = index
+                venue.quote = max(0.0, venue.quote - update_cost_quote - priority_fee_quote)
+                update_cost_total += update_cost_quote
+                priority_fee_total += priority_fee_quote
+            quote_fresh = venue.quote_state is not None and index - last_update_second < int(venue.params.expiry_slots)
         # Informed arbitrage around the refreshed quote: size to move the venue
         # price to the reference, capped by the trader's maximum size.
-        side, amount = _informed_trade(venue, reference, informed)
+        side, amount = _informed_trade(venue, reference, informed) if quote_fresh else (None, 0.0)
         if side is not None and amount > 0:
             trade, rejected = _apply(venue, side, amount, reference, index, trades)
             rejects += rejected
@@ -92,7 +105,7 @@ def simulate(
                 amount_in = quote_notional
             else:
                 amount_in = quote_notional / reference if reference > 0 else 0.0
-            if amount_in > 0 and venue.base > 0 and venue.quote > 0:
+            if quote_fresh and amount_in > 0 and venue.base > 0 and venue.quote > 0:
                 trade, rejected = _apply(venue, side, amount_in, reference, index, trades)
                 rejects += rejected
                 if trade is not None:
@@ -118,6 +131,9 @@ def simulate(
         base_path=base_path,
         price_path=price_path,
         rejects=rejects,
+        quote_updates=quote_updates,
+        update_cost_quote=update_cost_total,
+        priority_fee_cost_quote=priority_fee_total,
     )
 
 
