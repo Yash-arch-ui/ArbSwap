@@ -396,6 +396,14 @@ version = "0.1.0"
 dependencies = [
  "arb-math",
  "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-compute-budget-interface",
+ "solana-hash",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-signer",
+ "solana-transaction",
 ]
 
 [[package]]

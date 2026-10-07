@@ -303,15 +303,14 @@ depth_mult  = min(depth_rule, depth_budget)
 When `sigma = 0`, the LVR budget is unbounded mathematically; the holdings
 utilization cap still limits displayed depth.
 
-**Status:** DERIVED LVR identity and budget; SPEC rule throttle; heuristic
-normalization and coefficients.
-
-**Not wired (audit F-08):** `lvr_budget_value(R, g_gas, sigma)` exists in the
-research reference but no caller supplies `R` or `g_gas`, and every simulator run
-uses `depth_budget = 1.0`. The throttle actually applied is
-`depth_multiplier` from σ-target and confidence only (`min(1, sigma_target/sigma)`
-times the confidence term). Either define and measure `R` and `g_gas` and feed
-the budget, or drop the budget language from claims.
+**Status:** the σ²/8 identity is DERIVED; the throttle that actually runs is the
+σ-target × confidence rule (plus the inventory cap). **The LVR *budget* is not
+applied (F-08).** `lvr_budget_value(R, g_gas, sigma)` exists only in the
+research reference; `R` (expected edge revenue per second) and `g_gas` (gas per
+second) are undefined business inputs, so no caller supplies them and every
+simulator run uses `depth_budget = 1.0`. The budget language is therefore
+**dropped from product claims** until those inputs are defined and measured;
+the depth rule above is what the simulator and keeper implement.
 
 ## 10. Oracle, Age, And Expiry Guards
 

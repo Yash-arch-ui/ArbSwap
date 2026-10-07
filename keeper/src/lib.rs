@@ -25,6 +25,11 @@ use arb_math::fixed::sqrt_q64;
 use arb_math::quote::Level;
 use arb_math::wide::U256;
 use sha2::{Digest, Sha256};
+use solana_address::Address;
+use solana_hash::Hash;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::Keypair;
+use solana_transaction::Transaction;
 
 pub const LEVELS: usize = 6;
 pub const BPS: u128 = 10_000;
@@ -410,6 +415,85 @@ pub trait QuoteSender {
     fn send(&mut self, quote: QuoteUpdate, priority_fee_lamports: u64) -> Result<(), Self::Error>;
 }
 
+/// Everything needed to build a real `update_quote` transaction, resolved from
+/// the program id and vault address (PDAs are derived).
+#[derive(Clone, Debug)]
+pub struct UpdateQuotePlan {
+    pub program_id: Address,
+    pub keeper: Address,
+    pub vault: Address,
+    pub config: Address,
+    pub quote_state: Address,
+    pub price_update: Address,
+    pub recent_blockhash: Hash,
+    pub compute_unit_limit: u32,
+}
+
+/// Build the signed `update_quote` transaction: a compute-budget limit and
+/// price instruction followed by the quote update. Deterministic and testable
+/// without a network (the caller supplies the already-derived PDAs).
+pub fn build_update_quote_transaction(
+    plan: &UpdateQuotePlan,
+    keeper: &Keypair,
+    quote: &QuoteUpdate,
+    priority_fee_micro_lamports_per_cu: u64,
+) -> Transaction {
+    let data = encode_update_quote_instruction(quote);
+    let update_quote = Instruction {
+        program_id: plan.program_id,
+        accounts: vec![
+            AccountMeta::new(plan.keeper, true),
+            AccountMeta::new(plan.vault, false),
+            AccountMeta::new_readonly(plan.config, false),
+            AccountMeta::new(plan.quote_state, false),
+            AccountMeta::new_readonly(plan.price_update, false),
+        ],
+        data,
+    };
+    let instructions = vec![
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+            plan.compute_unit_limit,
+        ),
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_price(
+            priority_fee_micro_lamports_per_cu,
+        ),
+        update_quote,
+    ];
+    let mut transaction =
+        Transaction::new_with_payer(&instructions, Some(&plan.keeper));
+    transaction.sign(&[keeper], plan.recent_blockhash.clone());
+    transaction
+}
+
+/// A keeper sender for a live RPC: the caller injects the transport (a closure
+/// that submits a `Transaction`), so this crate needs no RPC dependency and the
+/// signed bytes are testable offline.
+pub struct LiveSender<F, E> {
+    pub plan: UpdateQuotePlan,
+    pub keeper: Keypair,
+    pub priority_fee_micro_lamports_per_cu: u64,
+    pub submit: F,
+    pub _marker: core::marker::PhantomData<E>,
+}
+
+impl<F, E> QuoteSender for LiveSender<F, E>
+where
+    F: FnMut(Transaction) -> Result<(), E>,
+{
+    type Error = E;
+    fn send(&mut self, quote: QuoteUpdate, priority_fee_lamports: u64) -> Result<(), E> {
+        // The blockhash inside the plan is refreshed by the caller each tick.
+        let _ = priority_fee_lamports;
+        let transaction = build_update_quote_transaction(
+            &self.plan,
+            &self.keeper,
+            &quote,
+            self.priority_fee_micro_lamports_per_cu,
+        );
+        (self.submit)(transaction)
+    }
+}
+
 #[derive(Default)]
 pub struct DryRunSender {
     pub sent: Vec<(QuoteUpdate, u64)>,
@@ -543,5 +627,52 @@ mod tests {
         )
         .unwrap();
         assert!(down.ask_extra_bps == 0 && down.bid_extra_bps > 0);
+    }
+
+    #[test]
+    fn live_transaction_builder_emits_budget_and_update() {
+        use solana_signer::Signer;
+        let keeper = Keypair::new();
+        let plan = UpdateQuotePlan {
+            program_id: Address::new_from_array([1u8; 32]),
+            keeper: keeper.pubkey(),
+            vault: Address::new_from_array([2u8; 32]),
+            config: Address::new_from_array([3u8; 32]),
+            quote_state: Address::new_from_array([4u8; 32]),
+            price_update: Address::new_from_array([5u8; 32]),
+            recent_blockhash: Hash::default(),
+            compute_unit_limit: 60_000,
+        };
+        let tick = OracleTick {
+            slot: 1,
+            publish_time: 1,
+            price_q64: 150 * Q64,
+            confidence_bps: 1,
+        };
+        let quote = compute_quote(
+            tick,
+            VolatilityState::default(),
+            1_000,
+            150_000,
+            0,
+            0,
+            KeeperParams::default(),
+        )
+        .unwrap();
+        let transaction = build_update_quote_transaction(&plan, &keeper, &quote, 1_000);
+        assert_eq!(transaction.message.instructions.len(), 3);
+        let update = &transaction.message.instructions[2];
+        assert_eq!(update.data, encode_update_quote_instruction(&quote));
+        assert_eq!(
+            transaction.message.account_keys[update.program_id_index as usize],
+            plan.program_id
+        );
+        // The first two instructions are ComputeBudget limit + price.
+        assert_eq!(
+            transaction.message.account_keys
+                [transaction.message.instructions[0].program_id_index as usize],
+            solana_compute_budget_interface::ID
+        );
+        assert!(!transaction.signatures.is_empty());
     }
 }

@@ -269,3 +269,35 @@ Security tests added (`programs/arbswap/tests/litesvm_lifecycle.rs`):
   `max_conf_bps`, so only the equality check fires),
 - `wind_down_is_admin_only_and_pauses_quotes` (F-18 + authority),
 - `future_update_slot_is_rejected` (F-15 rule as implemented).
+
+## A-19. Blockers closed 2026-10-07 (audit F-04, F-08, F-10, F-11, F-14, F-16, F-17)
+- **F-04 (devnet blocker) CLOSED.** `update_quote` binds every level's implied
+  price to `anchor * (1 ± (half_spread + extra + outer offset))`, caps the outer
+  offset at `MAX_LEVEL_OFFSET_BPS = 500`, and bounds the reservation to
+  `config.max_inventory_bps` (previously set and never read). A forged keeper's
+  worst quote is now anchor ± (max spread + 500 bps). Negative tests:
+  `level_far_from_the_anchor_is_rejected`, `reservation_outside_the_inventory_band_is_rejected`.
+- **F-10 CLOSED.** Deposit pulls `ceil(shares*reserve_net/total_shares)` per leg
+  (capped at the request) instead of both full amounts; tickets are
+  `init_if_needed`; claim zeroes the ticket. While testing, a real accounting
+  bug was found and fixed: `vault.total_shares` was only updated on the first
+  deposit, so later mints never grew the supply.
+- **F-11 CLOSED (mitigated).** Deposit requires `shares > 0`, so a
+  donation-inflation attacker cannot make a later deposit mint zero shares; the
+  `MIN_LIQUIDITY` burn is retained. No ERC-4626 virtual shares — recorded as a
+  mitigation, not a proof.
+- **F-14 CLOSED.** Trader and claim token accounts constrain their mint to the
+  vault mints.
+- **F-16 CLOSED.** `flow_n` uses consistent units (`+= net base out` on a sell,
+  `-= net base in` on a buy) and is documented as recorded-but-not-yet-priced.
+- **F-17 CLOSED.** Admin-only timelocked `set_params`/`apply_params` with a
+  `PendingConfig` PDA (`TIMELOCK_SLOTS = 216_000`, ~1 day).
+- **F-08 CLOSED (scoped out).** The LVR *budget* is not applied because `R` and
+  `g_gas` are undefined business inputs; the σ-target × confidence throttle is
+  what the simulator and keeper implement. The budget language is removed from
+  claims (FORMULA §9).
+- **Live transport: code present, devnet run open.** `keeper/src/lib.rs` now
+  builds the `ComputeBudget` (limit + price) and `update_quote` instructions,
+  signs the transaction and exposes `LiveSender` (the caller injects the RPC
+  submit closure). The signed bytes and account order are unit-tested offline;
+  a funded devnet submission has not been performed (no keys/RPC here).

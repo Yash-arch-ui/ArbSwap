@@ -7,3 +7,11 @@ edition = "2021"
 [dependencies]
 arb-math = { path = "../crates/arb-math" }
 sha2 = "0.10"
+solana-address = "2.6.1"
+solana-instruction = "3.4.1"
+solana-message = "4.4"
+solana-transaction = { version = "4.1.6", features = ["wincode"] }
+solana-keypair = "3.1.2"
+solana-signer = "3.0.0"
+solana-hash = "4.5.0"
+solana-compute-budget-interface = "3.0.0"
