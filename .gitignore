@@ -18,3 +18,4 @@ target/deploy/*.json
 # Spec source documents (local copies, not repo content)
 BuilderPlan.md
 MasterPlan.md
+NOTES.md
