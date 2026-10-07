@@ -199,3 +199,12 @@ gates.
    fees to the passive benchmark (B1 gross turnover ≈ 5.3M/h before the fix,
    ≈ 237k/h after). Replaced with golden-section maximisation of the *marginal*
    profit (`reference·out − in` for a buy, `in·(out′ − reference)` for a sell).
+4. **Shared stateful oracle in `run_venues` (high, 2026-10-07).**
+   `run_venues` built one `OracleModel` and passed the same instance to all five
+   venues, so each venue consumed a different stretch of the noise stream and the
+   "same path, same draws" pairing was silently broken: `ArbSwap` in `run_venues`
+   did not match a standalone `simulate()` with the same seed (W2 PnL 15,411 vs
+   17,881). Fixed by cloning the oracle per venue (`dataclasses.replace`
+   re-runs `__post_init__`, reseeding it). Regression:
+   `test_run_venues_gives_every_venue_its_own_fresh_oracle`. The evaluate and S2
+   phases were re-run; the headline E1 moved from ≈+290% to ≈+375%.
