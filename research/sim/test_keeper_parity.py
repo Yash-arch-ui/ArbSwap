@@ -190,3 +190,45 @@ def test_keeper_directional_addon_is_encoded():
     down = rust_quote(148 * Q64, 1_000, 150_000, previous_price_q64=previous)
     assert down["ask_extra"] == 0
     assert down["bid_extra"] > 0
+
+
+def test_keeper_pricing_matches_the_simulator_reference():
+    """Keeper anchor/reservation/depth against ``quote_math.compute_quote``.
+
+    The simulator uses float fractions; the keeper uses integer bps. The
+    *pricing core* (anchor, reservation, depth throttle) must agree within
+    rounding. The spread coefficient scales still differ (audit F-09), so the
+    spread itself is compared only structurally elsewhere.
+    """
+    from research.reference.quote_math import QuoteParams, VolatilityState, compute_quote
+
+    cases = (
+        (150 * Q64, 1_000, 150_000),
+        (150 * Q64, 1_000, 100_000),
+        (150 * Q64, 1_000, 220_000),
+        (200 * Q64, 900, 120_000),
+    )
+    conf_bps = 1
+    for price_q64, base, quote in cases:
+        price = price_q64 / Q64
+        reference = compute_quote(
+            price=price,
+            base_reserve=base,
+            quote_reserve=quote,
+            confidence=price * conf_bps / 10_000,
+            age=0.0,
+            volatility=VolatilityState(),
+            params=QuoteParams(),
+        )
+        got = rust_quote(price_q64, base, quote)
+        keeper_anchor = got["anchor"] ** 2 / (1 << 128)
+        keeper_reservation = got["reservation"] ** 2 / (1 << 128)
+        assert abs(keeper_anchor - reference.reference_price) <= 1e-6 * price
+        # The keeper quantises the inventory skew to whole bps, so the
+        # reservation agrees with the float reference to within one bps of price.
+        assert (
+            abs(keeper_reservation - reference.reservation_price)
+            <= 2e-4 * reference.reservation_price
+        )
+        assert abs(got["depth"] / 10_000 - reference.depth_mult) <= 1e-9
+

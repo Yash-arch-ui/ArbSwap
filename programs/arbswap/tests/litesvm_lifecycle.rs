@@ -105,6 +105,8 @@ struct Fixture {
     lp_shares: Address,
     trader_base: Address,
     trader_quote: Address,
+    keeper_base: Address,
+    keeper_quote: Address,
     deposit_ticket: Address,
     withdraw_ticket: Address,
     base_reserve_kp: Keypair,
@@ -172,6 +174,22 @@ impl Fixture {
             keys.trader.pubkey(),
             10_000_000_000,
         );
+        let keeper_base = Address::new_unique();
+        let keeper_quote = Address::new_unique();
+        set_token_account(
+            &mut svm,
+            keeper_base,
+            base_mint,
+            keys.keeper.pubkey(),
+            10_000_000_000,
+        );
+        set_token_account(
+            &mut svm,
+            keeper_quote,
+            quote_mint,
+            keys.keeper.pubkey(),
+            10_000_000_000,
+        );
 
         let lp_address = to_address(keys.lp.pubkey());
         let (vault, _) = pda(
@@ -228,6 +246,8 @@ impl Fixture {
             lp_shares: Address::new_unique(),
             trader_base,
             trader_quote,
+            keeper_base,
+            keeper_quote,
             deposit_ticket,
             withdraw_ticket,
             base_reserve_kp,
@@ -286,6 +306,76 @@ impl Fixture {
             },
         );
         send(&mut self.svm, &[payer], instruction)
+    }
+
+    fn bond_vault(&self) -> Address {
+        pda(&[b"bond", self.vault.as_ref()], &self.program_id).0
+    }
+
+    fn keeper_bond(&self, keeper: &Keypair) -> Address {
+        pda(
+            &[b"keeper", self.vault.as_ref(), keeper.pubkey().as_ref()],
+            &self.program_id,
+        )
+        .0
+    }
+
+    fn bond_keeper(&mut self, keeper: &Keypair, amount: u64) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::BondKeeper { amount },
+            arbswap::accounts::BondKeeper {
+                keeper: to_address(keeper.pubkey()),
+                vault: self.vault,
+                quote_mint: self.quote_mint,
+                keeper_quote: self.keeper_quote,
+                bond_vault: self.bond_vault(),
+                keeper_bond: self.keeper_bond(keeper),
+                token_program: token_program_id(),
+                system_program: anchor_lang::system_program::ID,
+            },
+        );
+        send(&mut self.svm, &[keeper], instruction)
+    }
+
+    fn slash_keeper(
+        &mut self,
+        admin: &Keypair,
+        keeper: &Keypair,
+        amount: u64,
+    ) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::SlashKeeper { amount },
+            arbswap::accounts::SlashKeeper {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+                quote_reserve: self.quote_reserve,
+                keeper: to_address(keeper.pubkey()),
+                keeper_bond: self.keeper_bond(keeper),
+                bond_vault: self.bond_vault(),
+                token_program: token_program_id(),
+            },
+        );
+        send(&mut self.svm, &[admin], instruction)
+    }
+
+    fn claim_keeper_reward(&mut self, keeper: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::ClaimKeeperReward {},
+            arbswap::accounts::ClaimKeeperReward {
+                keeper: to_address(keeper.pubkey()),
+                vault: self.vault,
+                config: self.config,
+                base_reserve: self.base_reserve,
+                quote_reserve: self.quote_reserve,
+                keeper_base: self.keeper_base,
+                keeper_quote: self.keeper_quote,
+                token_program: token_program_id(),
+            },
+        );
+        send(&mut self.svm, &[keeper], instruction)
     }
 
     fn initialize_program(&mut self, admin: &Keypair) {
@@ -903,9 +993,11 @@ fn swap_enforces_slippage_version_and_size() {
     );
 }
 
-/// An expired quote stops swaps.
+/// Keeper outage (Build Plan §7.2): with no further updates the quote expires,
+/// swaps stop, and the public breaker can pause the vault. This is the safe
+/// failure mode — a down keeper cannot expose the vault.
 #[test]
-fn swap_rejects_expired_quote() {
+fn keeper_outage_lets_the_quote_expire() {
     let keys = Keys::new();
     let mut fixture = Fixture::new(&keys);
     fixture
@@ -915,9 +1007,14 @@ fn swap_rejects_expired_quote() {
     fixture
         .update_quote(&keys.keeper, honest, quote_update(SLOT))
         .expect("quote");
+    // The keeper stops; time passes.
     let expiry = fixture.quote_state_value().expiry_slot;
     fixture.warp_to_slot(expiry + 1);
     assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, 0, 1), "QuoteExpired");
+    fixture
+        .trip_breaker(&keys.trader)
+        .expect("public breaker trips on the stale quote");
+    assert_eq!(fixture.vault_state().status, 1, "PAUSED");
 }
 
 /// A wound-down vault stops swaps.
@@ -971,6 +1068,82 @@ fn request_withdraw_rejects_a_foreign_share_account() {
     assert_anchor_error(
         send(&mut fixture.svm, &[&keys.lp], instruction),
         "ConstraintRaw",
+    );
+}
+
+/// T3.4: the keeper bond is held in a vault-owned PDA; only the admin can slash
+/// it, only up to the bonded amount, and slashed tokens go to insurance.
+#[test]
+fn keeper_bond_locks_quote_and_admin_slashes_to_insurance() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let before = token_amount(&fixture.svm, fixture.keeper_quote);
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.keeper_quote),
+        before - 1_000
+    );
+    assert_eq!(token_amount(&fixture.svm, fixture.bond_vault()), 1_000);
+
+    assert_anchor_error(
+        fixture.slash_keeper(&keys.lp, &keys.keeper, 100),
+        "Unauthorized",
+    );
+    assert_anchor_error(
+        fixture.slash_keeper(&keys.admin, &keys.keeper, 2_000),
+        "InsufficientBond",
+    );
+
+    let reserve_before = token_amount(&fixture.svm, fixture.quote_reserve);
+    fixture
+        .slash_keeper(&keys.admin, &keys.keeper, 400)
+        .expect("admin slash");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.quote_reserve),
+        reserve_before + 400
+    );
+    assert_eq!(fixture.vault_state().insurance_quote, 400);
+    assert_eq!(token_amount(&fixture.svm, fixture.bond_vault()), 600);
+}
+
+/// T3.4: the keeper claims exactly the accrued reward buckets, which are then
+/// zeroed; a second claim pays nothing. No vault principal can be drained.
+#[test]
+fn keeper_reward_claim_pays_only_accrued_and_zeroes_it() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    fixture
+        .swap(&keys.trader, AMOUNT_IN, 0, 1)
+        .expect("swap accrues keeper fees");
+
+    let accrued = fixture.vault_state().keeper_quote;
+    assert!(accrued > 0, "the swap must accrue a keeper reward");
+    let before = token_amount(&fixture.svm, fixture.keeper_quote);
+
+    fixture
+        .claim_keeper_reward(&keys.keeper)
+        .expect("keeper claims");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.keeper_quote),
+        before + accrued
+    );
+    let vault = fixture.vault_state();
+    assert_eq!(vault.keeper_quote, 0);
+    assert_eq!(vault.keeper_base, 0);
+
+    fixture
+        .claim_keeper_reward(&keys.keeper)
+        .expect("empty claim is a no-op");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.keeper_quote),
+        before + accrued
     );
 }
 

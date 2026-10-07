@@ -827,6 +827,130 @@ pub mod arbswap {
         });
         Ok(())
     }
+
+    /// T3.4: the keeper locks a bond in the quote token. The bond is held in a
+    /// vault-owned PDA token account, so no external key can move it.
+    pub fn bond_keeper(ctx: Context<BondKeeper>, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+        token::transfer(ctx.accounts.fund_bond_ctx(), amount)?;
+        let bond = &mut ctx.accounts.keeper_bond;
+        bond.keeper = ctx.accounts.keeper.key();
+        bond.bond = bond
+            .bond
+            .checked_add(amount)
+            .ok_or(ErrorCode::MathOverflow)?;
+        bond.bump = ctx.bumps.keeper_bond;
+        emit!(KeeperBonded {
+            keeper: bond.keeper,
+            amount,
+            total: bond.bond
+        });
+        Ok(())
+    }
+
+    /// T3.4: admin slashes the bond; the slashed tokens go to the quote reserve
+    /// and are booked to the insurance bucket. Never to the admin.
+    pub fn slash_keeper(ctx: Context<SlashKeeper>, amount: u64) -> Result<()> {
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.vault.admin,
+            ErrorCode::Unauthorized
+        );
+        require!(
+            amount > 0 && amount <= ctx.accounts.keeper_bond.bond,
+            ErrorCode::InsufficientBond
+        );
+        let bump = [ctx.accounts.vault.bump];
+        let seeds: &[&[u8]] = &[
+            b"vault",
+            ctx.accounts.vault.base_mint.as_ref(),
+            ctx.accounts.vault.quote_mint.as_ref(),
+            &bump,
+        ];
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                Transfer {
+                    from: ctx.accounts.bond_vault.to_account_info(),
+                    to: ctx.accounts.quote_reserve.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
+                &[seeds],
+            ),
+            amount,
+        )?;
+        let bond = &mut ctx.accounts.keeper_bond;
+        bond.bond -= amount;
+        bond.slashed = bond
+            .slashed
+            .checked_add(amount)
+            .ok_or(ErrorCode::MathOverflow)?;
+        ctx.accounts.vault.insurance_quote = ctx
+            .accounts
+            .vault
+            .insurance_quote
+            .checked_add(amount)
+            .ok_or(ErrorCode::MathOverflow)?;
+        emit!(KeeperSlashed {
+            keeper: bond.keeper,
+            amount
+        });
+        Ok(())
+    }
+
+    /// T3.4: the configured keeper claims exactly the accrued reward buckets.
+    /// Only the keeper can claim, only the `keeper_*` buckets move, and they are
+    /// zeroed, so no vault principal can ever be drained.
+    pub fn claim_keeper_reward(ctx: Context<ClaimKeeperReward>) -> Result<()> {
+        require!(
+            ctx.accounts.keeper.key() == ctx.accounts.config.keeper,
+            ErrorCode::NotKeeper
+        );
+        let base_reward = ctx.accounts.vault.keeper_base;
+        let quote_reward = ctx.accounts.vault.keeper_quote;
+        let bump = [ctx.accounts.vault.bump];
+        let seeds: &[&[u8]] = &[
+            b"vault",
+            ctx.accounts.vault.base_mint.as_ref(),
+            ctx.accounts.vault.quote_mint.as_ref(),
+            &bump,
+        ];
+        if base_reward > 0 {
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    Transfer {
+                        from: ctx.accounts.base_reserve.to_account_info(),
+                        to: ctx.accounts.keeper_base.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    &[&seeds],
+                ),
+                base_reward,
+            )?;
+        }
+        if quote_reward > 0 {
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    Transfer {
+                        from: ctx.accounts.quote_reserve.to_account_info(),
+                        to: ctx.accounts.keeper_quote.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    &[&seeds],
+                ),
+                quote_reward,
+            )?;
+        }
+        ctx.accounts.vault.keeper_base = 0;
+        ctx.accounts.vault.keeper_quote = 0;
+        emit!(RewardClaimed {
+            keeper: ctx.accounts.keeper.key(),
+            base: base_reward,
+            quote: quote_reward
+        });
+        Ok(())
+    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -950,6 +1074,14 @@ pub struct PendingConfig {
 #[account]
 pub struct ProgramConfig {
     pub admin: Pubkey,
+    pub bump: u8,
+}
+/// Keeper bond (T3.4), seeded `[b"keeper", vault, keeper]`.
+#[account]
+pub struct KeeperBond {
+    pub keeper: Pubkey,
+    pub bond: u64,
+    pub slashed: u64,
     pub bump: u8,
 }
 #[account]
@@ -1210,6 +1342,71 @@ pub struct WindDown<'info> {
 }
 
 #[derive(Accounts)]
+pub struct BondKeeper<'info> {
+    #[account(mut)]
+    pub keeper: Signer<'info>,
+    #[account(mut)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(address = vault.quote_mint)]
+    pub quote_mint: Box<Account<'info, Mint>>,
+    #[account(mut, constraint = keeper_quote.owner == keeper.key(), constraint = keeper_quote.mint == vault.quote_mint)]
+    pub keeper_quote: Box<Account<'info, TokenAccount>>,
+    #[account(init_if_needed, payer = keeper, token::mint = quote_mint, token::authority = vault, seeds=[b"bond", vault.key().as_ref()], bump)]
+    pub bond_vault: Box<Account<'info, TokenAccount>>,
+    #[account(init_if_needed, payer = keeper, space = 8 + 32 + 8 + 8 + 1, seeds=[b"keeper", vault.key().as_ref(), keeper.key().as_ref()], bump)]
+    pub keeper_bond: Account<'info, KeeperBond>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+impl<'info> BondKeeper<'info> {
+    fn fund_bond_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Transfer<'info>> {
+        CpiContext::new(
+            self.token_program.key(),
+            Transfer {
+                from: self.keeper_quote.to_account_info(),
+                to: self.bond_vault.to_account_info(),
+                authority: self.keeper.to_account_info(),
+            },
+        )
+    }
+}
+
+#[derive(Accounts)]
+pub struct SlashKeeper<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(mut)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(mut, address = vault.quote_reserve)]
+    pub quote_reserve: Box<Account<'info, TokenAccount>>,
+    /// CHECK: the bonded keeper, only used to derive the bond PDA.
+    pub keeper: UncheckedAccount<'info>,
+    #[account(mut, seeds=[b"keeper", vault.key().as_ref(), keeper.key().as_ref()], bump=keeper_bond.bump)]
+    pub keeper_bond: Box<Account<'info, KeeperBond>>,
+    #[account(mut, seeds=[b"bond", vault.key().as_ref()], bump)]
+    pub bond_vault: Box<Account<'info, TokenAccount>>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimKeeperReward<'info> {
+    pub keeper: Signer<'info>,
+    #[account(mut)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(seeds=[b"config", vault.key().as_ref()], bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut, address=vault.base_reserve)]
+    pub base_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(mut, address=vault.quote_reserve)]
+    pub quote_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(mut, constraint=keeper_base.owner==keeper.key(), constraint=keeper_base.mint==vault.base_mint)]
+    pub keeper_base: Box<Account<'info, TokenAccount>>,
+    #[account(mut, constraint=keeper_quote.owner==keeper.key(), constraint=keeper_quote.mint==vault.quote_mint)]
+    pub keeper_quote: Box<Account<'info, TokenAccount>>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
 pub struct InitializeProgram<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -1341,6 +1538,26 @@ pub struct ProgramInitialized {
     pub admin: Pubkey,
 }
 
+#[event]
+pub struct KeeperBonded {
+    pub keeper: Pubkey,
+    pub amount: u64,
+    pub total: u64,
+}
+
+#[event]
+pub struct KeeperSlashed {
+    pub keeper: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct RewardClaimed {
+    pub keeper: Pubkey,
+    pub base: u64,
+    pub quote: u64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Unauthorized")]
@@ -1383,6 +1600,8 @@ pub enum ErrorCode {
     AnchorStepTooLarge,
     #[msg("Timelock has not elapsed")]
     TimelockNotElapsed,
+    #[msg("Insufficient keeper bond")]
+    InsufficientBond,
     #[msg("Spread out of bounds")]
     SpreadOutOfBounds,
     #[msg("Quote expired")]

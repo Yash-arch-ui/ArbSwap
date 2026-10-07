@@ -34,6 +34,9 @@
 | Token mint constraints | Trader and claim token accounts constrain `mint == vault.*` (F-14) | Pass |
 | Parameter changes | Timelocked, admin-only `set_params`/`apply_params` with a `PendingConfig` PDA (F-17); `params_change_is_timelocked` | Pass |
 | LVR depth budget | Not applied; `R`/`g_gas` undefined, so the budget claim is dropped and the σ-target throttle is what runs (F-08) | Closed as scoped out |
+| Keeper reward drain | `claim_keeper_reward` is keeper-only, pays exactly the accrued `keeper_*` buckets and zeroes them; a second claim pays nothing (`keeper_reward_claim_pays_only_accrued_and_zeroes_it`) | Pass |
+| Keeper bond | Held in a vault-owned PDA; only the admin can slash, only up to the bond, and slashed tokens go to insurance — never to the admin (`keeper_bond_locks_quote_and_admin_slashes_to_insurance`) | Pass |
+| Keeper outage | A down keeper lets the quote expire; swaps stop and the public breaker pauses the vault (`keeper_outage_lets_the_quote_expire`) | Pass |
 
 ## Compute budget
 

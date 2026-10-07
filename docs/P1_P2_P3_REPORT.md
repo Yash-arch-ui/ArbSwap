@@ -143,7 +143,12 @@ P3 remaining deployment boundary:
 | P2 CU measurements | Complete | `update_quote` 12,802 / `trip_breaker` 7,051 / `swap` 33,676 |
 | P2 devnet gate | Pending | On-chain deployment required |
 | P3 keeper core/replay | Complete | keeper unit tests and binary |
-| P3 live sender/devnet parity gate | Pending | RPC transport + differential replay required |
+| P3 price source (Hermes parse, replay) | Complete | `parse_hermes`, `PriceSource`, `HermesSource` (injected transport) |
+| P3 sender (retries, adaptive fee, tight CU) | Complete | `LiveSender` refresh+retry test; `adaptive_priority_fee`; `MAX_UPDATE_COMPUTE_UNITS` |
+| P3 keeper bond + reward claim | Complete | `bond_keeper`/`slash_keeper`/`claim_keeper_reward` + tests (no-drain) |
+| P3 simulator parity | Complete | `test_keeper_parity.py` anchor/reservation/depth vs `quote_math.compute_quote` |
+| P3 keeper-outage safe expiry | Complete | `keeper_outage_lets_the_quote_expire` |
+| P3 live sender/devnet parity gate | Pending | Funded devnet run (scripted in `scripts/devnet_deploy.sh`) |
 
 No mainnet deployment, private key handling, or financial-performance claim is
 made.

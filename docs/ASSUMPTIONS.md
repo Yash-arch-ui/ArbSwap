@@ -323,3 +323,37 @@ owner and mint. Arithmetic is checked (`arb-math`/`checked_*`); there are no
 `remaining_accounts` and no arbitrary CPI. The only remaining P2 gate item is
 the funded **devnet deploy + initialize_program**, scripted in
 `scripts/devnet_deploy.sh`.
+
+## A-21. Phase 3 keeper completion (2026-10-07)
+- **Price source (T3.1):** `parse_hermes` decodes a Pyth Hermes
+  `/v2/updates/price/latest` body into an `OracleTick` (Q64 price, confidence
+  bps), matching the program's `pyth_price_q64`/`decoded_conf_bps`. A
+  `PriceSource` trait returns `Ok(None)` for a stale/wide/unparseable tick so
+  the loop skips it. `HermesSource` injects the HTTP transport; unit-tested
+  against a fixture with no network.
+- **Sender (T3.2):** `LiveSender` refreshes the blockhash and re-signs on each
+  attempt (bounded `max_attempts`); a re-sent transaction is de-duplicated by
+  the cluster so retries cannot double-spend an update. `adaptive_priority_fee`
+  scales with volatility urgency, doubles on a jump, and is clipped to
+  `[floor, cap]`. `MAX_UPDATE_COMPUTE_UNITS = 60_000` is set tightly above the
+  measured 12,802 CU update cost.
+- **Live loop (T3.1/T3.2):** `keeper live <hermes_url> <rpc_url> ...` fetches
+  Hermes, reads reserves over JSON-RPC (`getTokenAccountBalance`), and submits
+  `update_quote` via `sendTransaction`. It is not run in this environment (no
+  devnet keeper key), but the transaction bytes and account order are unit-tested
+  offline.
+- **Replay parity (T3.3):** `test_keeper_parity.py` now also checks the keeper's
+  anchor and reservation against `quote_math.compute_quote` (anchor within 1e-6,
+  reservation within the keeper's whole-bps skew quantum, depth exact). The
+  spread coefficient *scale* still differs from the float reference (F-09), so
+  it is compared structurally, not numerically.
+- **Keeper-outage safe expiry (T3.3 gate):** `keeper_outage_lets_the_quote_expire`
+  shows that with no updates the quote expires, swaps revert, and the public
+  breaker pauses the vault.
+- **Bond + reward (T3.4):** `KeeperBond` PDA `[b"keeper", vault, keeper]`;
+  `bond_keeper` locks quote tokens in a vault-owned PDA (`[b"bond", vault]`);
+  `slash_keeper` is admin-only, bounded by the bond, and sends slashed tokens to
+  the quote reserve booked to insurance; `claim_keeper_reward` is keeper-only
+  and pays exactly the accrued `keeper_base`/`keeper_quote` buckets then zeroes
+  them. No path moves vault principal. `update_quote` still uses the MVP keeper
+  allowlist (D-07 open); bonding is available and tested but not yet required.
