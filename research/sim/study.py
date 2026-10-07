@@ -698,6 +698,16 @@ def _limitations(windows: dict, window_regime: dict, studies: dict) -> list[str]
     lines.append(f"- **Losing windows are reported as losses.** E1 is negative on "
                  f"{len(losses)} of {len(e1_values)} held-out windows"
                  + (f" ({', '.join(losses)})" if losses else "") + ".")
+    lines.append(
+        "- **This report supersedes an earlier headline of the opposite sign.** "
+        "A previous `docs/P1_RESULTS.md` showed E1 ≈ **-100%** on synthetic paths "
+        "(and a real-data section where B1's own PnL was ≈ -1,760). That run used "
+        "a simulator with two defects since fixed (ASSUMPTIONS A-16): the "
+        "arbitrageur was sized to the *average-price* breakeven, which is not "
+        "profit-maximising and donated fees to the passive benchmark, and a fill "
+        "did not consume the displayed ladder, so the benchmark was credited with "
+        "phantom liquidity. Both are correctness fixes, not tuning, but they "
+        "flipped the sign of E1 and the delta is on the record.")
     if s4_values:
         lines.append(f"- **Seed sensitivity:** on W2, E1 ranges from "
                      f"{min(s4_values):+.1%} to {max(s4_values):+.1%} across "

@@ -313,6 +313,7 @@ The flow model is synthetic, so a single seed could flatter or punish a venue. F
 ## Honest limitations
 
 - **Losing windows are reported as losses.** E1 is negative on 0 of 5 held-out windows.
+- **This report supersedes an earlier headline of the opposite sign.** A previous `docs/P1_RESULTS.md` showed E1 ≈ **-100%** on synthetic paths (and a real-data section where B1's own PnL was ≈ -1,760). That run used a simulator with two defects since fixed (ASSUMPTIONS A-16): the arbitrageur was sized to the *average-price* breakeven, which is not profit-maximising and donated fees to the passive benchmark, and a fill did not consume the displayed ladder, so the benchmark was credited with phantom liquidity. Both are correctness fixes, not tuning, but they flipped the sign of E1 and the delta is on the record.
 - **Seed sensitivity:** on W2, E1 ranges from +159.0% to +374.1% across 5 seeds; a single seed is not evidence.
 - **Flow is synthetic.** Only the price path is observed; markout, quiet half-spread and the informed/noise mix are model outputs, not measurements of live order flow.
 - **Two costs are heuristics** (ASSUMPTIONS A-15): the priority-fee rate and the landing-delay distribution. Venue-vs-venue comparisons share them, so E1 is far more robust than any absolute PnL figure.
