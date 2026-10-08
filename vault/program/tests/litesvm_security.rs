@@ -44,6 +44,7 @@ fn params(base_mint: Address, quote_mint: Address, admin: &Keypair) -> InitParam
         utilization_max_bps: 5_000,
         min_bond: 0,
         unbond_cooldown_slots: 100,
+        max_update_slot_age: 25,
         max_anchor_dev_bps: 100,
         flow_window_slots: 100,
         max_window_flow_bps: 10_000,

@@ -120,6 +120,7 @@ pub mod arbswap {
         config.utilization_max_bps = params.utilization_max_bps;
         config.min_bond = params.min_bond;
         config.unbond_cooldown_slots = params.unbond_cooldown_slots;
+        config.max_update_slot_age = params.max_update_slot_age;
         config.max_anchor_dev_bps = params.max_anchor_dev_bps;
         config.flow_window_slots = params.flow_window_slots;
         config.max_window_flow_bps = params.max_window_flow_bps;
@@ -129,7 +130,6 @@ pub mod arbswap {
         ctx.accounts.quote_state.version = 0;
         ctx.accounts.quote_state.update_slot = 0;
         ctx.accounts.quote_state.expiry_slot = 0;
-        ctx.accounts.quote_state.flow_n = 0;
         ctx.accounts.quote_state.window_start_slot = 0;
         ctx.accounts.quote_state.window_base_sold = 0;
         ctx.accounts.quote_state.window_base_bought = 0;
@@ -483,6 +483,13 @@ pub mod arbswap {
                 && update.update_slot <= clock.slot,
             ErrorCode::NonMonotonicSlot
         );
+        // p2-T8: bound how stale the keeper's observed slot may be, so a quote
+        // cannot be built on an arbitrarily old price observation.
+        require!(
+            clock.slot.saturating_sub(update.update_slot)
+                <= ctx.accounts.config.max_update_slot_age as u64,
+            ErrorCode::UpdateSlotTooOld
+        );
         require!(
             update.oracle_price > 0 && update.oracle_publish_time >= 0,
             ErrorCode::InvalidPrice
@@ -701,7 +708,6 @@ pub mod arbswap {
         quote.depth_mult_bps = update.depth_mult_bps.min(10_000);
         quote.oracle_publish_time = update.oracle_publish_time;
         quote.oracle_conf_bps = update.oracle_conf_bps;
-        quote.flow_n = 0;
         for i in 0..LEVELS {
             quote.levels[i] = Level {
                 sqrt_lo: update.levels[i].sqrt_lo,
@@ -850,12 +856,6 @@ pub mod arbswap {
                     .protocol_quote
                     .checked_add(protocol as u64)
                     .ok_or(ErrorCode::MathOverflow)?;
-                ctx.accounts.quote_state.flow_n = ctx
-                    .accounts
-                    .quote_state
-                    .flow_n
-                    .checked_add(out as i128)
-                    .ok_or(ErrorCode::MathOverflow)?;
             }
             SwapSide::SellBase => {
                 token::transfer(ctx.accounts.base_transfer_ctx(), amount_in)?;
@@ -895,12 +895,6 @@ pub mod arbswap {
                     .vault
                     .protocol_base
                     .checked_add(protocol as u64)
-                    .ok_or(ErrorCode::MathOverflow)?;
-                ctx.accounts.quote_state.flow_n = ctx
-                    .accounts
-                    .quote_state
-                    .flow_n
-                    .checked_sub(net as i128)
                     .ok_or(ErrorCode::MathOverflow)?;
             }
         }
@@ -1027,6 +1021,7 @@ pub mod arbswap {
         config.utilization_max_bps = update.utilization_max_bps;
         config.min_bond = update.min_bond;
         config.unbond_cooldown_slots = update.unbond_cooldown_slots;
+        config.max_update_slot_age = update.max_update_slot_age;
         config.max_anchor_dev_bps = update.max_anchor_dev_bps;
         config.flow_window_slots = update.flow_window_slots;
         config.max_window_flow_bps = update.max_window_flow_bps;
@@ -1343,6 +1338,8 @@ pub struct ParamsUpdate {
     pub min_bond: u64,
     /// p2-T5: cooldown before a keeper's unbond releases (slots).
     pub unbond_cooldown_slots: u64,
+    /// p2-T8: max age (slots) of the stored `update_slot` at update time.
+    pub max_update_slot_age: u32,
     /// Max |anchor - oracle| / oracle in bps (Item 2).
     pub max_anchor_dev_bps: u32,
     /// Item 1a: cumulative one-sided flow window, in slots.
@@ -1380,6 +1377,8 @@ pub struct InitParams {
     pub utilization_max_bps: u32,
     pub min_bond: u64,
     pub unbond_cooldown_slots: u64,
+    /// p2-T8: max age (slots) of the stored `update_slot` at update time.
+    pub max_update_slot_age: u32,
     pub max_anchor_dev_bps: u32,
     pub flow_window_slots: u64,
     pub max_window_flow_bps: u32,
@@ -1469,6 +1468,8 @@ pub struct Config {
     pub utilization_max_bps: u32,
     pub min_bond: u64,
     pub unbond_cooldown_slots: u64,
+    /// p2-T8: max age (slots) of the stored `update_slot` at update time.
+    pub max_update_slot_age: u32,
     pub max_anchor_dev_bps: u32,
     /// Item 1a: flow window length (slots) and one-sided cap (bps of base reserve).
     pub flow_window_slots: u64,
@@ -1519,12 +1520,10 @@ pub struct QuoteState {
     pub half_spread_bps: u32,
     pub ask_extra_bps: u32,
     pub bid_extra_bps: u32,
+    /// Indexer hint only: the keeper's depth throttle for this quote. The
+    /// on-chain depth control is the per-level `liquidity` plus the
+    /// `utilization_max_bps` capacity bound, not this field (p2-T8).
     pub depth_mult_bps: u32,
-    /// Net base the vault has sold since the last quote update, in base atoms:
-    /// `+= base_out` when the vault sells base, `-= net_base_in` when it buys.
-    /// Recorded for future inventory pricing; the ladder does not read it yet
-    /// (the reservation skew already moves `p_res_sqrt`).
-    pub flow_n: i128,
     /// Item 1a: cumulative one-sided base flow within the current window.
     pub window_start_slot: u64,
     pub window_base_sold: u64,
@@ -1566,9 +1565,9 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8 + 4)]
     pub config: Box<Account<'info, Config>>,
-    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*3 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
+    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
     #[account(address = params.base_mint)]
     pub base_mint: Box<Account<'info, Mint>>,
@@ -1886,7 +1885,7 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+113+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=admin, space=8+32+8+117+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }
@@ -2147,6 +2146,8 @@ pub enum ErrorCode {
     NotKeeper,
     #[msg("Non-monotonic slot")]
     NonMonotonicSlot,
+    #[msg("Update slot is older than the configured maximum age")]
+    UpdateSlotTooOld,
 }
 
 #[cfg(test)]

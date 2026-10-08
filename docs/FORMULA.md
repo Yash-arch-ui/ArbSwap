@@ -280,11 +280,11 @@ The reset is decision D-04. It is intentionally different from persistent
 netting approaches described for some proprietary AMMs because inventory skew
 already moves `P_res`.
 
-**Status:** SPEC; Python reset implemented; the on-chain `swap` accumulates
-`flow_n` but **never reads it for pricing**, and its two sides use different
-bases (buy subtracts gross `amount_in`, sell adds net `out`). The accumulator is
-dead weight today and a unit trap tomorrow — either drop it or fix the units and
-use it (audit F-16, decision D4).
+**Status:** SPEC in the Python reference only. The on-chain `flow_n` was dead
+state (stored, never read for pricing, with mixed units), so it was **removed**
+in p2-T8; the per-window cumulative one-sided flow cap (`window_base_sold`/
+`window_base_bought`) is the live on-chain flow control. The simulator still
+returns a `flow_n` from `walk_ladder` for reference parity but ignores it.
 
 ## 9. LVR And Depth Throttle
 
@@ -470,8 +470,8 @@ observation is Base/Flashblocks and must not be presented as a Solana result.
 | Inventory/reservation | `quote_math.py` | not ported (keeper-side) | yes (decimals bug) | B3/B4 quote | levels supplied |
 | Volatility estimator | `quote_math.py` | not ported (keeper-side) | yes (not normalised) | implemented | off-chain |
 | Spread/directional fee | `quote_math.py` | not ported (keeper-side) | partial, no clamp | implemented | bounded only |
-| LVR budget/throttle | `quote_math.py` (`lvr_budget_value`) | not ported | σ-target only | σ-target/confidence only | bounded only |
-| Flow accumulator | reset only | n/a | n/a | reset only | stored, never read |
+| LVR budget/throttle | `quote_math.py` (`lvr_budget_value`) | not ported | σ-target only | σ-target/confidence only | keeper-side policy, bounded by on-chain caps |
+| Flow accumulator | reset only | n/a | n/a | reset only | removed on-chain (p2-T8) |
 | Vault share math | `quote_math.py` | `quote.rs` | n/a | n/a | implemented inline |
 | Fees | `fixed.py` | `quote::fee_amount` | n/a | n/a | implemented |
 | Golden vectors | generator `golden.py` | consumer `golden.rs` | n/a | n/a | — |
@@ -513,6 +513,6 @@ independent oracle.
 6. **First-depositor / share-inflation:** the MVP burns `MIN_LIQUIDITY`
    (Uniswap v2 style) but has no virtual-share offset; add one or prove the
    donation attack unprofitable before mainnet (THREAT_MODEL.md).
-7. **Define `R` and `g_gas`,** or drop the LVR-budget language (audit F-08).
+7. **LVR budget dropped from claims** (p2-T8): `R` and `g_gas` are undefined business inputs, so the depth rule is a *keeper-side policy bounded by on-chain caps* (spread/anchor/capacity), not an enforced on-chain budget.
 8. **Fix the keeper decimals bug** (F-03) and bind the on-chain ladder to the
    anchor (F-04) before any devnet run.

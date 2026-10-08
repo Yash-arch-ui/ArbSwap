@@ -246,6 +246,7 @@ impl Fixture {
             utilization_max_bps: 5_000,
             min_bond,
             unbond_cooldown_slots: 100,
+            max_update_slot_age: 25,
             max_anchor_dev_bps: 100,
             flow_window_slots,
             max_window_flow_bps,
@@ -3298,4 +3299,21 @@ fn account_spaces_match_serialized_sizes() {
     check::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
     check::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
     check::<arbswap::PendingClaim>(&fixture.svm, claim_pda);
+}
+
+/// T8: an update observed too many slots before it lands is rejected.
+#[test]
+fn an_old_update_slot_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    // max_update_slot_age = 25; the keeper observed SLOT but lands 100 slots later.
+    fixture.warp_to_slot(SLOT + 100);
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, quote_update(SLOT)),
+        "UpdateSlotTooOld",
+    );
 }

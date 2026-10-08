@@ -170,9 +170,9 @@ Measured with `measure_instruction_compute_units` (bonded path) after p2-T3:
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | 64,713 (capacity maths dominates; was ~18–29k) |
+| `update_quote` | 63,185 (capacity maths dominates; was ~18–29k) |
 | `update_quote` (wide-conf rejected) | 15,048 |
-| `swap` | 72,828 |
+| `swap` | 72,794 |
 | `trip_breaker` | 12,377 |
 | `deposit` | 46,477 |
 | `request_withdraw` | 24,420 |
