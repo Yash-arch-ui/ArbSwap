@@ -197,6 +197,7 @@ fn update_quote_executes_only_with_full_pyth_account() {
     let config = Config {
         admin: vault.admin,
         keeper: Pubkey::new_from_array(payer.pubkey().to_bytes()),
+        treasury: Pubkey::new_from_array(payer.pubkey().to_bytes()),
         pyth_feed_id: feed_id,
         fee_bps: 1,
         insurance_bps: 1,

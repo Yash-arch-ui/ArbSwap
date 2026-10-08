@@ -23,6 +23,7 @@ fn params(base_mint: Address, quote_mint: Address, admin: &Keypair) -> InitParam
         base_mint: pubkey(base_mint),
         quote_mint: pubkey(quote_mint),
         keeper: admin.pubkey(),
+        treasury: admin.pubkey(),
         pyth_feed_id: FEED_ID,
         fee_bps: 100,
         insurance_bps: 3_333,

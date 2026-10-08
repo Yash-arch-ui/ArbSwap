@@ -209,6 +209,7 @@ impl Fixture {
             base_mint: pubkey(base_mint),
             quote_mint: pubkey(quote_mint),
             keeper: keys.keeper.pubkey(),
+            treasury: keys.admin.pubkey(),
             pyth_feed_id: FEED_ID,
             fee_bps: FEE_BPS,
             insurance_bps: INSURANCE_BPS,
@@ -1533,4 +1534,130 @@ fn lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value() {
         buckets_after,
         "breaker/reset/crank must not move bucketed fees"
     );
+}
+
+/// Item 5: the keeper role can be rotated through the timelock, so a compromised
+/// or retired keeper key cannot permanently DoS quoting. After the change the
+/// old key is rejected with `NotKeeper`.
+#[test]
+fn keeper_can_be_rotated_via_the_timelock() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let new_keeper = Keypair::new();
+    airdrop(&mut fixture.svm, &new_keeper, 10_000_000_000);
+
+    let rotation = arbswap::ParamsUpdate {
+        keeper: Some(new_keeper.pubkey()),
+        ..Default::default()
+    };
+    fixture
+        .set_params(&keys.admin, rotation)
+        .expect("admin proposes the rotation");
+    let pending = read_state::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture
+        .apply_params(&keys.admin)
+        .expect("rotation applies after the timelock");
+    assert_eq!(fixture.config_state().keeper, new_keeper.pubkey());
+
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, quote_update(SLOT)),
+        "NotKeeper",
+    );
+}
+
+/// Item 5: a fee claim is timelocked and can only ever pay the fixed
+/// `config.treasury`. Before the timelock it is rejected; after it, only the
+/// requested LP-excluded bucket moves and LP shares are untouched.
+#[test]
+fn fee_claim_is_timelocked_and_pays_only_the_fixed_treasury() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    fixture
+        .swap(&keys.trader, AMOUNT_IN, 0, 1)
+        .expect("swap accrues fees");
+
+    let vault0 = fixture.vault_state();
+    assert!(vault0.protocol_quote > 0, "swap must accrue protocol fees");
+    let shares_before = vault0.total_shares;
+
+    let treasury_base = Address::new_unique();
+    let treasury_quote = Address::new_unique();
+    set_token_account(
+        &mut fixture.svm,
+        treasury_base,
+        fixture.base_mint,
+        keys.admin.pubkey(), // config.treasury == admin
+        0,
+    );
+    set_token_account(
+        &mut fixture.svm,
+        treasury_quote,
+        fixture.quote_mint,
+        keys.admin.pubkey(),
+        0,
+    );
+    let claim_pda = pda(&[b"claim", fixture.vault.as_ref()], &fixture.program_id).0;
+
+    let propose = ix(
+        fixture.program_id,
+        arbswap::instruction::ProposeFeeClaim {
+            kind: arbswap::FeeKind::Protocol,
+        },
+        arbswap::accounts::ProposeFeeClaim {
+            admin: to_address(keys.admin.pubkey()),
+            vault: fixture.vault,
+            pending_claim: claim_pda,
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    send(&mut fixture.svm, &[&keys.admin], propose).expect("propose");
+    let pending = read_state::<arbswap::PendingClaim>(&fixture.svm, claim_pda);
+
+    let program_id = fixture.program_id;
+    let vault = fixture.vault;
+    let config = fixture.config;
+    let base_reserve = fixture.base_reserve;
+    let quote_reserve = fixture.quote_reserve;
+    let admin = to_address(keys.admin.pubkey());
+    let execute = move || {
+        ix(
+            program_id,
+            arbswap::instruction::ExecuteFeeClaim {},
+            arbswap::accounts::ExecuteFeeClaim {
+                admin,
+                vault,
+                config,
+                pending_claim: claim_pda,
+                base_reserve,
+                quote_reserve,
+                treasury_base,
+                treasury_quote,
+                token_program: token_program_id(),
+            },
+        )
+    };
+
+    // Before the timelock: rejected.
+    assert_anchor_error(send(&mut fixture.svm, &[&keys.admin], execute()), "TimelockNotElapsed");
+
+    // After the timelock: protocol bucket moves to the fixed treasury.
+    fixture.warp_to_slot(pending.activate_slot);
+    let before = token_amount(&fixture.svm, treasury_quote);
+    send(&mut fixture.svm, &[&keys.admin], execute()).expect("execute after timelock");
+    assert_eq!(
+        token_amount(&fixture.svm, treasury_quote),
+        before + vault0.protocol_quote
+    );
+    let vault1 = fixture.vault_state();
+    assert_eq!(vault1.protocol_quote, 0, "protocol bucket zeroed");
+    assert_eq!(vault1.total_shares, shares_before, "LP shares untouched");
 }

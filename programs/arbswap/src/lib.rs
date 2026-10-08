@@ -85,6 +85,7 @@ pub mod arbswap {
         let config = &mut ctx.accounts.config;
         config.admin = vault.admin;
         config.keeper = params.keeper;
+        config.treasury = params.treasury;
         config.fee_bps = params.fee_bps;
         config.insurance_bps = params.insurance_bps;
         config.keeper_bps = params.keeper_bps;
@@ -880,6 +881,9 @@ pub mod arbswap {
         config.max_inventory_bps = update.max_inventory_bps;
         config.min_bond = update.min_bond;
         config.max_anchor_dev_bps = update.max_anchor_dev_bps;
+        if let Some(new_keeper) = update.keeper {
+            config.keeper = new_keeper;
+        }
         ctx.accounts.pending_config.activate_slot = u64::MAX;
         emit!(ParamsApplied {
             slot: Clock::get()?.slot
@@ -1010,6 +1014,107 @@ pub mod arbswap {
         });
         Ok(())
     }
+
+    /// Item 5: admin proposes a timelocked claim of the insurance or protocol
+    /// fee bucket. Nothing moves yet; `execute_fee_claim` releases it only after
+    /// `TIMELOCK_SLOTS` and only to the fixed `config.treasury`.
+    pub fn propose_fee_claim(ctx: Context<ProposeFeeClaim>, kind: FeeKind) -> Result<()> {
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.vault.admin,
+            ErrorCode::Unauthorized
+        );
+        let now = Clock::get()?.slot;
+        let pending = &mut ctx.accounts.pending_claim;
+        pending.admin = ctx.accounts.admin.key();
+        pending.kind = kind;
+        pending.activate_slot = now.saturating_add(TIMELOCK_SLOTS);
+        pending.bump = ctx.bumps.pending_claim;
+        emit!(FeeClaimProposed {
+            slot: now,
+            activate_slot: pending.activate_slot
+        });
+        Ok(())
+    }
+
+    /// Item 5: releases a previously proposed fee claim once the timelock
+    /// elapsed. Moves **only** the requested LP-excluded bucket, and only to the
+    /// fixed `config.treasury` token accounts. LP reserves are never touched.
+    pub fn execute_fee_claim(ctx: Context<ExecuteFeeClaim>) -> Result<()> {
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.vault.admin
+                && ctx.accounts.pending_claim.admin == ctx.accounts.admin.key(),
+            ErrorCode::Unauthorized
+        );
+        require!(
+            Clock::get()?.slot >= ctx.accounts.pending_claim.activate_slot,
+            ErrorCode::TimelockNotElapsed
+        );
+        let (base_amt, quote_amt) = match ctx.accounts.pending_claim.kind {
+            FeeKind::Insurance => (
+                ctx.accounts.vault.insurance_base,
+                ctx.accounts.vault.insurance_quote,
+            ),
+            FeeKind::Protocol => (
+                ctx.accounts.vault.protocol_base,
+                ctx.accounts.vault.protocol_quote,
+            ),
+        };
+        require!(base_amt > 0 || quote_amt > 0, ErrorCode::InvalidAmount);
+        let bump = [ctx.accounts.vault.bump];
+        let seeds: &[&[u8]] = &[
+            b"vault",
+            ctx.accounts.vault.base_mint.as_ref(),
+            ctx.accounts.vault.quote_mint.as_ref(),
+            &bump,
+        ];
+        if base_amt > 0 {
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    Transfer {
+                        from: ctx.accounts.base_reserve.to_account_info(),
+                        to: ctx.accounts.treasury_base.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    &[&seeds],
+                ),
+                base_amt,
+            )?;
+        }
+        if quote_amt > 0 {
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    Transfer {
+                        from: ctx.accounts.quote_reserve.to_account_info(),
+                        to: ctx.accounts.treasury_quote.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    &[&seeds],
+                ),
+                quote_amt,
+            )?;
+        }
+        match ctx.accounts.pending_claim.kind {
+            FeeKind::Insurance => {
+                ctx.accounts.vault.insurance_base = 0;
+                ctx.accounts.vault.insurance_quote = 0;
+            }
+            FeeKind::Protocol => {
+                ctx.accounts.vault.protocol_base = 0;
+                ctx.accounts.vault.protocol_quote = 0;
+            }
+        }
+        // Consume the proposal so it cannot be replayed.
+        ctx.accounts.pending_claim.activate_slot = u64::MAX;
+        emit!(FeeClaimed {
+            slot: Clock::get()?.slot,
+            kind: ctx.accounts.pending_claim.kind,
+            base_amount: base_amt,
+            quote_amount: quote_amt
+        });
+        Ok(())
+    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -1027,6 +1132,8 @@ pub struct ParamsUpdate {
     pub min_bond: u64,
     /// Max |anchor - oracle| / oracle in bps (Item 2).
     pub max_anchor_dev_bps: u32,
+    /// Item 5: optional keeper rotation, applied (timelocked) when set.
+    pub keeper: Option<Pubkey>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -1034,6 +1141,8 @@ pub struct InitParams {
     pub base_mint: Pubkey,
     pub quote_mint: Pubkey,
     pub keeper: Pubkey,
+    /// Item 5: fixed destination for timelocked fee claims.
+    pub treasury: Pubkey,
     pub pyth_feed_id: [u8; 32],
     pub fee_bps: u16,
     pub insurance_bps: u16,
@@ -1083,6 +1192,13 @@ pub enum SwapSide {
     SellBase,
 }
 
+/// Item 5: the LP-excluded fee bucket a timelocked treasury claim targets.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FeeKind {
+    Insurance,
+    Protocol,
+}
+
 #[account]
 pub struct Vault {
     pub admin: Pubkey,
@@ -1108,6 +1224,9 @@ pub struct Vault {
 pub struct Config {
     pub admin: Pubkey,
     pub keeper: Pubkey,
+    /// Item 5: the fixed destination for timelocked fee claims. Set once at
+    /// init; a claim can only ever send insurance/protocol fees here.
+    pub treasury: Pubkey,
     pub pyth_feed_id: [u8; 32],
     pub fee_bps: u16,
     pub insurance_bps: u16,
@@ -1134,6 +1253,14 @@ pub struct PendingConfig {
     pub admin: Pubkey,
     pub activate_slot: u64,
     pub params: ParamsUpdate,
+    pub bump: u8,
+}
+/// Item 5: a pending timelocked treasury fee claim, seeded `[b"claim", vault]`.
+#[account]
+pub struct PendingClaim {
+    pub admin: Pubkey,
+    pub kind: FeeKind,
+    pub activate_slot: u64,
     pub bump: u8,
 }
 /// Singleton program admin, seeded `[b"program"]` (set once at deploy).
@@ -1203,7 +1330,7 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*3 + 2*4 + 8*7 + 4*5 + 8 + 4 + 1)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*7 + 4*5 + 8 + 4 + 1)]
     pub config: Box<Account<'info, Config>>,
     #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*3 + 16*3 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
@@ -1491,7 +1618,7 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+52+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=admin, space=8+32+8+85+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }
@@ -1505,6 +1632,40 @@ pub struct ApplyParams<'info> {
     pub config: Box<Account<'info, Config>>,
     #[account(mut, seeds=[b"pending", vault.key().as_ref()], bump=pending_config.bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
+}
+
+/// Item 5: create/refresh a timelocked treasury fee-claim proposal.
+#[derive(Accounts)]
+pub struct ProposeFeeClaim<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(init_if_needed, payer=admin, space=8+32+1+8+1, seeds=[b"claim", vault.key().as_ref()], bump)]
+    pub pending_claim: Box<Account<'info, PendingClaim>>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Item 5: execute a timelocked claim to the **fixed** `config.treasury`.
+#[derive(Accounts)]
+pub struct ExecuteFeeClaim<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(mut)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(seeds=[b"config", vault.key().as_ref()], bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut, seeds=[b"claim", vault.key().as_ref()], bump=pending_claim.bump)]
+    pub pending_claim: Box<Account<'info, PendingClaim>>,
+    #[account(mut, address=vault.base_reserve)]
+    pub base_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(mut, address=vault.quote_reserve)]
+    pub quote_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(mut, constraint=treasury_base.owner==config.treasury, constraint=treasury_base.mint==vault.base_mint)]
+    pub treasury_base: Box<Account<'info, TokenAccount>>,
+    #[account(mut, constraint=treasury_quote.owner==config.treasury, constraint=treasury_quote.mint==vault.quote_mint)]
+    pub treasury_quote: Box<Account<'info, TokenAccount>>,
+    pub token_program: Program<'info, Token>,
 }
 
 /// Ceiling division for share maths; returns 0 when the denominator is 0.
@@ -1626,6 +1787,20 @@ pub struct RewardClaimed {
     pub keeper: Pubkey,
     pub base: u64,
     pub quote: u64,
+}
+
+#[event]
+pub struct FeeClaimProposed {
+    pub slot: u64,
+    pub activate_slot: u64,
+}
+
+#[event]
+pub struct FeeClaimed {
+    pub slot: u64,
+    pub kind: FeeKind,
+    pub base_amount: u64,
+    pub quote_amount: u64,
 }
 
 #[error_code]
