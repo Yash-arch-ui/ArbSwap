@@ -151,6 +151,19 @@ fn golden_vectors_match_reference() {
                 u("expected"),
                 "fee @{at}"
             ),
+            // Explicit boundary cases the port must reject (not just match a value).
+            "mul_q64_overflow" => {
+                assert!(
+                    mul_q64(u("a"), u("b")).is_err(),
+                    "mul_q64 must overflow @{at}"
+                );
+            }
+            "div_q64_zero" => {
+                assert!(
+                    div_q64(u("a"), 0).is_err(),
+                    "div_q64 by zero must error @{at}"
+                );
+            }
             other => panic!("unknown vector kind {other} @{at}"),
         }
         checked += 1;

@@ -153,6 +153,28 @@ def generate(seed: int = 20261006, target: int = 520) -> dict:
         add("fee", amount=amount, fee_bps=fee_bps,
             expected=fee_amount(amount, fee_bps))
 
+    # --- Explicit edge cases: rounding boundaries, zero/one, overflow -------
+    # Rounding-down vs rounding-up pairs on the same input (vault-favouring
+    # direction): mul_bps floors, ceil_bps ceils.
+    for x, bps in [(10_000, 1), (10_001, 1), (9_999, 1), (1, 5_000),
+                   (3, 3_333), (0, 10_000), (999_999, 1)]:
+        add("mul_bps", x=x, bps=bps, expected=mul_bps(x, bps))
+        add("ceil_bps", x=x, bps=bps, expected=ceil_bps(x, bps))
+    # Zero / one / sign boundaries.
+    add("sqrt_q64", v=0, expected=0)
+    add("sqrt_q64", v=1, expected=sqrt_q64(1))
+    add("mul_q64", a=0, b=(1 << 64), expected=0)
+    # 1.0 * 1.0 = 1.0: exercises the 256-bit intermediate (a*b == 2**128).
+    add("mul_q64", a=(1 << 64), b=(1 << 64), expected=(1 << 64))
+    for a, b in [(-7, 2), (7, 2), (-1, 1), (1, -1), (-9, 3), (0, 5)]:
+        add("tdiv", a=a, b=b, expected=tdiv(a, b))
+    # Largest operand whose mul_q64 result still fits u128 (no overflow).
+    m = (1 << 64) - 1
+    add("mul_q64", a=m, b=m, expected=mul_q64(m, m))
+    # Explicit overflow / domain cases the Rust port must reject (no `expected`).
+    cases.append({"kind": "mul_q64_overflow", "a": str(1 << 127), "b": str(1 << 127)})
+    cases.append({"kind": "div_q64_zero", "a": str(1 << 64)})
+
     return {"version": 1, "seed": seed, "target": target, "cases": cases}
 
 
