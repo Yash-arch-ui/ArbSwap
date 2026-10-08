@@ -42,10 +42,10 @@ class Venue:
     rejects: int = 0
 
 
-def _build(kind, *, params, b1_fee, prop_hs, latency_steps, start_price):
+def _build(kind, *, params, b1_fee, prop_hs, latency_steps, start_price, vault_fee_bps=1.0):
     kw = pool_kwargs(start_price)
     if kind == "vault":
-        return Venue("ArbSwap", "vault", venue=VaultVenue(params=params, **kw))
+        return Venue("ArbSwap", "vault", venue=VaultVenue(params=params, fee_bps=vault_fee_bps, **kw))
     if kind == "pool":
         return Venue("B1_passive", "pool", fee_bps=b1_fee,
                      venue=PassivePool(fee=b1_fee / 10_000.0, **kw))
@@ -70,10 +70,11 @@ def _exec_price(venue: Venue, side: str, amount_in: float, ref: float, prop_ref:
 
 def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s=1.0,
                  insensitive_share=0.2, slippage_bps=1.0, seed=20261006,
-                 informed_max_notional=5_000.0, informed_enabled=True, include_prop=True):
+                 informed_max_notional=5_000.0, informed_enabled=True, include_prop=True,
+                 vault_fee_bps=1.0):
     params = params or QuoteParams()
     venues = [
-        _build("vault", params=params, b1_fee=b1_fee, prop_hs=prop_hs, latency_steps=1, start_price=prices[0].price),
+        _build("vault", params=params, b1_fee=b1_fee, prop_hs=prop_hs, latency_steps=1, start_price=prices[0].price, vault_fee_bps=vault_fee_bps),
         _build("pool", params=params, b1_fee=b1_fee, prop_hs=prop_hs, latency_steps=1, start_price=prices[0].price),
     ]
     if include_prop:
