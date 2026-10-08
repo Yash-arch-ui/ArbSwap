@@ -15,6 +15,7 @@ from dataclasses import replace
 
 from simulation.reference.quote_math import QuoteParams
 from simulation.sim.engine import simulate
+from simulation.sim.bootstrap import bootstrap_ci
 from simulation.sim.flow import InformedFlow, NoiseFlow
 from simulation.sim.oracle import OracleModel
 from simulation.sim.flow_config import pool_kwargs
@@ -113,3 +114,49 @@ if __name__ == "__main__":
     print("== 2c cadence sweep (W4) ==")
     for r in sweep_cadence(prices):
         print(r)
+
+
+def per_window_honesty() -> list[dict]:
+    """Would-be gap + rejection per held-out window with bootstrap CIs."""
+    from simulation.sim.study import _load_slice
+    from simulation.sim.windows import WINDOWS
+    rows = []
+    for w in WINDOWS:
+        if w.is_calibration:
+            continue
+        venue, result = _run(_load_slice(w), tol_bps=0.0, cadence_s=1.0)
+        gaps = [g for (g, _) in venue.attempt_gaps]
+        total, lo, hi = bootstrap_ci(gaps)
+        rejected = venue.honesty_rejects + venue.capacity_rejects + venue.reserve_rejects
+        attempted = len(result.trades) + rejected
+        rows.append({
+            "window": w.label,
+            "rejection_rate": rejected / attempted if attempted else 0.0,
+            "wouldbe_gap_mean": total / len(gaps) if gaps else 0.0,
+            "wouldbe_gap_ci_lo": lo / len(gaps) if gaps else 0.0,
+            "wouldbe_gap_ci_hi": hi / len(gaps) if gaps else 0.0,
+        })
+    return rows
+
+
+def cadence_with_cost() -> list[dict]:
+    """Rejection vs staleness vs CU cost per update (W4)."""
+    from simulation.sim.costs import CU_UPDATE_QUOTE
+    from simulation.sim.study import _load_slice
+    from simulation.sim.windows import WINDOWS
+    prices = _load_slice(next(w for w in WINDOWS if w.label == "W4"))
+    rows = []
+    for cadence in CADENCES_S:
+        venue, result = _run(prices, tol_bps=0.0, cadence_s=cadence)
+        rejected = venue.honesty_rejects + venue.capacity_rejects + venue.reserve_rejects
+        attempted = len(result.trades) + rejected
+        updates = max(1, result.quote_updates)
+        rows.append({
+            "cadence_s": cadence,
+            "rejection_rate": rejected / attempted if attempted else 0.0,
+            "expired_skips": result.expired_skips,
+            "cu_per_update": CU_UPDATE_QUOTE,
+            "updates": updates,
+            "cu_cost": CU_UPDATE_QUOTE * updates,
+        })
+    return rows
