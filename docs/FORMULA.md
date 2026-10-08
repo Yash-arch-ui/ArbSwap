@@ -212,11 +212,22 @@ C_bid,k   = w_k*quote_cap
 sum(w_k)  = 1
 ```
 
-**Known gap (audit F-12):** capacity is computed from the **full** reserves,
-including the insurance/keeper/protocol fee buckets that share math already
-excludes. The keeper replay also hard-codes placeholder reserves (`1_000` /
-`150_000`), so the quoted depth is phantom until real available reserves (net of
-buckets) are read from chain and supplied.
+**On-chain capacity bound (p2-T3, closes audit F-12 on-chain).** `update_quote`
+now reads the vault's reserve token accounts and requires, for the quoted
+ladder,
+`Σ base_capacity_k * 10^4 <= utilization_max_bps * available_base` and
+`Σ quote_capacity_k * 10^4 <= utilization_max_bps * available_quote`, where
+`available = reserve − (insurance + keeper + protocol)` and capacities use the
+`arb-math` floor rounding (`Level::base_capacity` / `quote_capacity`).
+`utilization_max_bps` is a timelocked `Config` bound capped at 8,000 (0.8). The
+keeper sizes its ladder from the same available reserves
+(`available_reserves`) and the same `utilization_bps`, so an honest keeper
+ladder passes; the differential test
+`keeper_ladder_respects_the_utilization_budget` checks the base and quote sums.
+
+*Remaining (keeper replay only):* the offline replay hard-codes placeholder
+reserves (`1_000` / `150_000`); a live/replay keeper must supply the real
+available reserves (it now reads them over RPC).
 
 ### 6.1 Important specification ambiguity
 

@@ -41,6 +41,7 @@ fn params(base_mint: Address, quote_mint: Address, admin: &Keypair) -> InitParam
         max_spread_bps: 50,
         max_quote_size: 1_000_000,
         max_inventory_bps: 2_000,
+        utilization_max_bps: 5_000,
         min_bond: 0,
         max_anchor_dev_bps: 100,
         flow_window_slots: 100,

@@ -25,7 +25,16 @@ pub const ANCHOR_SQRT: u128 = 225_887_000_000_000_000_000;
 
 /// An oracle-consistent ask ladder for the F-04 anchor binding: level `k`
 /// spans `anchor*(1 + spread + offset_{k-1})` to `anchor*(1 + spread + offset_k)`.
-pub fn anchor_ladder(anchor_sqrt: u128, spread_bps: u32, offsets: [u32; 6]) -> [LevelUpdate; 6] {
+///
+/// Liquidity is derived from a total base-capacity budget distributed by
+/// [`WEIGHTS`], so the ladder satisfies the p2-T3 utilization bound when
+/// `total_base_capacity <= u_max * available_base`.
+pub fn anchor_ladder(
+    anchor_sqrt: u128,
+    spread_bps: u32,
+    offsets: [u32; 6],
+    total_base_capacity: u128,
+) -> [LevelUpdate; 6] {
     let anchor_price = arb_math::price_from_sqrt(anchor_sqrt).expect("anchor price");
     let mut levels = [LevelUpdate::default(); 6];
     let mut previous = 0u32;
@@ -44,7 +53,10 @@ pub fn anchor_ladder(anchor_sqrt: u128, spread_bps: u32, offsets: [u32; 6]) -> [
         .expect("hi price");
         level.sqrt_lo = arb_math::sqrt_q64(lo_price).expect("sqrt_lo");
         level.sqrt_hi = arb_math::sqrt_q64(hi_price).expect("sqrt_hi");
-        level.liquidity = 100_000_000_000_000_000_000_000_000;
+        let capacity = total_base_capacity * WEIGHTS[index] as u128 / 10_000;
+        level.liquidity =
+            arb_math::Level::liquidity_for_base_capacity(level.sqrt_lo, level.sqrt_hi, capacity)
+                .expect("liquidity");
         previous = offsets[index];
     }
     levels

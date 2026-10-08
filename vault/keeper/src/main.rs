@@ -378,6 +378,8 @@ fn live(args: Vec<String>) {
                 quote_state,
                 price_update,
                 keeper_bond,
+                base_reserve,
+                quote_reserve,
                 recent_blockhash: blockhash,
                 compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
             };

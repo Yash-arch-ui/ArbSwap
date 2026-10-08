@@ -68,6 +68,11 @@ pub mod arbswap {
             params.min_spread_bps <= params.max_spread_bps,
             ErrorCode::InvalidParams
         );
+        // Spec §5.16: u_max is capped at 0.8 of reserves.
+        require!(
+            params.utilization_max_bps <= 8_000,
+            ErrorCode::InvalidParams
+        );
         let vault = &mut ctx.accounts.vault;
         vault.admin = ctx.accounts.admin.key();
         vault.base_mint = params.base_mint;
@@ -109,6 +114,7 @@ pub mod arbswap {
         config.max_spread_bps = params.max_spread_bps;
         config.max_quote_size = params.max_quote_size;
         config.max_inventory_bps = params.max_inventory_bps;
+        config.utilization_max_bps = params.utilization_max_bps;
         config.min_bond = params.min_bond;
         config.max_anchor_dev_bps = params.max_anchor_dev_bps;
         config.flow_window_slots = params.flow_window_slots;
@@ -616,6 +622,58 @@ pub mod arbswap {
                 arb_math::price_from_sqrt(level.sqrt_hi).map_err(|_| ErrorCode::InvalidPrice)?;
             require!(lo >= lower && hi <= upper, ErrorCode::LevelOutOfBounds);
         }
+        // p2-T3 / P2-F03: bound the quoted depth to the *available* reserves so a
+        // compromised keeper cannot publish phantom depth. Capacity uses the same
+        // floor rounding as `arb-math`; the fee buckets are liabilities and are
+        // excluded, matching the share math and the keeper's ladder sizing.
+        let mut quoted_base_capacity = 0u128;
+        let mut quoted_quote_capacity = 0u128;
+        for level in update.levels.iter() {
+            let math_level = MathLevel {
+                sqrt_lo: level.sqrt_lo,
+                sqrt_hi: level.sqrt_hi,
+                liquidity: level.liquidity,
+            };
+            quoted_base_capacity = quoted_base_capacity
+                .checked_add(
+                    math_level
+                        .base_capacity()
+                        .map_err(|_| error!(ErrorCode::MathOverflow))?,
+                )
+                .ok_or(ErrorCode::MathOverflow)?;
+            quoted_quote_capacity = quoted_quote_capacity
+                .checked_add(
+                    math_level
+                        .quote_capacity()
+                        .map_err(|_| error!(ErrorCode::MathOverflow))?,
+                )
+                .ok_or(ErrorCode::MathOverflow)?;
+        }
+        let available_base = ctx
+            .accounts
+            .base_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_base)
+            .saturating_sub(ctx.accounts.vault.keeper_base)
+            .saturating_sub(ctx.accounts.vault.protocol_base) as u128;
+        let available_quote =
+            ctx.accounts
+                .quote_reserve
+                .amount
+                .saturating_sub(ctx.accounts.vault.insurance_quote)
+                .saturating_sub(ctx.accounts.vault.keeper_quote)
+                .saturating_sub(ctx.accounts.vault.protocol_quote) as u128;
+        let utilization = ctx.accounts.config.utilization_max_bps as u128;
+        require!(
+            quoted_base_capacity.saturating_mul(BPS_DENOM as u128)
+                <= available_base.saturating_mul(utilization),
+            ErrorCode::UtilizationExceeded
+        );
+        require!(
+            quoted_quote_capacity.saturating_mul(BPS_DENOM as u128)
+                <= available_quote.saturating_mul(utilization),
+            ErrorCode::UtilizationExceeded
+        );
         let quote = &mut ctx.accounts.quote_state;
         quote.version = quote
             .version
@@ -928,6 +986,10 @@ pub mod arbswap {
             update.min_spread_bps <= update.max_spread_bps,
             ErrorCode::InvalidParams
         );
+        require!(
+            update.utilization_max_bps <= 8_000,
+            ErrorCode::InvalidParams
+        );
         let config = &mut ctx.accounts.config;
         config.fee_bps = update.fee_bps;
         config.insurance_bps = update.insurance_bps;
@@ -940,6 +1002,7 @@ pub mod arbswap {
         config.max_spread_bps = update.max_spread_bps;
         config.max_quote_size = update.max_quote_size;
         config.max_inventory_bps = update.max_inventory_bps;
+        config.utilization_max_bps = update.utilization_max_bps;
         config.min_bond = update.min_bond;
         config.max_anchor_dev_bps = update.max_anchor_dev_bps;
         config.flow_window_slots = update.flow_window_slots;
@@ -1198,6 +1261,7 @@ pub struct ParamsUpdate {
     pub max_spread_bps: u32,
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
+    pub utilization_max_bps: u32,
     pub min_bond: u64,
     /// Max |anchor - oracle| / oracle in bps (Item 2).
     pub max_anchor_dev_bps: u32,
@@ -1233,6 +1297,7 @@ pub struct InitParams {
     pub max_spread_bps: u32,
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
+    pub utilization_max_bps: u32,
     pub min_bond: u64,
     pub max_anchor_dev_bps: u32,
     pub flow_window_slots: u64,
@@ -1320,6 +1385,7 @@ pub struct Config {
     pub max_spread_bps: u32,
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
+    pub utilization_max_bps: u32,
     pub min_bond: u64,
     pub max_anchor_dev_bps: u32,
     /// Item 1a: flow window length (slots) and one-sided cap (bps of base reserve).
@@ -1414,7 +1480,7 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4)]
     pub config: Box<Account<'info, Config>>,
     #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*3 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
@@ -1564,6 +1630,12 @@ pub struct UpdateQuote<'info> {
     /// `seeds`), so the MVP allowlist path pays no PDA-derivation CU; the body
     /// checks the PDA and the bonded amount only when `min_bond > 0`.
     pub keeper_bond: UncheckedAccount<'info>,
+    /// The vault's token reserves, read to bound the quoted depth to the
+    /// *available* reserves (net of the fee buckets). Bound by address.
+    #[account(address = vault.base_reserve)]
+    pub base_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(address = vault.quote_reserve)]
+    pub quote_reserve: Box<Account<'info, TokenAccount>>,
 }
 #[derive(Accounts)]
 pub struct Swap<'info> {
@@ -1707,7 +1779,7 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+101+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=admin, space=8+32+8+105+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }
@@ -1936,6 +2008,8 @@ pub enum ErrorCode {
     AnchorTooFarFromOracle,
     #[msg("Cumulative one-sided flow cap exceeded for this window")]
     FlowCapExceeded,
+    #[msg("Quoted ladder depth exceeds the utilization cap of the available reserves")]
+    UtilizationExceeded,
     #[msg("The insurance buffer cannot be claimed to the treasury")]
     InsuranceNotClaimable,
     #[msg("Timelock has not elapsed")]

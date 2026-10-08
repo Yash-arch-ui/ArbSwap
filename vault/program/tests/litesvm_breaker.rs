@@ -4,7 +4,7 @@ use arbswap::{Config, Level, LevelUpdate, QuoteState, QuoteUpdate, Vault};
 use litesvm::LiteSVM;
 
 mod common;
-use common::{anchor_ladder, pda, ANCHOR_SQRT};
+use common::{anchor_ladder, pda, pubkey, set_token_account, to_address, ANCHOR_SQRT};
 use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, VerificationLevel};
 use pythnet_sdk::messages::PriceFeedMessage;
 use sha2::{Digest, Sha256};
@@ -177,12 +177,14 @@ fn update_quote_executes_only_with_full_pyth_account() {
     let (quote_address, quote_bump) =
         Address::find_program_address(&[b"quote", vault_address.as_ref()], &program_id);
     let feed_id = [7u8; 32];
+    let base_reserve_key = Address::new_unique();
+    let quote_reserve_key = Address::new_unique();
     let vault = Vault {
         admin: Pubkey::new_unique(),
         base_mint,
         quote_mint,
-        base_reserve: Pubkey::new_unique(),
-        quote_reserve: Pubkey::new_unique(),
+        base_reserve: pubkey(base_reserve_key),
+        quote_reserve: pubkey(quote_reserve_key),
         share_mint: Pubkey::new_unique(),
         share_lock: Pubkey::new_unique(),
         total_shares: 1,
@@ -218,6 +220,7 @@ fn update_quote_executes_only_with_full_pyth_account() {
         max_spread_bps: 50,
         max_quote_size: 1_000_000,
         max_inventory_bps: 10_000,
+        utilization_max_bps: 5_000,
         min_bond: 0,
         max_anchor_dev_bps: 100,
         flow_window_slots: 100,
@@ -300,7 +303,21 @@ fn update_quote_executes_only_with_full_pyth_account() {
         },
     )
     .unwrap();
-    let levels = anchor_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6]);
+    set_token_account(
+        &mut svm,
+        base_reserve_key,
+        to_address(base_mint),
+        payer.pubkey(),
+        1_000_000,
+    );
+    set_token_account(
+        &mut svm,
+        quote_reserve_key,
+        to_address(quote_mint),
+        payer.pubkey(),
+        1_000_000,
+    );
+    let levels = anchor_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6], 1_000);
     let update = QuoteUpdate {
         update_slot: 1,
         oracle_publish_time: 1_000,
@@ -336,6 +353,8 @@ fn update_quote_executes_only_with_full_pyth_account() {
                 .0,
                 false,
             ),
+            AccountMeta::new_readonly(to_address(vault.base_reserve), false),
+            AccountMeta::new_readonly(to_address(vault.quote_reserve), false),
         ],
         data,
     };

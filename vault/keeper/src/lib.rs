@@ -453,11 +453,11 @@ pub trait QuoteSender {
     fn send(&mut self, quote: QuoteUpdate, priority_fee_lamports: u64) -> Result<(), Self::Error>;
 }
 
-/// Tight compute-unit limit for an `update_quote` transaction. The measured
-/// instruction cost is 12,802 CU (ASSUMPTIONS A-17), so 60,000 leaves room for
-/// the Pyth verification + account deserialisation that must fit in the same
-/// transaction (the program verifies the update in-band).
-pub const MAX_UPDATE_COMPUTE_UNITS: u32 = 60_000;
+/// Compute-unit limit for an `update_quote` transaction. The instruction now
+/// costs ~64,713 CU (LiteSVM, bonded path, p2-T3 capacity maths included), so
+/// 80,000 leaves headroom for the in-band Pyth verification that must fit in the
+/// same transaction.
+pub const MAX_UPDATE_COMPUTE_UNITS: u32 = 80_000;
 
 /// A streaming price source (Pyth Hermes or a replayed feed).
 pub trait PriceSource {
@@ -547,6 +547,10 @@ pub struct UpdateQuotePlan {
     pub quote_state: Address,
     pub price_update: Address,
     pub keeper_bond: Address,
+    /// The vault's token reserves, required by `update_quote` to bound the quoted
+    /// depth to the available reserves (p2-T3).
+    pub base_reserve: Address,
+    pub quote_reserve: Address,
     pub recent_blockhash: Hash,
     pub compute_unit_limit: u32,
 }
@@ -570,6 +574,8 @@ pub fn build_update_quote_transaction(
             AccountMeta::new(plan.quote_state, false),
             AccountMeta::new_readonly(plan.price_update, false),
             AccountMeta::new_readonly(plan.keeper_bond, false),
+            AccountMeta::new_readonly(plan.base_reserve, false),
+            AccountMeta::new_readonly(plan.quote_reserve, false),
         ],
         data,
     };
@@ -792,6 +798,8 @@ mod tests {
             quote_state: Address::new_from_array([4u8; 32]),
             price_update: Address::new_from_array([5u8; 32]),
             keeper_bond: Address::new_from_array([6u8; 32]),
+            base_reserve: Address::new_from_array([7u8; 32]),
+            quote_reserve: Address::new_from_array([8u8; 32]),
             recent_blockhash: Hash::default(),
             compute_unit_limit: 60_000,
         };
@@ -879,6 +887,8 @@ mod tests {
             quote_state: Address::new_from_array([4u8; 32]),
             price_update: Address::new_from_array([5u8; 32]),
             keeper_bond: Address::new_from_array([6u8; 32]),
+            base_reserve: Address::new_from_array([7u8; 32]),
+            quote_reserve: Address::new_from_array([8u8; 32]),
             recent_blockhash: Hash::default(),
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
         };
@@ -923,5 +933,42 @@ mod tests {
             .expect("succeeds on the third try");
         assert_eq!(attempts.get(), 3);
         assert_eq!(refreshes.get(), 3, "blockhash refreshed per attempt");
+    }
+
+    #[test]
+    fn keeper_ladder_respects_the_utilization_budget() {
+        // Value-balanced reserves: base * 150 = quote.
+        let tick = OracleTick {
+            slot: 1,
+            publish_time: 1,
+            price_q64: 150 * Q64,
+            confidence_bps: 1,
+        };
+        let params = KeeperParams {
+            utilization_bps: 5_000,
+            ..KeeperParams::default()
+        };
+        let base: u128 = 1_000_000_000_000;
+        let quote: u128 = base * 150;
+        let update = compute_quote(tick, VolatilityState::default(), base, quote, 0, 0, params)
+            .expect("quote");
+        let sum_base: u128 = update
+            .levels
+            .iter()
+            .map(|level| level.base_capacity().expect("base capacity"))
+            .sum();
+        let sum_quote: u128 = update
+            .levels
+            .iter()
+            .map(|level| level.quote_capacity().expect("quote capacity"))
+            .sum();
+        assert!(
+            sum_base * BPS <= base * params.utilization_bps as u128,
+            "keeper base capacity {sum_base} exceeds the utilization budget"
+        );
+        assert!(
+            sum_quote * BPS <= quote * params.utilization_bps as u128,
+            "keeper quote capacity {sum_quote} exceeds the utilization budget"
+        );
     }
 }

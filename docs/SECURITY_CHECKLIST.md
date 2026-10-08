@@ -131,13 +131,20 @@ Measured on this branch; re-measured in `measure_instruction_compute_units`
 (run with `-- --nocapture`). Full before/after table is in
 `docs/AUDIT_FULL.md`; the reconciled table is in `TARGETIDEATASKS_P2.md`.
 
-| Instruction | CU (approx) |
+Measured with `measure_instruction_compute_units` (bonded path) after p2-T3:
+
+| Instruction | CU |
 |---|---|
-| `update_quote` | ~18k (Pyth verification dominates) |
-| `swap` | ~34–72k (ladder-dependent) |
+| `update_quote` | 64,713 (capacity maths dominates; was ~18–29k) |
+| `update_quote` (wide-conf rejected) | 15,048 |
+| `swap` | 72,828 |
 | `trip_breaker` | ~7–10k |
-| `deposit` | ~46k |
-| `request_withdraw` | ~20k |
-| `claim_withdraw` | ~23k |
-| `crank_epoch` | ~5k |
-| `bond_keeper` / `slash_keeper` / `claim_keeper_reward` | ~25k / ~16k / ~14k |
+| `deposit` | 46,477 |
+| `request_withdraw` | 24,420 |
+| `claim_withdraw` | 24,158 |
+| `crank_epoch` | 5,157 |
+| `bond_keeper` / `slash_keeper` / `claim_keeper_reward` | 26,409 / 15,507 / 13,967 |
+
+`update_quote` now exceeds the keeper's former 60k limit, so
+`MAX_UPDATE_COMPUTE_UNITS` was raised to 80,000. All instructions remain inside
+the 200,000 CU transaction default.

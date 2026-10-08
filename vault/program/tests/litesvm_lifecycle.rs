@@ -49,8 +49,11 @@ impl Keys {
     }
 }
 
+/// Total base capacity the test ladder offers; must fit `u_max * available`.
+const TEST_LADDER_BASE_CAPACITY: u128 = 1_000;
+
 fn ladder() -> [LevelUpdate; 6] {
-    anchor_ladder(ANCHOR_SQRT, 5, OFFSETS)
+    anchor_ladder(ANCHOR_SQRT, 5, OFFSETS, TEST_LADDER_BASE_CAPACITY)
 }
 
 fn quote_update(update_slot: u64) -> QuoteUpdate {
@@ -238,6 +241,7 @@ impl Fixture {
             max_spread_bps: 50,
             max_quote_size: MAX_QUOTE_SIZE,
             max_inventory_bps: 2_000,
+            utilization_max_bps: 5_000,
             min_bond,
             max_anchor_dev_bps: 100,
             flow_window_slots,
@@ -634,6 +638,8 @@ impl Fixture {
                 quote_state: self.quote_state,
                 price_update,
                 keeper_bond: self.keeper_bond(keeper),
+                base_reserve: self.base_reserve,
+                quote_reserve: self.quote_reserve,
             },
         );
         send(&mut self.svm, &[keeper], instruction)
@@ -699,6 +705,9 @@ impl Fixture {
 fn pyth_verification_rejects_untrusted_or_stale_updates() {
     let keys = Keys::new();
     let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
     let update = quote_update(SLOT);
 
     let partial = fixture.post_pyth(
@@ -1252,6 +1261,9 @@ fn keeper_reward_claim_pays_only_accrued_and_zeroes_it() {
 fn update_quote_requires_a_keeper_bond() {
     let keys = Keys::new();
     let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
     assert_anchor_error(
         fixture.update_quote(&keys.keeper, honest, quote_update(SLOT)),
@@ -2407,6 +2419,9 @@ fn execute_fee_claim_rejects_a_non_treasury_destination() {
 fn a_zero_spread_quote_is_rejected() {
     let keys = Keys::new();
     let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
 
     let mut zero = quote_update(SLOT);
@@ -2446,4 +2461,107 @@ fn apply_params_rejects_min_spread_above_max() {
     let pending = read_state::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
     fixture.warp_to_slot(pending.activate_slot);
     assert_anchor_error(fixture.apply_params(&keys.admin), "InvalidParams");
+}
+
+/// T3: an in-bounds utility ladder is accepted (the fixture default).
+#[test]
+fn an_honest_ladder_passes() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("honest ladder accepted");
+}
+
+/// T3: a ladder whose implied base or quote capacity exceeds
+/// `u_max * available reserves` is rejected. The two sides are isolated by
+/// making the other reserve large.
+#[test]
+fn a_ladder_deeper_than_the_reserves_is_rejected() {
+    // --- base side: quote reserve is huge, so only the base cap can bind ---
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    set_token_account(
+        &mut fixture.svm,
+        fixture.lp_quote,
+        fixture.quote_mint,
+        keys.lp.pubkey(),
+        1_000_000_000_000_000,
+    );
+    fixture
+        .deposit(&keys.lp, 1_000_000_000, 1_000_000_000_000_000, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    let mut deep = quote_update(SLOT);
+    // 2e9 base capacity > u_max (0.5) * 1e9 available base.
+    deep.levels = anchor_ladder(ANCHOR_SQRT, 5, OFFSETS, 2_000_000_000);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, deep),
+        "UtilizationExceeded",
+    );
+
+    // --- quote side: base reserve is huge, so only the quote cap can bind ---
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    set_token_account(
+        &mut fixture.svm,
+        fixture.lp_base,
+        fixture.base_mint,
+        keys.lp.pubkey(),
+        1_000_000_000_000_000,
+    );
+    fixture
+        .deposit(&keys.lp, 1_000_000_000_000_000, 1_000_000_000, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    let mut deep = quote_update(SLOT);
+    // 1e8 base capacity ~ 1.5e10 quote capacity > 0.5 * 1e9 available quote,
+    // while the base capacity stays well under the huge base reserve.
+    deep.levels = anchor_ladder(ANCHOR_SQRT, 5, OFFSETS, 100_000_000);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, deep),
+        "UtilizationExceeded",
+    );
+}
+
+/// T3: the fee buckets are liabilities and are excluded from the available
+/// reserves, so a ladder that fits the gross reserve is rejected once the
+/// buckets grow.
+#[test]
+fn buckets_are_excluded_from_available_reserves() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    // Fits the gross reserve.
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("fits before buckets");
+
+    // Book the whole quote reserve to the protocol bucket: available -> ~0.
+    let mut vault: Vault = read_state(&fixture.svm, fixture.vault);
+    vault.protocol_quote = token_amount(&fixture.svm, fixture.quote_reserve);
+    fixture
+        .svm
+        .set_account(
+            fixture.vault,
+            solana_account::Account {
+                lamports: 1_000_000_000,
+                data: account_data(&vault),
+                owner: fixture.program_id,
+                ..solana_account::Account::default()
+            },
+        )
+        .unwrap();
+    fixture.warp_to_slot(SLOT + 1);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, quote_update(SLOT + 1)),
+        "UtilizationExceeded",
+    );
 }
