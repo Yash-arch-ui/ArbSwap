@@ -20,6 +20,11 @@ target/deploy/*.json
 !/README.md
 !/MATH.md
 !/docs/SECURITY.md
+!/docs/P1_PREREGISTRATION.md
+!/docs/DATA_MANIFEST.md
+!/docs/P1_RESULTS.md
+!/docs/P1_SYNTHETIC.md
+!/docs/FORMULA.md
 
 # Generated analytics output (dashboard, event dumps)
 simulation/analytics/out/
