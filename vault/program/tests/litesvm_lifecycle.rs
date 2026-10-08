@@ -3,7 +3,9 @@
 
 mod common;
 
-use arbswap::{Config, InitParams, LevelUpdate, QuoteState, QuoteUpdate, Vault};
+use arbswap::{
+    Config, DepositTicket, InitParams, KeeperBond, LevelUpdate, QuoteState, QuoteUpdate, Vault,
+};
 use common::*;
 use litesvm::LiteSVM;
 use pyth_solana_receiver_sdk::price_update::VerificationLevel;
@@ -2038,5 +2040,363 @@ fn claim_withdraw_rejects_a_ticket_from_another_vault() {
     assert_anchor_error(
         send(&mut fixture.svm, &[&keys.lp], claim),
         "ConstraintSeeds",
+    );
+}
+
+// ---------------------------------------------------------------------------
+// T1b: account-binding substitution negatives (one test per account type).
+// A wrong-vault or wrong-account substitution must be rejected at account
+// validation, before the instruction body runs. Binding table:
+// docs/SECURITY_CHECKLIST.md.
+// ---------------------------------------------------------------------------
+
+/// A program-owned `Vault`-anchored PDA for a *different* mint pair, so tests
+/// can create foreign tickets/bonds/configs whose seeds point at another vault.
+fn foreign_vault_address(program_id: &Address) -> Address {
+    let base = Address::new_unique();
+    let quote = Address::new_unique();
+    let (vault, _) = pda(&[b"vault", base.as_ref(), quote.as_ref()], program_id);
+    vault
+}
+
+#[test]
+fn swap_rejects_a_reserve_from_another_vault() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let swap = ix(
+        fixture.program_id,
+        arbswap::instruction::Swap {
+            side: arbswap::SwapSide::BuyBase,
+            amount_in: 1,
+            min_out: 0,
+            min_version: 0,
+        },
+        arbswap::accounts::Swap {
+            trader: to_address(keys.trader.pubkey()),
+            vault: fixture.vault,
+            config: fixture.config,
+            quote_state: fixture.quote_state,
+            base_reserve: fixture.lp_base, // not vault.base_reserve
+            quote_reserve: fixture.quote_reserve,
+            trader_base: fixture.trader_base,
+            trader_quote: fixture.trader_quote,
+            token_program: token_program_id(),
+        },
+    );
+    assert_anchor_error(
+        send(&mut fixture.svm, &[&keys.trader], swap),
+        "ConstraintAddress",
+    );
+}
+
+/// Deposit, warm up and queue a withdrawal so a real ticket exists and account
+/// validation reaches the corrupted account instead of stopping early.
+fn queue_a_withdrawal(fixture: &mut Fixture, keys: &Keys) {
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    fixture.warp_to_slot(SLOT + 2);
+    let shares = token_amount(&fixture.svm, fixture.lp_shares);
+    let request = ix(
+        fixture.program_id,
+        arbswap::instruction::RequestWithdraw { shares },
+        arbswap::accounts::RequestWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            share_lock: fixture.share_lock,
+            deposit_ticket: fixture.deposit_ticket,
+            user_shares: fixture.lp_shares,
+            withdraw_ticket: fixture.withdraw_ticket,
+            token_program: token_program_id(),
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    send(&mut fixture.svm, &[&keys.lp], request).expect("request_withdraw");
+}
+
+#[test]
+fn claim_withdraw_rejects_a_foreign_share_lock() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    queue_a_withdrawal(&mut fixture, &keys);
+    let claim = ix(
+        fixture.program_id,
+        arbswap::instruction::ClaimWithdraw {},
+        arbswap::accounts::ClaimWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            base_reserve: fixture.base_reserve,
+            quote_reserve: fixture.quote_reserve,
+            share_mint: fixture.share_mint,
+            share_lock: fixture.lp_shares, // not vault.share_lock
+            withdraw_ticket: fixture.withdraw_ticket,
+            user_base: fixture.lp_base,
+            user_quote: fixture.lp_quote,
+            token_program: token_program_id(),
+        },
+    );
+    assert_account_rejected(send(&mut fixture.svm, &[&keys.lp], claim), "share_lock");
+}
+
+#[test]
+fn claim_withdraw_rejects_a_foreign_share_mint() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    queue_a_withdrawal(&mut fixture, &keys);
+    let claim = ix(
+        fixture.program_id,
+        arbswap::instruction::ClaimWithdraw {},
+        arbswap::accounts::ClaimWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            base_reserve: fixture.base_reserve,
+            quote_reserve: fixture.quote_reserve,
+            share_mint: fixture.base_mint, // not vault.share_mint
+            share_lock: fixture.share_lock,
+            withdraw_ticket: fixture.withdraw_ticket,
+            user_base: fixture.lp_base,
+            user_quote: fixture.lp_quote,
+            token_program: token_program_id(),
+        },
+    );
+    assert_account_rejected(send(&mut fixture.svm, &[&keys.lp], claim), "share_mint");
+}
+
+#[test]
+fn request_withdraw_rejects_a_deposit_ticket_from_another_vault() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let foreign_vault = foreign_vault_address(&fixture.program_id);
+    let lp = to_address(keys.lp.pubkey());
+    let (foreign_deposit_ticket, bump) = pda(
+        &[b"dep", foreign_vault.as_ref(), lp.as_ref()],
+        &fixture.program_id,
+    );
+    let ticket = DepositTicket {
+        owner: keys.lp.pubkey(),
+        shares: 1,
+        activate_slot: 0,
+        bump,
+    };
+    fixture
+        .svm
+        .set_account(
+            foreign_deposit_ticket,
+            solana_account::Account {
+                lamports: 1_000_000_000,
+                data: account_data(&ticket),
+                owner: fixture.program_id,
+                ..solana_account::Account::default()
+            },
+        )
+        .unwrap();
+    let request = ix(
+        fixture.program_id,
+        arbswap::instruction::RequestWithdraw { shares: 1 },
+        arbswap::accounts::RequestWithdraw {
+            user: lp,
+            vault: fixture.vault,
+            share_lock: fixture.share_lock,
+            deposit_ticket: foreign_deposit_ticket, // not this vault's ticket
+            user_shares: fixture.lp_shares,
+            withdraw_ticket: fixture.withdraw_ticket,
+            token_program: token_program_id(),
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    assert_anchor_error(
+        send(&mut fixture.svm, &[&keys.lp], request),
+        "ConstraintSeeds",
+    );
+}
+
+#[test]
+fn slash_keeper_rejects_a_bond_from_another_vault() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    // Create this vault's bond vault + keeper bond so validation reaches the
+    // (foreign) keeper bond account rather than stopping on a missing account.
+    fixture
+        .bond_keeper(&keys.keeper, 1_000)
+        .expect("bond_keeper");
+    let foreign_vault = foreign_vault_address(&fixture.program_id);
+    let (foreign_bond, bump) = pda(
+        &[
+            b"keeper",
+            foreign_vault.as_ref(),
+            keys.keeper.pubkey().as_ref(),
+        ],
+        &fixture.program_id,
+    );
+    let bond = KeeperBond {
+        keeper: keys.keeper.pubkey(),
+        bond: 1_000,
+        slashed: 0,
+        bump,
+    };
+    fixture
+        .svm
+        .set_account(
+            foreign_bond,
+            solana_account::Account {
+                lamports: 1_000_000_000,
+                data: account_data(&bond),
+                owner: fixture.program_id,
+                ..solana_account::Account::default()
+            },
+        )
+        .unwrap();
+    let slash = ix(
+        fixture.program_id,
+        arbswap::instruction::SlashKeeper { amount: 1 },
+        arbswap::accounts::SlashKeeper {
+            admin: to_address(keys.admin.pubkey()),
+            vault: fixture.vault,
+            quote_reserve: fixture.quote_reserve,
+            keeper: to_address(keys.keeper.pubkey()),
+            keeper_bond: foreign_bond, // not this vault's keeper bond
+            bond_vault: fixture.bond_vault(),
+            token_program: token_program_id(),
+        },
+    );
+    assert_account_rejected(send(&mut fixture.svm, &[&keys.admin], slash), "keeper_bond");
+}
+
+#[test]
+fn slash_keeper_rejects_a_bond_vault_from_another_vault() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .bond_keeper(&keys.keeper, 1_000)
+        .expect("bond_keeper");
+    let slash = ix(
+        fixture.program_id,
+        arbswap::instruction::SlashKeeper { amount: 1 },
+        arbswap::accounts::SlashKeeper {
+            admin: to_address(keys.admin.pubkey()),
+            vault: fixture.vault,
+            quote_reserve: fixture.quote_reserve,
+            keeper: to_address(keys.keeper.pubkey()),
+            keeper_bond: fixture.keeper_bond(&keys.keeper),
+            bond_vault: fixture.lp_base, // not the [b"bond", vault] account
+            token_program: token_program_id(),
+        },
+    );
+    assert_account_rejected(send(&mut fixture.svm, &[&keys.admin], slash), "bond_vault");
+}
+
+#[test]
+fn swap_rejects_a_config_from_another_vault() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let foreign_vault = foreign_vault_address(&fixture.program_id);
+    let (foreign_config, _) = pda(&[b"config", foreign_vault.as_ref()], &fixture.program_id);
+    let config_value: Config = read_state(&fixture.svm, fixture.config);
+    fixture
+        .svm
+        .set_account(
+            foreign_config,
+            solana_account::Account {
+                lamports: 1_000_000_000,
+                data: account_data(&config_value),
+                owner: fixture.program_id,
+                ..solana_account::Account::default()
+            },
+        )
+        .unwrap();
+    let swap = ix(
+        fixture.program_id,
+        arbswap::instruction::Swap {
+            side: arbswap::SwapSide::BuyBase,
+            amount_in: 1,
+            min_out: 0,
+            min_version: 0,
+        },
+        arbswap::accounts::Swap {
+            trader: to_address(keys.trader.pubkey()),
+            vault: fixture.vault,
+            config: foreign_config, // not this vault's config
+            quote_state: fixture.quote_state,
+            base_reserve: fixture.base_reserve,
+            quote_reserve: fixture.quote_reserve,
+            trader_base: fixture.trader_base,
+            trader_quote: fixture.trader_quote,
+            token_program: token_program_id(),
+        },
+    );
+    assert_anchor_error(
+        send(&mut fixture.svm, &[&keys.trader], swap),
+        "ConstraintSeeds",
+    );
+}
+
+#[test]
+fn execute_fee_claim_rejects_a_non_treasury_destination() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    fixture
+        .swap(&keys.trader, AMOUNT_IN, 0, 1)
+        .expect("swap accrues protocol fees");
+    assert!(fixture.vault_state().protocol_quote > 0);
+
+    let claim_pda = pda(&[b"claim", fixture.vault.as_ref()], &fixture.program_id).0;
+    let propose = ix(
+        fixture.program_id,
+        arbswap::instruction::ProposeFeeClaim {
+            kind: arbswap::FeeKind::Protocol,
+        },
+        arbswap::accounts::ProposeFeeClaim {
+            admin: to_address(keys.admin.pubkey()),
+            vault: fixture.vault,
+            pending_claim: claim_pda,
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    send(&mut fixture.svm, &[&keys.admin], propose).expect("propose");
+    let pending = read_state::<arbswap::PendingClaim>(&fixture.svm, claim_pda);
+    fixture.warp_to_slot(pending.activate_slot);
+
+    // Treasury accounts owned by the LP, not config.treasury (the admin).
+    let wrong_base = Address::new_unique();
+    let wrong_quote = Address::new_unique();
+    set_token_account(
+        &mut fixture.svm,
+        wrong_base,
+        fixture.base_mint,
+        keys.lp.pubkey(),
+        0,
+    );
+    set_token_account(
+        &mut fixture.svm,
+        wrong_quote,
+        fixture.quote_mint,
+        keys.lp.pubkey(),
+        0,
+    );
+    let execute = ix(
+        fixture.program_id,
+        arbswap::instruction::ExecuteFeeClaim {},
+        arbswap::accounts::ExecuteFeeClaim {
+            admin: to_address(keys.admin.pubkey()),
+            vault: fixture.vault,
+            config: fixture.config,
+            pending_claim: claim_pda,
+            base_reserve: fixture.base_reserve,
+            quote_reserve: fixture.quote_reserve,
+            treasury_base: wrong_base,
+            treasury_quote: wrong_quote,
+            token_program: token_program_id(),
+        },
+    );
+    assert_anchor_error(
+        send(&mut fixture.svm, &[&keys.admin], execute),
+        "ConstraintRaw",
     );
 }

@@ -26,6 +26,11 @@ target/deploy/*.json
 !/docs/P1_SYNTHETIC.md
 !/docs/FORMULA.md
 !/docs/LEFTOVER_TASKS.md
+!/docs/SECURITY_CHECKLIST.md
+!/TARGETIDEATASKS.md
+!/TARGETIDEATASKS_P2.md
+!/MasterPlan.md
+!/BuilderPlan.md
 
 # Generated analytics output (dashboard, event dumps)
 simulation/analytics/out/

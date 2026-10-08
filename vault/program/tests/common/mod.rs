@@ -137,6 +137,24 @@ pub fn assert_anchor_error(result: litesvm::types::TransactionResult, error_name
     );
 }
 
+/// Assert the transaction failed *on the named account* (Anchor logs
+/// `AnchorError caused by account: <name>.`). Used by the substitution
+/// negatives so the test proves the intended binding rejected it, not an
+/// unrelated earlier account.
+pub fn assert_account_rejected(result: litesvm::types::TransactionResult, account: &str) {
+    let failure = result.expect_err(&format!("expected rejection on account `{account}`"));
+    let expected = format!("AnchorError caused by account: {account}.");
+    assert!(
+        failure
+            .meta
+            .logs
+            .iter()
+            .any(|line| line.contains(&expected)),
+        "expected `{expected}` in logs:\n{}",
+        failure.meta.logs.join("\n")
+    );
+}
+
 pub fn pyth_account(
     feed_id: [u8; 32],
     price: i64,
