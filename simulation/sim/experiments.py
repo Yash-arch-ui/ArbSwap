@@ -18,6 +18,7 @@ from simulation.sim.costs import CostModel
 from simulation.sim.engine import SimResult, simulate
 from simulation.sim.flow import InformedFlow, NoiseFlow
 from simulation.sim.flow_config import NOISE_ARRIVAL_RATE, NOISE_MEAN_SIZE, pool_kwargs
+from simulation.sim.guards import assert_initial_price, assert_sane
 from simulation.sim.metrics import (
     hedged_pnl,
     notional_weighted_gap,
@@ -108,7 +109,7 @@ def venue_set(params: QuoteParams, *, passive_fee: float = 0.0001,
     E9 sweeps it. The vault fee defaults to the Build Plan §5.16 ``fee_bps``.
     """
     kwargs = pool_kwargs(start_price)
-    return {
+    venues = {
         "B1_passive": PassivePool(fee=passive_fee, **kwargs),
         "B2_fixed_spread": VaultVenue(params=params, engine_enabled=False,
                                       fee_bps=vault_fee_bps, **kwargs),
@@ -118,6 +119,11 @@ def venue_set(params: QuoteParams, *, passive_fee: float = 0.0001,
                                     fee_bps=vault_fee_bps, **kwargs),
         "ArbSwap": VaultVenue(params=params, fee_bps=vault_fee_bps, **kwargs),
     }
+    if start_price is not None:
+        for venue in venues.values():
+            assert_initial_price(venue, start_price)
+            assert_sane(venue)
+    return venues
 
 
 def _price_lookup(result: SimResult):
