@@ -115,6 +115,7 @@ def simulate(
     landing_delay_sampler=landing_delay,
     seed: int = 20261006,
     record_quotes: bool = False,
+    informed_sizing: str = "marginal",
 ) -> SimResult:
     if step_seconds <= 0 or source_step_seconds <= 0 or slot_seconds <= 0:
         raise ValueError("clock constants must be positive")
@@ -221,7 +222,7 @@ def simulate(
             if not quote_fresh:
                 expired_skips += 1
 
-        side, amount = _informed_trade(venue, reference, informed) if quote_fresh else (None, 0.0)
+        side, amount = _informed_trade(venue, reference, informed, informed_sizing) if quote_fresh else (None, 0.0)
         if side is not None and amount > 0:
             trade, rejected = _apply(venue, side, amount, reference, index, trades)
             rejects += rejected
@@ -276,7 +277,7 @@ def simulate(
     )
 
 
-def _informed_trade(venue, reference: float, informed) -> tuple[str | None, float]:
+def _informed_trade(venue, reference: float, informed, sizing: str = "marginal") -> tuple[str | None, float]:
     """Size the arbitrageur to its own profit maximum.
 
     The arbitrageur picks the size that maximises ``reference x amount_out -
@@ -301,6 +302,29 @@ def _informed_trade(venue, reference: float, informed) -> tuple[str | None, floa
 
     ask = marginal("buy")
     bid = marginal("sell")
+    if sizing == "average":
+        # PRE-FIX behaviour (commit 3eccd1a^): size by bisection to the largest
+        # fill whose *average* execution price is still favourable vs reference.
+        if ask is not None and ask < reference:
+            side = "buy"
+        elif bid is not None and bid > reference:
+            side = "sell"
+        else:
+            return None, 0.0
+        low, high = 0.0, informed.max_size
+        for _ in range(18):
+            probe = (low + high) / 2.0
+            try:
+                price = venue.preview(side, probe)
+            except (ValueError, ZeroDivisionError):
+                high = probe
+                continue
+            favourable = price < reference if side == "buy" else price > reference
+            if favourable:
+                low = probe
+            else:
+                high = probe
+        return side, low
     # The venue's own fee is already inside `preview`, so a positive edge is
     # profitable *after* the pool fee. `informed.fee_bps` is an ADDITIONAL
     # hurdle (gas/priority the arbitrageur must clear), matching

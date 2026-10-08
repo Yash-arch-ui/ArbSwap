@@ -150,6 +150,7 @@ class VaultVenue:
     honest_enabled: bool = True
     fee_bps: float = 1.0
     depth_override: float | None = None
+    consume_ladder: bool = True
     volatility: VolatilityState = field(default_factory=VolatilityState)
     quote_state: Quote | None = None
     displayed_quote: Quote | None = None
@@ -346,7 +347,8 @@ class VaultVenue:
                 self.capacity_rejects += 1
             raise
         fee = amount_in * self.fee_bps / 10_000.0
-        self._consume(side, amount_in - fee)
+        if self.consume_ladder:
+            self._consume(side, amount_in - fee)
         if side == "buy":
             # The fee is retained in quote; book it to the LP-excluded bucket.
             self.fee_buckets_quote += fee

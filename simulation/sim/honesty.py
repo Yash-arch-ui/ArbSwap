@@ -17,6 +17,7 @@ from simulation.reference.quote_math import QuoteParams
 from simulation.sim.engine import simulate
 from simulation.sim.flow import InformedFlow, NoiseFlow
 from simulation.sim.oracle import OracleModel
+from simulation.sim.flow_config import pool_kwargs
 from simulation.sim.venues import VaultVenue
 
 TOLERANCES_BPS = (0.0, 0.5, 1.0, 2.0, 5.0)
@@ -32,7 +33,8 @@ def _p95(values: list[float]) -> float:
 
 
 def _run(prices, *, tol_bps: float, cadence_s: float, seed: int = 20261006):
-    venue = VaultVenue(params=QuoteParams(), fee_bps=1.0, min_out_tol_bps=tol_bps)
+    venue = VaultVenue(params=QuoteParams(), fee_bps=1.0, min_out_tol_bps=tol_bps,
+                       **pool_kwargs(prices[0].price))
     result = simulate(
         venue_name="ArbSwap",
         venue=venue,
