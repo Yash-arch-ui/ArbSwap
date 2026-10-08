@@ -1661,3 +1661,102 @@ fn fee_claim_is_timelocked_and_pays_only_the_fixed_treasury() {
     assert_eq!(vault1.protocol_quote, 0, "protocol bucket zeroed");
     assert_eq!(vault1.total_shares, shares_before, "LP shares untouched");
 }
+
+/// Item 7: measure the compute units of every instruction the caller pays for.
+/// Run with `-- --nocapture` to read the values. (The program is not in the CI
+/// clippy set and the CU table had only 3 rows; this closes the measurement gap.)
+#[test]
+fn measure_instruction_compute_units() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+
+    let m = fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    println!("cu_deposit={}", m.compute_units_consumed);
+
+    // Bond first (min_bond = 1000), then quote.
+    let m = fixture
+        .bond_keeper(&keys.keeper, 1_000)
+        .expect("bond_keeper");
+    println!("cu_bond_keeper={}", m.compute_units_consumed);
+
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    let m = fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("update_quote");
+    println!("cu_update_quote={}", m.compute_units_consumed);
+
+    // A Pyth-rejected update (wide confidence) stops right after verification;
+    // the gap to the successful update bounds the post-oracle validation cost.
+    let wide = fixture.post_pyth(PYTH_PRICE, 1_000_000, PUBLISH_TIME, VerificationLevel::Full);
+    if let Err(fail) = fixture.update_quote(&keys.keeper, wide, quote_update(SLOT + 1)) {
+        println!("cu_update_quote_wide_conf_rejected={}", fail.meta.compute_units_consumed);
+    }
+
+    let m = fixture
+        .swap(&keys.trader, AMOUNT_IN, 0, 1)
+        .expect("swap");
+    println!("cu_swap={}", m.compute_units_consumed);
+
+    let m = fixture
+        .claim_keeper_reward(&keys.keeper)
+        .expect("claim_keeper_reward");
+    println!("cu_claim_keeper_reward={}", m.compute_units_consumed);
+
+    let m = fixture
+        .slash_keeper(&keys.admin, &keys.keeper, 1_000)
+        .expect("slash_keeper");
+    println!("cu_slash_keeper={}", m.compute_units_consumed);
+
+    // request_withdraw (after warm-up), crank_epoch, claim_withdraw.
+    fixture.warp_to_slot(SLOT + 2);
+    let shares = token_amount(&fixture.svm, fixture.lp_shares);
+    let request = ix(
+        fixture.program_id,
+        arbswap::instruction::RequestWithdraw { shares },
+        arbswap::accounts::RequestWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            share_lock: fixture.share_lock,
+            deposit_ticket: fixture.deposit_ticket,
+            user_shares: fixture.lp_shares,
+            withdraw_ticket: fixture.withdraw_ticket,
+            token_program: token_program_id(),
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    let m = send(&mut fixture.svm, &[&keys.lp], request).expect("request_withdraw");
+    println!("cu_request_withdraw={}", m.compute_units_consumed);
+
+    fixture.warp_to_slot(SLOT + 100);
+    let crank = ix(
+        fixture.program_id,
+        arbswap::instruction::CrankEpoch,
+        arbswap::accounts::CrankEpoch {
+            vault: fixture.vault,
+            config: fixture.config,
+        },
+    );
+    let m = send(&mut fixture.svm, &[&keys.lp], crank).expect("crank_epoch");
+    println!("cu_crank_epoch={}", m.compute_units_consumed);
+
+    let claim = ix(
+        fixture.program_id,
+        arbswap::instruction::ClaimWithdraw,
+        arbswap::accounts::ClaimWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            base_reserve: fixture.base_reserve,
+            quote_reserve: fixture.quote_reserve,
+            share_mint: fixture.share_mint,
+            share_lock: fixture.share_lock,
+            withdraw_ticket: fixture.withdraw_ticket,
+            user_base: fixture.lp_base,
+            user_quote: fixture.lp_quote,
+            token_program: token_program_id(),
+        },
+    );
+    let m = send(&mut fixture.svm, &[&keys.lp], claim).expect("claim_withdraw");
+    println!("cu_claim_withdraw={}", m.compute_units_consumed);
+}
