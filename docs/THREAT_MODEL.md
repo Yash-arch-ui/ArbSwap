@@ -31,6 +31,41 @@ Tests named "on-chain" are LiteSVM tests in `programs/arbswap/tests`;
 | Routing through an aggregator | Worse-than-quoted fills reach traders | `out_given_in`/`in_given_out` enforce `min_out`; fees deterministic | `arb-aggregator` unit + property tests (T5.4) |
 | Bond abuse (keeper) | Keeper posts no real stake | `min_bond` enforced in `update_quote`; slash to insurance | on-chain `keeper_bond_locks_quote_and_admin_slashes_to_insurance`, `claim_keeper_reward...` |
 
+## T6 — Compromised-keeper worst-case loss bound
+
+Let `u = utilization_max_bps`, `d = max_anchor_dev_bps`, `w = max_window_flow_bps`
+(all in bps), `A_b`/`A_q` the available base/quote reserves (net of the fee
+buckets) and `P` the oracle price. A keeper can never quote outside these
+on-chain bounds, so the *worst case* is bounded by state the program controls:
+
+```text
+per update : loss_update <= (u/1e4) * (d/1e4) * V,   V = A_b*P + A_q
+per window : one-sided base flow <= (w/1e4) * A_b
+             loss_window <= (d/1e4) * P * min(flow, (w/1e4)*A_b)
+per swap   : input <= max_quote_size   (size cap)
+```
+
+**Default numbers** (`u = 5_000`, `d = 100`, `w = 10_000`):
+`loss_update <= 0.5% of V`; `loss_window <= 1% of the base-reserve value`.
+
+**Measured** (`malicious_keeper_at_max_deviation_every_slot`, LiteSVM): vault
+`A_b = 1e6`, `A_q = 1.5e8`, fee 1 bp, `u = 5_000`, `d = 100`, `w = 1_000`.
+Per-update bound **1,500,000** quote; per-window bound **150,000** quote;
+**measured loss 56,177** (one slot lands, the second is stopped by the flow
+cap). The bound holds with margin.
+
+**Recommendation on `max_anchor_dev_bps`.** The spec's original 500 bps is 100×
+the spread floor (2–50 bps) and would allow a worst-case per-update loss of
+`0.5 × 5% = 2.5% of V`; the audit already reduced the recommended default to
+100 bps. A tighter **50 bps** is defensible: it bounds `loss_update` to 0.25% of
+V while still covering oracle latency (a 2 s move at σ ≈ 1e-4/√s is ~1.4 bps)
+and ordinary update gaps. **Effect on the honest keeper replay: none** —
+`arbswap_keeper::compute_quote` sets `anchor_sqrt_price = sqrt_q64(oracle_price)`
+exactly, so `|anchor − oracle| = 0` by construction for every honest quote; the
+bound only constrains a misbehaving keeper. (No production default constant is
+changed here; `max_anchor_dev_bps` is client-supplied and recorded in
+`docs/ASSUMPTIONS.md` A-19.)
+
 Solana-specific checklist (Build Plan §11): signer checks on every authority;
 owner/address checks on every account incl. the Pyth account (correct program +
 feed id); canonical PDA bumps; token accounts verified for mint/owner/program;

@@ -2891,3 +2891,139 @@ fn unbond_keeper_rejects_a_bond_from_another_vault() {
         "keeper_bond",
     );
 }
+
+// ---------------------------------------------------------------------------
+// T6: compromised-keeper worst-case loss bound.
+// ---------------------------------------------------------------------------
+
+/// A malicious keeper posts the anchor at the maximum allowed deviation from the
+/// oracle every slot; an arbitrageur takes the full quoted ladder each time.
+/// The realized vault loss must stay within
+/// `u * d * available_value` per update and `d * w * base * price` per window.
+#[test]
+fn malicious_keeper_at_max_deviation_every_slot() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+
+    // Tighten the loss knobs: 1% anchor deviation, 10% per-window one-sided
+    // flow cap, 50% utilization, a large per-swap cap.
+    let mut config: Config = read_state(&fixture.svm, fixture.config);
+    // A near-zero vault fee so the 1% mispricing is not hidden by the swap fee.
+    config.fee_bps = 1;
+    config.max_anchor_dev_bps = 100;
+    config.utilization_max_bps = 5_000;
+    config.max_window_flow_bps = 1_000;
+    config.max_quote_size = 100_000_000;
+    fixture
+        .svm
+        .set_account(
+            fixture.config,
+            solana_account::Account {
+                lamports: 1_000_000_000,
+                data: account_data(&config),
+                owner: fixture.program_id,
+                ..solana_account::Account::default()
+            },
+        )
+        .unwrap();
+
+    // Value-balanced-ish vault: 1e6 base (~1.5e8 quote) and 1.5e8 quote.
+    let base_deposit: u64 = 1_000_000;
+    let quote_deposit: u64 = 150_000_000;
+    fixture
+        .deposit(&keys.lp, base_deposit, quote_deposit, 1)
+        .expect("deposit");
+
+    // Ladder depth = 5% of base reserve, half the 10% per-window flow cap, so
+    // at least one slot's attack lands before the cap stops it.
+    let ladder_base_capacity: u128 = 50_000;
+    // Anchor just under 1% BELOW the oracle (99 bps realized after the
+    // floor-rounding of sqrt/sqrt-inverse), so asks are cheap: the vault loses.
+    // The loss bound uses the configured 100 bps cap, which is conservative.
+    let anchor_price_q64 = PRICE_Q64 * 9_901 / 10_000;
+    let anchor_sqrt = arb_math::sqrt_q64(anchor_price_q64).expect("anchor sqrt");
+    let levels = anchor_ladder(anchor_sqrt, 2, OFFSETS, ladder_base_capacity);
+    let ladder_quote_capacity: u128 = levels
+        .iter()
+        .map(|l| {
+            arb_math::Level {
+                sqrt_lo: l.sqrt_lo,
+                sqrt_hi: l.sqrt_hi,
+                liquidity: l.liquidity,
+            }
+            .quote_capacity()
+            .expect("quote capacity")
+        })
+        .sum();
+
+    let base_start = token_amount(&fixture.svm, fixture.base_reserve);
+    let quote_start = token_amount(&fixture.svm, fixture.quote_reserve);
+    let oracle_price: u128 = PRICE_Q64 >> 64; // 150
+    let available_value = (base_start as u128) * oracle_price + quote_start as u128;
+    let per_update_bound = 5_000u128 * 100u128 * available_value / 100_000_000;
+    let per_window_bound = 100u128 * 1_000u128 * (base_start as u128) * oracle_price / 100_000_000;
+
+    let mut lost: u128 = 0;
+    let mut landed: u32 = 0;
+    for i in 0..4u64 {
+        fixture.warp_to_slot(SLOT + i);
+        let oracle = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+        let update = QuoteUpdate {
+            update_slot: SLOT + i,
+            oracle_publish_time: PUBLISH_TIME,
+            oracle_price: PRICE_Q64,
+            oracle_conf_bps: CONF_BPS,
+            anchor_sqrt_price: anchor_sqrt,
+            p_res_sqrt: anchor_sqrt,
+            half_spread_bps: 2,
+            ask_extra_bps: 0,
+            bid_extra_bps: 0,
+            depth_mult_bps: 10_000,
+            offsets_bps: OFFSETS,
+            weights_bps: WEIGHTS,
+            levels,
+        };
+        fixture
+            .update_quote(&keys.keeper, oracle, update)
+            .expect("malicious quote at max deviation");
+
+        let base_before = token_amount(&fixture.svm, fixture.base_reserve);
+        let quote_before = token_amount(&fixture.svm, fixture.quote_reserve);
+        // The trader supplies exactly the ladder's quote capacity.
+        let input = ladder_quote_capacity.min(config.max_quote_size as u128) as u64;
+        match fixture.swap(&keys.trader, input, 0, 1) {
+            Ok(_) => {
+                let base_sold = base_before - token_amount(&fixture.svm, fixture.base_reserve);
+                let quote_gained = token_amount(&fixture.svm, fixture.quote_reserve) - quote_before;
+                let this_loss = (base_sold as u128) * oracle_price
+                    - (quote_gained as u128).min((base_sold as u128) * oracle_price);
+                assert!(
+                    this_loss <= per_update_bound,
+                    "per-update loss {this_loss} exceeds bound {per_update_bound}"
+                );
+                lost += this_loss;
+                landed += 1;
+            }
+            Err(fail) => {
+                // Only the per-window flow cap may stop a later slot.
+                assert!(
+                    fail.meta
+                        .logs
+                        .iter()
+                        .any(|line| line.contains("FlowCapExceeded")),
+                    "unexpected swap failure: {:?}",
+                    fail.meta.logs
+                );
+            }
+        }
+    }
+
+    assert!(landed >= 1, "no attack landed; the test would be vacuous");
+    assert!(
+        lost <= per_window_bound,
+        "total loss {lost} exceeds the per-window bound {per_window_bound}"
+    );
+    println!(
+        "t6_landed={landed} t6_loss={lost} per_update_bound={per_update_bound} per_window_bound={per_window_bound}"
+    );
+}
