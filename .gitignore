@@ -8,7 +8,7 @@ __pycache__/
 .DS_Store
 *.log
 # Raw market data never enters git (Build Plan §4: data/ holds scripts only)
-research/data/raw/
+simulation/data/raw/
 .ENV
 *.csv
 *.parquet
@@ -19,6 +19,7 @@ target/deploy/*.json
 *.md
 !/README.md
 !/MATH.md
+!/docs/SECURITY.md
 
 # Generated analytics output (dashboard, event dumps)
-analytics/out/
+simulation/analytics/out/

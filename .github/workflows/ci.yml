@@ -15,8 +15,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --all -- --check
-      - name: Clippy (workspace, excluding SBF-only program)
-        run: cargo clippy -p arb-math -p arbswap-keeper -- -D warnings
+      - name: Clippy (workspace incl. program)
+        run: cargo clippy -p arb-math -p arbswap-keeper -p arb-aggregator -p arbswap -- -D warnings
       - name: Tests
         run: cargo test --workspace
 
@@ -28,13 +28,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install -r research/requirements.txt
+        run: pip install -r simulation/requirements.txt
       - name: Tests
-        run: pytest research analytics -q
+        run: pytest simulation -q
       - name: Golden vectors are in sync with the Python reference
         run: |
-          python -m research.reference.golden
-          git diff --exit-code -- crates/arb-math/tests/golden_vectors.txt
+          python -m simulation.reference.golden
+          git diff --exit-code -- vault/math/tests/golden_vectors.txt
 
   anchor:
     runs-on: ubuntu-latest
