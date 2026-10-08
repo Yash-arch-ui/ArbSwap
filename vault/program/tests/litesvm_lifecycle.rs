@@ -1854,3 +1854,91 @@ fn insurance_bucket_cannot_be_claimed_to_treasury() {
     let proto = propose(arbswap::FeeKind::Protocol);
     send(&mut fixture.svm, &[&keys.admin], proto).expect("protocol claim proposes");
 }
+
+/// F-14 (partial): a deterministic state-machine test. Drives a pseudo-random
+/// sequence of quote updates and buy/sell swaps and asserts the money
+/// invariants hold after every action (reserves cover the tracked liabilities,
+/// shares are consistent) and that only *expected* errors occur.
+#[test]
+fn state_machine_random_actions_preserve_invariants() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_config(&keys, 0, 100, 10_000);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    // Deterministic LCG.
+    let mut state: u64 = 0x1234_5678_9ABC_DEF0;
+    let mut next = move || {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        state >> 33
+    };
+
+    let mut slot = SLOT;
+    for step in 0..120u64 {
+        slot += 1;
+        fixture.warp_to_slot(slot);
+        let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+        fixture
+            .update_quote(&keys.keeper, honest, quote_update(slot))
+            .expect("quote in a healthy state");
+
+        // Alternate buy/sell with a pseudo-random amount.
+        let side = if next() % 2 == 0 {
+            arbswap::SwapSide::BuyBase
+        } else {
+            arbswap::SwapSide::SellBase
+        };
+        let amount = 10_000 + (next() % 90_000);
+        let ix = ix(
+            fixture.program_id,
+            arbswap::instruction::Swap {
+                side,
+                amount_in: amount,
+                min_out: 0,
+                min_version: step + 1,
+            },
+            arbswap::accounts::Swap {
+                trader: to_address(keys.trader.pubkey()),
+                vault: fixture.vault,
+                config: fixture.config,
+                quote_state: fixture.quote_state,
+                base_reserve: fixture.base_reserve,
+                quote_reserve: fixture.quote_reserve,
+                trader_base: fixture.trader_base,
+                trader_quote: fixture.trader_quote,
+                token_program: token_program_id(),
+            },
+        );
+        match send(&mut fixture.svm, &[&keys.trader], ix) {
+            Ok(_) => {}
+            Err(fail) => {
+                // Only liquidity/flow-cap/slippage failures are acceptable.
+                let logs = fail.meta.logs.join(" ");
+                assert!(
+                    logs.contains("CapacityExceeded")
+                        || logs.contains("FlowCapExceeded")
+                        || logs.contains("QuoteExpired")
+                        || logs.contains("SlippageExceeded"),
+                    "unexpected error at step {step}: {logs}"
+                );
+            }
+        }
+
+        // Invariant: reserves cover the tracked (LP-excluded) liabilities.
+        let v = fixture.vault_state();
+        let base_reserve = token_amount(&fixture.svm, fixture.base_reserve);
+        let quote_reserve = token_amount(&fixture.svm, fixture.quote_reserve);
+        assert!(
+            base_reserve >= v.insurance_base + v.keeper_base + v.protocol_base,
+            "step {step}: base reserve below liabilities"
+        );
+        assert!(
+            quote_reserve >= v.insurance_quote + v.keeper_quote + v.protocol_quote,
+            "step {step}: quote reserve below liabilities"
+        );
+        assert!(v.total_shares > 0, "step {step}: shares vanished");
+    }
+}

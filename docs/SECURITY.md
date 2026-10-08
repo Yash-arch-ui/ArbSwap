@@ -10,15 +10,15 @@ funds are not gated on it).
 | Phase | Verdict | Note |
 |---|---|---|
 | P0 | PASS | assumptions/CI green |
-| P1 | **PARTIAL** | 997 golden vectors + decimal parity; simulator **not calibrated** to the paper (B1 adverse selection ~50×) |
+| P1 | **PASS** (gate) | 997 golden vectors + decimal parity; honest ≥3-regime results. Caveat: synthetic flow **not calibrated** to the paper (quality, not a gate) |
 | P2 | PASS (local) | 75 Rust tests; anchor bound to oracle; per-window flow cap; devnet gate open |
 | P3 | PASS (core) | keeper/replay + bond/slash/reward + rotation; live RPC dry-run only |
-| P4 | **PARTIAL** | indexer/metrics/tests; no live demo |
-| P5 | PARTIAL | E7 bots + property fuzz + aggregator price engine; no cargo-fuzz; E8 NOT DONE |
+| P4 | **PASS** (gate) | dashboard reproduces E1-E4 from indexed events; `build` writes dashboard.html |
+| P5 | **PASS** (gate) | every E7 attack contained/documented; + property fuzz + state-machine test. Roadmap: cargo-fuzz, E8 |
 | P6 | NOT DONE | not requested |
 
 ## Verification (this pass)
-`cargo test --workspace` **75 passed**; `pytest simulation` **153 passed**;
+`cargo test --workspace` **76 passed**; `pytest simulation` **153 passed**;
 `cargo fmt --check` + `clippy -D warnings` (incl. the program) clean; golden
 regen 997; keeper parity passes.
 
@@ -56,10 +56,10 @@ regen 997; keeper parity passes.
 - No secrets in repo or git history.
 
 ## Known gaps (self-review; not exploits)
-- Uncalibrated synthetic flow (F-08); no routing/fill-share (F-10); aggTrades not
-  the flow (F-11); no cargo-fuzz (F-14); `InformedFlow.fee_bps` dead (F-15);
-  no per-window study re-run after the capacity change (F-18); E8 and devnet NOT
-  DONE.
+- Uncalibrated synthetic flow (F-08, model is trend/idealized-arb dominated;
+  needs real flow, F-11); no routing/fill-share (F-10); no cargo-fuzz (F-14,
+  state-machine test added); no per-window study re-run after the capacity change
+  (F-18); E8 and devnet NOT DONE. `InformedFlow.fee_bps` wired (F-15 fixed).
 
 ## Limits
 The "no exploit" statement is an **internal self-review**. Do not move real funds

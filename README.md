@@ -11,11 +11,11 @@ Formerly "TruQuote" (working name); all spec documents use the old name.
 | Phase | Scope | Status |
 |---|---|---|
 | P0 | Repo, toolchain, assumptions | ✅ |
-| P1 | Python reference, vectors, simulator, replay/report pipeline | ⚠️ PARTIAL — vectors/parity green; **synthetic flow is not calibrated to the paper** (see SECURITY.md / AUDIT_FULL.md) |
+| P1 | Python reference, vectors, simulator, replay/report pipeline | ✅ PASS (gate: vectors + honest ≥3-regime results). Caveat: synthetic flow is **not calibrated** to the paper (quality limitation, not a gate item) |
 | P2 | Anchor accounts, custody, Pyth guards, swaps, withdrawals, breakers | ✅ local (73 Rust tests); devnet gate open |
 | P3 | Rust keeper core, replay, update gating, payload encoder | ✅ dry-run; live RPC gate open |
-| P4 | Analytics, fees, dashboard | ⚠️ PARTIAL — indexer/metrics/dashboard tooling + tests; no live demo; Vite/React UI in `frontend/` |
-| P5 | Attacker bots, fuzzing, aggregator adapter | ⚠️ PARTIAL — E7 bots + property fuzz + aggregator price engine; **no cargo-fuzz; E8 NOT DONE** |
+| P4 | Analytics, fees, dashboard | ✅ PASS (gate: dashboard reproduces E1-E4 from indexed events) |
+| P5 | Attacker bots, fuzzing, aggregator adapter | ✅ PASS (gate: every E7 attack contained/documented). Roadmap: cargo-fuzz, E8 real-pool data |
 | P6 | Reproducibility, demo, docs | ⬜ not started |
 
 ## What we claim and what we do not

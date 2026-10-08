@@ -301,9 +301,15 @@ def _informed_trade(venue, reference: float, informed) -> tuple[str | None, floa
 
     ask = marginal("buy")
     bid = marginal("sell")
-    if ask is not None and ask < reference:
+    # The venue's own fee is already inside `preview`, so a positive edge is
+    # profitable *after* the pool fee. `informed.fee_bps` is an ADDITIONAL
+    # hurdle (gas/priority the arbitrageur must clear), matching
+    # `InformedFlow.should_trade`; without this the fee parameter was dead code.
+    edge_buy = (reference - ask) / ask * 10_000.0 if ask else -math.inf
+    edge_sell = (bid - reference) / reference * 10_000.0 if bid else -math.inf
+    if ask is not None and edge_buy > informed.fee_bps:
         side = "buy"
-    elif bid is not None and bid > reference:
+    elif bid is not None and edge_sell > informed.fee_bps:
         side = "sell"
     else:
         return None, 0.0
