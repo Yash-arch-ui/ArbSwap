@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
   motion,
   useScroll,
@@ -73,7 +73,7 @@ export const problemCards = [
     title: 'Loss-Versus-Rebalancing',
     equation: 'LVR / V ≈ σ² / 8',
     tone: 'var(--uni-critical)',
-    lead: 'A passive AMM only moves its price after an arbitrageur trades against it. When SOL jumps on external markets, fast traders pick off stale liquidity. LPs pay this cost continuously.',
+    lead: 'Passive pools reprice only after arbitrageurs extract value from stale quotes. LPs continuously bleed to toxic order flow.',
     footer: 'Markout: -0.23 bps · Persistent toxic flow',
   },
   {
@@ -82,7 +82,7 @@ export const problemCards = [
     title: 'Quote Degradation',
     equation: 'Gap = 1.08 bps · Fill = 39%',
     tone: 'var(--uni-warning)',
-    lead: 'Closed propAMMs reprice without trades, but execute on private off-chain servers. Traders face intra-slot degradation, fee flips, and phantom liquidity.',
+    lead: 'Closed propAMMs rely on off-chain servers, exposing traders to intra-slot degradation, fee flips, and phantom liquidity.',
     footer: 'Traders face spoofing; capital is closed',
   },
   {
@@ -91,7 +91,7 @@ export const problemCards = [
     title: 'Honest Active Liquidity',
     equation: 'V_active ≤ 8(R − gas) / σ²',
     tone: 'var(--uni-accent1)',
-    lead: 'ArbSwap opens active quoting to permissionless deposits. Dynamic spreads track volatility while on-chain versioning guarantees the quoted price is the price you get.',
+    lead: 'Permissionless vaults with volatility-responsive pricing. On-chain versioning guarantees quoted prices match execution.',
     footer: 'Markout: +0.38 bps · 0.00 bps execution gap',
   },
 ];
@@ -103,7 +103,7 @@ export const mechanicsPanels = [
     title: 'Constant-Product Segments',
     equation: 'P_res = P · (1 − g · q)',
     tone: 'var(--uni-accent1)',
-    lead: 'Quotes are anchored to Pyth with inventory aversion. Six levels expand outward with smooth price impact. One cheap write updates the entire book for ~620 compute units.',
+    lead: 'Pyth-anchored 6-tier ladder with inventory aversion. Updates the complete book in a single ~620 CU transaction.',
   },
   {
     index: '02 / RISK BUDGET',
@@ -111,7 +111,7 @@ export const mechanicsPanels = [
     title: 'Volatility-Scaled Capacity',
     equation: 'L ≤ 4(R − gas) / (σ² √P)',
     tone: 'var(--uni-success)',
-    lead: 'Derived directly from the LVR theorem: doubling volatility cuts active liquidity depth to a quarter. The vault contracts risk in turbulent regimes, preserving LP capital.',
+    lead: 'Dynamic depth governed by the LVR theorem. Market volatility automatically contracts vault exposure to protect LP capital.',
   },
   {
     index: '03 / GUARDS',
@@ -119,7 +119,7 @@ export const mechanicsPanels = [
     title: 'Versioned Execution',
     equation: 'require out ≥ min_out & v ≥ v_min',
     tone: 'var(--uni-accent1)',
-    lead: 'Swaps carry explicit quote versions and min_out bounds. If market conditions move or quotes expire (>4.0s), the program reverts rather than filling at worse prices.',
+    lead: 'Enforces explicit quote versions and slippage floors. Swaps instantly revert if prices shift or quotes age past 4.0s.',
   },
 ];
 
@@ -358,6 +358,156 @@ export const principles = [
   },
 ];
 
+/* ─── HERO BACKGROUND: Aurora Blobs + Particle Network ───── */
+function HeroBackground() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef    = useRef<number>(0);
+  const mouseRef  = useRef({ x: -9999, y: -9999 });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // ── Particle setup ──────────────────────────────────────
+    const PARTICLE_COUNT = 72;
+    const CONNECT_DIST   = 160;
+    const SPEED          = 0.35;
+    const MOUSE_REPEL    = 90;
+
+    interface Particle {
+      x: number; y: number;
+      vx: number; vy: number;
+      r: number; alpha: number;
+    }
+
+    let W = 0, H = 0;
+    let particles: Particle[] = [];
+
+    const resize = () => {
+      W = canvas.width  = canvas.offsetWidth  * devicePixelRatio;
+      H = canvas.height = canvas.offsetHeight * devicePixelRatio;
+      // Rescale existing or recreate
+      particles = Array.from({ length: PARTICLE_COUNT }, () => ({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: (Math.random() - 0.5) * SPEED,
+        vy: (Math.random() - 0.5) * SPEED,
+        r: Math.random() * 1.8 + 0.8,
+        alpha: Math.random() * 0.5 + 0.3,
+      }));
+    };
+    resize();
+
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas);
+
+    // ── Colours ─────────────────────────────────────────────
+    const TEAL   = '0,229,176';
+    const CYAN   = '0,188,212';
+    const INDIGO = '99,102,241';
+
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H);
+
+      // Update + draw particles
+      for (const p of particles) {
+        // Mouse repulsion
+        const dx = p.x - mouseRef.current.x * devicePixelRatio;
+        const dy = p.y - mouseRef.current.y * devicePixelRatio;
+        const md = Math.hypot(dx, dy);
+        if (md < MOUSE_REPEL * devicePixelRatio) {
+          const force = (MOUSE_REPEL * devicePixelRatio - md) / (MOUSE_REPEL * devicePixelRatio);
+          p.vx += (dx / md) * force * 0.4;
+          p.vy += (dy / md) * force * 0.4;
+        }
+
+        // Speed cap + drag
+        const spd = Math.hypot(p.vx, p.vy);
+        if (spd > SPEED * 3) { p.vx *= 0.92; p.vy *= 0.92; }
+        p.vx *= 0.998; p.vy *= 0.998;
+
+        p.x += p.vx; p.y += p.vy;
+
+        // Wrap edges
+        if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+        if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+
+        // Draw node dot
+        const color = p.r > 1.8 ? TEAL : p.r > 1.2 ? CYAN : INDIGO;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * devicePixelRatio, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${color},${p.alpha})`;
+        ctx.fill();
+
+        // Node glow
+        const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 5 * devicePixelRatio);
+        grd.addColorStop(0, `rgba(${color},${p.alpha * 0.4})`);
+        grd.addColorStop(1, `rgba(${color},0)`);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * 5 * devicePixelRatio, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+      }
+
+      // Draw connections
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const a = particles[i], b = particles[j];
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < CONNECT_DIST * devicePixelRatio) {
+            const opacity = (1 - dist / (CONNECT_DIST * devicePixelRatio)) * 0.18;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.strokeStyle = `rgba(${TEAL},${opacity})`;
+            ctx.lineWidth = devicePixelRatio * 0.6;
+            ctx.stroke();
+          }
+        }
+      }
+
+      rafRef.current = requestAnimationFrame(draw);
+    };
+    rafRef.current = requestAnimationFrame(draw);
+
+    const onMouseMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+    const onMouseLeave = () => { mouseRef.current = { x: -9999, y: -9999 }; };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseleave', onMouseLeave);
+
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      observer.disconnect();
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseleave', onMouseLeave);
+    };
+  }, []);
+
+  return (
+    <div className="hero-bg" aria-hidden="true">
+      {/* Layer 1: Aurora blobs (CSS animated) */}
+      <div className="aurora-wrap">
+        <div className="aurora-blob aurora-blob--1" />
+        <div className="aurora-blob aurora-blob--2" />
+        <div className="aurora-blob aurora-blob--3" />
+        <div className="aurora-blob aurora-blob--4" />
+      </div>
+
+      {/* Layer 2: Particle node network (Canvas2D) */}
+      <canvas ref={canvasRef} className="particle-canvas" />
+    </div>
+  );
+}
+
+
+
+
 const inView = {
   initial: { opacity: 0, y: 16 },
   whileInView: { opacity: 1, y: 0 },
@@ -386,6 +536,8 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
       
       {/* 1. HERO SECTION */}
       <section className="hero" id="top">
+        {/* Hero Background: Aurora Blobs + Particle Network */}
+        <HeroBackground />
         <div className="hero-content">
           <p className="eyebrow">
             <b /> ACTIVE LIQUIDITY AMM <span>·</span> OPEN POOLED CAPITAL
@@ -512,7 +664,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
             Passive pools bleed LVR. <em>propAMMs exploit execution.</em>
           </h2>
           <p>
-            Decentralized market making has been trapped between passive capital that loses to external arbitrage and closed propAMMs that spoof quotes. ArbSwap resolves the trade-off.
+            Passive capital bleeds to latency arbitrage, while closed propAMMs conceal execution risk. ArbSwap unifies open pooled capital with active on-chain quoting.
           </p>
         </div>
 
@@ -690,6 +842,78 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           margin-bottom: 26px;
         }
 
+        /* ─── HERO BACKGROUND ─────────────────────── */
+        .hero-bg {
+          position: absolute;
+          inset: 0;
+          z-index: 1;
+          overflow: hidden;
+          pointer-events: none;
+          -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+          mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+        }
+
+        /* Layer 1: Aurora blobs */
+        .aurora-wrap {
+          position: absolute;
+          inset: 0;
+        }
+        .aurora-blob {
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(80px);
+          mix-blend-mode: screen;
+          opacity: 0.55;
+        }
+        .aurora-blob--1 {
+          width: 700px; height: 700px;
+          background: radial-gradient(circle, rgba(0,229,176,0.32) 0%, transparent 70%);
+          top: -200px; left: -180px;
+          animation: blob-drift-1 18s ease-in-out infinite alternate;
+        }
+        .aurora-blob--2 {
+          width: 600px; height: 600px;
+          background: radial-gradient(circle, rgba(0,188,212,0.28) 0%, transparent 70%);
+          top: -100px; right: -150px;
+          animation: blob-drift-2 22s ease-in-out infinite alternate;
+        }
+        .aurora-blob--3 {
+          width: 500px; height: 500px;
+          background: radial-gradient(circle, rgba(99,102,241,0.20) 0%, transparent 70%);
+          bottom: -150px; left: 30%;
+          animation: blob-drift-3 26s ease-in-out infinite alternate;
+        }
+        .aurora-blob--4 {
+          width: 400px; height: 400px;
+          background: radial-gradient(circle, rgba(0,229,176,0.15) 0%, transparent 70%);
+          bottom: -80px; right: 10%;
+          animation: blob-drift-4 20s ease-in-out infinite alternate;
+        }
+        @keyframes blob-drift-1 {
+          from { transform: translate(0,   0)   scale(1);    }
+          to   { transform: translate(80px, 60px) scale(1.15); }
+        }
+        @keyframes blob-drift-2 {
+          from { transform: translate(0,   0)    scale(1);    }
+          to   { transform: translate(-60px, 80px) scale(0.9);  }
+        }
+        @keyframes blob-drift-3 {
+          from { transform: translate(0, 0)    scale(1);   }
+          to   { transform: translate(40px, -50px) scale(1.1); }
+        }
+        @keyframes blob-drift-4 {
+          from { transform: translate(0, 0)     scale(1);    }
+          to   { transform: translate(-40px, 30px) scale(1.2); }
+        }
+
+        /* Layer 2: Particle canvas */
+        .particle-canvas {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+        }
+
         /* Hero */
         .hero {
           position: relative;
@@ -699,6 +923,15 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           text-align: center;
           padding: 100px 24px 60px;
           overflow: hidden;
+        }
+        .hero::after {
+          content: '';
+          position: absolute;
+          inset: auto 0 0 0;
+          height: 180px;
+          background: linear-gradient(to bottom, transparent, var(--uni-surface1));
+          pointer-events: none;
+          z-index: 1;
         }
         .hero-content {
           position: relative;
@@ -758,7 +991,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         }
 
         .scroll-cue {
-          margin: 50px auto 0;
+          margin: 40px auto 0;
           display: inline-grid;
           justify-items: center;
           gap: 10px;
@@ -834,12 +1067,14 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           margin-left: calc(-50vw + 50%);
           margin-right: calc(-50vw + 50%);
           overflow: hidden;
-          border-top: 1px dashed var(--uni-surface3);
-          border-bottom: 1px dashed var(--uni-surface3);
-          background: color-mix(in srgb, var(--uni-neutral1) 1.5%, transparent);
-          padding: 14px 0;
+          border-top: 1px solid rgba(255, 255, 255, 0.05);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          background: rgba(255, 255, 255, 0.012);
+          padding: 16px 0;
           white-space: nowrap;
           user-select: none;
+          -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
         }
         .protocol-ticker-track {
           display: inline-flex;
@@ -903,8 +1138,8 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         /* Manifesto Statement with Word-by-Word Reveal */
         .manifesto-section {
           padding: clamp(70px, 9vw, 130px) 0;
-          border-top: 1px solid var(--uni-surface3);
-          border-bottom: 1px solid var(--uni-surface3);
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         }
         .manifesto-statement {
           max-width: 34ch;
@@ -950,10 +1185,10 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         .problem-card, .geometry-panel {
           display: flex;
           flex-direction: column;
-          min-height: 560px;
-          padding: 34px;
+          min-height: 440px;
+          padding: 28px;
           border: 1px solid var(--uni-surface3);
-          border-radius: 26px;
+          border-radius: 22px;
           background: color-mix(in srgb, var(--uni-neutral1) 3%, transparent);
           transition: border-color 0.25s, background 0.25s, transform 0.25s;
         }
@@ -967,8 +1202,8 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           justify-content: space-between;
           align-items: center;
           gap: 12px;
-          margin: -34px -34px 38px;
-          padding: 20px 34px;
+          margin: -28px -28px 24px;
+          padding: 16px 28px;
           border-bottom: 1px dashed var(--uni-surface3);
           font: 10px var(--uni-mono);
           letter-spacing: 0.17em;
@@ -976,36 +1211,36 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           color: var(--uni-neutral3);
         }
         .problem-card h3, .geometry-panel h3 {
-          font-size: clamp(2.6rem, 4vw, 4.2rem);
+          font-size: clamp(1.4rem, 1.9vw, 2.0rem);
           font-weight: 500;
-          letter-spacing: -0.07em;
-          line-height: 0.95;
-          margin-bottom: 26px;
+          letter-spacing: -0.05em;
+          line-height: 1.15;
+          margin-bottom: 18px;
         }
         .equation {
           display: grid;
-          min-height: 90px;
-          margin: 0 0 32px;
-          padding: 20px;
+          min-height: 60px;
+          margin: 0 0 20px;
+          padding: 12px 18px;
           place-items: center;
           border: 1px dashed var(--uni-surface3);
-          border-radius: 14px;
-          font-size: clamp(1.6rem, 2.3vw, 2.5rem);
+          border-radius: 12px;
+          font-size: clamp(1.05rem, 1.35vw, 1.35rem);
           text-align: center;
         }
-        .problem-lead {
-          font-size: clamp(18px, 1.7vw, 23px);
-          letter-spacing: -0.035em;
-          line-height: 1.25;
-          color: var(--uni-neutral1);
-          margin-bottom: 24px;
+        .problem-lead, .geometry-panel p {
+          font-size: clamp(13.5px, 1.1vw, 15px);
+          letter-spacing: -0.01em;
+          line-height: 1.55;
+          color: var(--uni-neutral2);
+          margin-bottom: 18px;
         }
         .card-footer-note {
           margin-top: auto;
-          padding-top: 22px;
+          padding-top: 18px;
           border-top: 1px dashed var(--uni-surface3);
-          font-size: 12.5px;
-          color: var(--uni-neutral2);
+          font-size: 11.5px;
+          color: var(--uni-neutral3);
         }
 
         /* Geometry mechanics */
