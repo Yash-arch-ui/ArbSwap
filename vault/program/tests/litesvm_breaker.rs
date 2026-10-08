@@ -27,13 +27,20 @@ fn account_data<T: AccountSerialize>(value: &T) -> Vec<u8> {
     data
 }
 
-fn instruction(name: &str, program_id: Address, vault: Address, quote: Address) -> Instruction {
+fn instruction(
+    name: &str,
+    program_id: Address,
+    vault: Address,
+    config: Address,
+    quote: Address,
+) -> Instruction {
     let mut hash = Sha256::new();
     hash.update(format!("global:{name}").as_bytes());
     Instruction {
         program_id,
         accounts: vec![
             AccountMeta::new(vault, false),
+            AccountMeta::new_readonly(config, false),
             AccountMeta::new_readonly(quote, false),
         ],
         data: hash.finalize()[..8].to_vec(),
@@ -125,6 +132,47 @@ fn expired_quote_can_trip_breaker_and_live_quote_cannot() {
         },
     )
     .unwrap();
+    let (config_address, config_bump) =
+        Address::find_program_address(&[b"config", vault_address.as_ref()], &program_id);
+    let config = Config {
+        admin: Pubkey::new_unique(),
+        keeper: Pubkey::new_unique(),
+        treasury: Pubkey::new_unique(),
+        pyth_feed_id: [7u8; 32],
+        fee_bps: 1,
+        insurance_bps: 1,
+        keeper_bps: 1,
+        protocol_bps: 1,
+        min_liquidity: 1,
+        warmup_slots: 1,
+        epoch_slots: 1,
+        grace_slots: 1,
+        expiry_slots: 10,
+        max_staleness_seconds: 30,
+        max_conf_bps: 10,
+        max_anchor_step_bps: 100,
+        min_spread_bps: 2,
+        max_spread_bps: 50,
+        max_quote_size: 1_000_000,
+        max_inventory_bps: 10_000,
+        utilization_max_bps: 5_000,
+        min_bond: 0,
+        max_anchor_dev_bps: 100,
+        flow_window_slots: 100,
+        max_window_flow_bps: 10_000,
+        bump: config_bump,
+    };
+    svm.set_account(
+        config_address,
+        Account {
+            lamports: 1_000_000,
+            data: account_data(&config),
+            owner: program_id,
+            ..Account::default()
+        },
+    )
+    .unwrap();
+
     let payer_address = Address::from(payer.pubkey().to_bytes());
     let tx = Transaction::new(
         &[&payer],
@@ -133,6 +181,7 @@ fn expired_quote_can_trip_breaker_and_live_quote_cannot() {
                 "trip_breaker",
                 program_id,
                 vault_address,
+                config_address,
                 quote_address,
             )],
             Some(&payer_address),

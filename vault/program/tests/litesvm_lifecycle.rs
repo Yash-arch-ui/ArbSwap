@@ -12,6 +12,7 @@ use pyth_solana_receiver_sdk::price_update::VerificationLevel;
 use solana_address::Address;
 use solana_clock::Clock;
 use solana_compute_budget::compute_budget::ComputeBudget;
+use solana_instruction::account_meta::AccountMeta;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
@@ -303,6 +304,7 @@ impl Fixture {
             arbswap::instruction::TripBreaker {},
             arbswap::accounts::TripBreaker {
                 vault: self.vault,
+                config: self.config,
                 quote_state: self.quote_state,
             },
         );
@@ -1434,6 +1436,7 @@ fn lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value() {
         arbswap::instruction::TripBreaker,
         arbswap::accounts::TripBreaker {
             vault: fixture.vault,
+            config: fixture.config,
             quote_state: fixture.quote_state,
         },
     );
@@ -2564,4 +2567,158 @@ fn buckets_are_excluded_from_available_reserves() {
         fixture.update_quote(&keys.keeper, honest, quote_update(SLOT + 1)),
         "UtilizationExceeded",
     );
+}
+
+// ---------------------------------------------------------------------------
+// T4: circuit breaker — state-only, permissionless, non-griefable.
+// ---------------------------------------------------------------------------
+
+/// An expired stored quote can be tripped by anyone.
+#[test]
+fn trip_breaker_on_expiry() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    let expiry = fixture.quote_state_value().expiry_slot;
+    fixture.warp_to_slot(expiry);
+    fixture
+        .trip_breaker(&keys.lp)
+        .expect("an expired quote can be tripped by anyone");
+    assert_eq!(fixture.vault_state().status, 1);
+    // While paused, swaps are refused.
+    assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, 0, 1), "Paused");
+}
+
+/// A stored oracle publish time far older than `max_staleness × 2` trips the
+/// breaker — using only state the program itself stored.
+#[test]
+fn trip_breaker_on_stored_staleness() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    // max_staleness_seconds = 30, so 61 s of stored staleness must trip.
+    let mut clock = fixture.svm.get_sysvar::<Clock>();
+    clock.unix_timestamp = PUBLISH_TIME + 61;
+    fixture.svm.set_sysvar(&clock);
+    fixture
+        .trip_breaker(&keys.lp)
+        .expect("stored staleness must trip");
+    assert_eq!(fixture.vault_state().status, 1);
+}
+
+/// T4 griefing defence: a caller-supplied stale oracle account cannot trip a
+/// fresh quote. A naive breaker that read the caller's `PriceUpdateV2` would
+/// pause here; the state-only design ignores it.
+#[test]
+fn no_trip_with_a_stale_foreign_account() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("a fresh quote");
+
+    // An old-but-valid update account for the same feed, as an attacker would
+    // supply to a naive breaker that trusts the caller's oracle.
+    let stale = fixture.post_pyth(
+        PYTH_PRICE,
+        1,
+        PUBLISH_TIME - 100_000,
+        VerificationLevel::Full,
+    );
+    let mut trip = ix(
+        fixture.program_id,
+        arbswap::instruction::TripBreaker {},
+        arbswap::accounts::TripBreaker {
+            vault: fixture.vault,
+            config: fixture.config,
+            quote_state: fixture.quote_state,
+        },
+    );
+    trip.accounts.push(AccountMeta::new_readonly(stale, false));
+    assert_anchor_error(
+        send(&mut fixture.svm, &[&keys.lp], trip),
+        "BreakerConditionNotMet",
+    );
+    assert_eq!(
+        fixture.vault_state().status,
+        0,
+        "a stale foreign account must not pause the vault"
+    );
+}
+
+/// Only the admin can reset the breaker.
+#[test]
+fn reset_breaker_requires_the_admin() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    let expiry = fixture.quote_state_value().expiry_slot;
+    fixture.warp_to_slot(expiry);
+    fixture.trip_breaker(&keys.lp).expect("trip");
+    assert_anchor_error(fixture.reset_breaker(&keys.lp), "Unauthorized");
+    fixture.reset_breaker(&keys.admin).expect("admin resets");
+    assert_eq!(fixture.vault_state().status, 0);
+}
+
+/// A rejected wide-confidence update leaves the previous quote to expire (safe
+/// failure), which then trips the breaker.
+#[test]
+fn rejected_wide_confidence_leaves_the_old_quote_to_expire() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    assert_eq!(fixture.quote_state_value().version, 1);
+
+    fixture.warp_to_slot(SLOT + 1);
+    // conf = 1.5e8 -> ~100 bps, above max_conf_bps (10).
+    let wide = fixture.post_pyth(
+        PYTH_PRICE,
+        150_000_000,
+        PUBLISH_TIME,
+        VerificationLevel::Full,
+    );
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, wide, quote_update(SLOT + 1)),
+        "WideConfidence",
+    );
+    assert_eq!(
+        fixture.quote_state_value().version,
+        1,
+        "a rejected update must not commit"
+    );
+
+    let expiry = fixture.quote_state_value().expiry_slot;
+    fixture.warp_to_slot(expiry);
+    assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, 0, 1), "QuoteExpired");
+    fixture
+        .trip_breaker(&keys.lp)
+        .expect("the expired old quote trips");
 }

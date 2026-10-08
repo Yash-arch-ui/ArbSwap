@@ -28,6 +28,7 @@ target/deploy/*.json
 !/docs/LEFTOVER_TASKS.md
 !/docs/SECURITY_CHECKLIST.md
 !/docs/ASSUMPTIONS.md
+!/docs/THREAT_MODEL.md
 !/TARGETIDEATASKS.md
 !/TARGETIDEATASKS_P2.md
 !/MasterPlan.md

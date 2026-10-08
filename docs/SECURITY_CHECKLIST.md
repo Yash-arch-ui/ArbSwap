@@ -125,6 +125,21 @@ Legend for bindings: **PDA** = seeds constraint; **addr** = `address = vault.*`;
   vault; golden + property tests in `vault/math`.
 - **CPI:** token program only; no arbitrary CPI; no `remaining_accounts`.
 
+## 2a. Circuit-breaker design (p2-T4)
+
+`trip_breaker` is permissionless but **state-only**: it reads the stored
+`QuoteState` and `Config` and trips when (a) the stored quote has expired, or
+(b) the stored `oracle_publish_time` is older than
+`max_staleness_seconds × STALENESS_TRIP_MULTIPLE` (=2) by the clock.
+It **never accepts a caller-supplied `PriceUpdateV2`**, because an attacker can
+present an old-but-valid update for the same feed to pause the vault (griefing);
+`no_trip_with_a_stale_foreign_account` shows the extra account is ignored.
+Evidence-based conditions (fresh oracle with wide confidence, volatility flag)
+are evaluated inside `update_quote`; a rejection does not pause the vault, it
+leaves the previous quote to expire (safe failure), tested by
+`rejected_wide_confidence_leaves_the_old_quote_to_expire`. `reset_breaker` is
+admin-only.
+
 ## 3. Compute units (LiteSVM, program instruction only)
 
 Measured on this branch; re-measured in `measure_instruction_compute_units`
@@ -138,7 +153,7 @@ Measured with `measure_instruction_compute_units` (bonded path) after p2-T3:
 | `update_quote` | 64,713 (capacity maths dominates; was ~18–29k) |
 | `update_quote` (wide-conf rejected) | 15,048 |
 | `swap` | 72,828 |
-| `trip_breaker` | ~7–10k |
+| `trip_breaker` | 12,377 |
 | `deposit` | 46,477 |
 | `request_withdraw` | 24,420 |
 | `claim_withdraw` | 24,158 |

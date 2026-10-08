@@ -18,6 +18,9 @@ const MAX_LEVEL_OFFSET_BPS: u32 = 500;
 const BPS_DENOM: u32 = 10_000;
 /// Timelock between `set_params` and `apply_params` (F-17): ~1 day at 400 ms.
 const TIMELOCK_SLOTS: u64 = 216_000;
+/// p2-T4: the permissionless breaker trips when the stored oracle publish time
+/// is older than this multiple of `max_staleness_seconds`. Stored state only.
+const STALENESS_TRIP_MULTIPLE: i64 = 2;
 
 #[program]
 pub mod arbswap {
@@ -912,13 +915,27 @@ pub mod arbswap {
             ctx.accounts.vault.status == ACTIVE,
             ErrorCode::InvalidStatus
         );
-        let now = Clock::get()?.slot;
-        require!(
-            ctx.accounts.quote_state.version > 0 && now >= ctx.accounts.quote_state.expiry_slot,
-            ErrorCode::BreakerConditionNotMet
-        );
+        let clock = Clock::get()?;
+        // p2-T4: the permissionless breaker is deliberately **state-only**. It
+        // never reads a caller-supplied oracle account: an attacker could
+        // otherwise present an old-but-valid `PriceUpdateV2` for the same feed
+        // and pause the vault (griefing). It may trip on (a) an expired stored
+        // quote, or (b) a stored oracle publish time that is far older than
+        // `max_staleness_seconds` × `STALENESS_TRIP_MULTIPLE`.
+        let quote = &ctx.accounts.quote_state;
+        require!(quote.version > 0, ErrorCode::BreakerConditionNotMet);
+        let expired = clock.slot >= quote.expiry_slot;
+        let max_staleness = ctx.accounts.config.max_staleness_seconds;
+        let stale = max_staleness > 0
+            && quote.oracle_publish_time > 0
+            && clock.unix_timestamp > quote.oracle_publish_time
+            && clock
+                .unix_timestamp
+                .saturating_sub(quote.oracle_publish_time)
+                > max_staleness.saturating_mul(STALENESS_TRIP_MULTIPLE);
+        require!(expired || stale, ErrorCode::BreakerConditionNotMet);
         ctx.accounts.vault.status = PAUSED;
-        emit!(BreakerTripped { slot: now });
+        emit!(BreakerTripped { slot: clock.slot });
         Ok(())
     }
     pub fn reset_breaker(ctx: Context<ResetBreaker>) -> Result<()> {
@@ -1683,6 +1700,8 @@ impl<'info> Swap<'info> {
 pub struct TripBreaker<'info> {
     #[account(mut)]
     pub vault: Box<Account<'info, Vault>>,
+    #[account(seeds=[b"config",vault.key().as_ref()],bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
     #[account(seeds=[b"quote",vault.key().as_ref()], bump)]
     pub quote_state: Box<Account<'info, QuoteState>>,
 }
