@@ -17,6 +17,7 @@ from simulation.reference.quote_math import QuoteParams
 from simulation.sim.costs import CostModel
 from simulation.sim.engine import SimResult, simulate
 from simulation.sim.flow import InformedFlow, NoiseFlow
+from simulation.sim.flow_config import NOISE_ARRIVAL_RATE, NOISE_MEAN_SIZE, pool_kwargs
 from simulation.sim.metrics import (
     hedged_pnl,
     notional_weighted_gap,
@@ -106,15 +107,16 @@ def venue_set(params: QuoteParams, *, passive_fee: float = 0.0001,
     The passive pool fee defaults to 1 bps (typical of a major SOL/USDC pool);
     E9 sweeps it. The vault fee defaults to the Build Plan §5.16 ``fee_bps``.
     """
+    kwargs = pool_kwargs()
     return {
-        "B1_passive": PassivePool(fee=passive_fee),
+        "B1_passive": PassivePool(fee=passive_fee, **kwargs),
         "B2_fixed_spread": VaultVenue(params=params, engine_enabled=False,
-                                      fee_bps=vault_fee_bps),
+                                      fee_bps=vault_fee_bps, **kwargs),
         "B3_no_throttle": VaultVenue(params=params, throttle_enabled=False,
-                                     fee_bps=vault_fee_bps),
+                                     fee_bps=vault_fee_bps, **kwargs),
         "B4_no_honesty": VaultVenue(params=params, honest_enabled=False,
-                                    fee_bps=vault_fee_bps),
-        "ArbSwap": VaultVenue(params=params, fee_bps=vault_fee_bps),
+                                    fee_bps=vault_fee_bps, **kwargs),
+        "ArbSwap": VaultVenue(params=params, fee_bps=vault_fee_bps, **kwargs),
     }
 
 
@@ -186,7 +188,7 @@ def run_venues(points: list[PricePoint], *, params: QuoteParams,
     costs = config.costs if costs is None else costs
     seed = config.seed if seed is None else seed
 
-    noise = noise or NoiseFlow(seed=seed)
+    noise = noise or NoiseFlow(seed=seed, arrival_rate=NOISE_ARRIVAL_RATE, mean_size=NOISE_MEAN_SIZE)
     informed = informed or InformedFlow()
     oracle_template = oracle
     reports: dict[str, VenueReport] = {}
