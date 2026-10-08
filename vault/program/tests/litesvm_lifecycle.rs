@@ -244,6 +244,7 @@ impl Fixture {
             max_inventory_bps: 2_000,
             utilization_max_bps: 5_000,
             min_bond,
+            unbond_cooldown_slots: 100,
             max_anchor_dev_bps: 100,
             flow_window_slots,
             max_window_flow_bps,
@@ -399,6 +400,28 @@ impl Fixture {
                 quote_reserve: self.quote_reserve,
                 keeper_base: self.keeper_base,
                 keeper_quote: self.keeper_quote,
+                token_program: token_program_id(),
+            },
+        );
+        send(&mut self.svm, &[keeper], instruction)
+    }
+
+    fn unbond_keeper(
+        &mut self,
+        keeper: &Keypair,
+        amount: u64,
+    ) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::UnbondKeeper { amount },
+            arbswap::accounts::UnbondKeeper {
+                keeper: to_address(keeper.pubkey()),
+                vault: self.vault,
+                config: self.config,
+                quote_mint: self.quote_mint,
+                keeper_quote: self.keeper_quote,
+                bond_vault: self.bond_vault(),
+                keeper_bond: self.keeper_bond(keeper),
                 token_program: token_program_id(),
             },
         );
@@ -2248,6 +2271,8 @@ fn slash_keeper_rejects_a_bond_from_another_vault() {
         keeper: keys.keeper.pubkey(),
         bond: 1_000,
         slashed: 0,
+        unbond_amount: 0,
+        unbond_ready_slot: 0,
         bump,
     };
     fixture
@@ -2721,4 +2746,148 @@ fn rejected_wide_confidence_leaves_the_old_quote_to_expire() {
     fixture
         .trip_breaker(&keys.lp)
         .expect("the expired old quote trips");
+}
+
+// ---------------------------------------------------------------------------
+// T5: keeper unbond with a cooldown.
+// ---------------------------------------------------------------------------
+
+/// Starting an unbond too early fails; after the cooldown the queued stake is
+/// released and the bond shrinks.
+#[test]
+fn unbond_keeper_cooldown_and_release() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    let before = token_amount(&fixture.svm, fixture.keeper_quote);
+
+    let m = fixture
+        .unbond_keeper(&keys.keeper, 400)
+        .expect("start unbond");
+    println!("cu_unbond_keeper_start={}", m.compute_units_consumed);
+    let bond = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    assert_eq!(bond.unbond_amount, 400);
+    assert!(bond.unbond_ready_slot > SLOT);
+
+    // Releasing before the cooldown elapses fails.
+    assert_anchor_error(fixture.unbond_keeper(&keys.keeper, 0), "TimelockNotElapsed");
+
+    fixture.warp_to_slot(bond.unbond_ready_slot);
+    let m = fixture
+        .unbond_keeper(&keys.keeper, 0)
+        .expect("release after cooldown");
+    println!("cu_unbond_keeper_release={}", m.compute_units_consumed);
+    let after = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    assert_eq!(after.bond, 600);
+    assert_eq!(after.unbond_amount, 0);
+    assert_eq!(after.unbond_ready_slot, 0);
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.keeper_quote),
+        before + 400
+    );
+}
+
+/// A keeper whose pending unbond drops the effective bond below `min_bond`
+/// can no longer quote (quoting deactivates).
+#[test]
+fn unbond_below_min_bond_deactivates_quoting() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    fixture
+        .unbond_keeper(&keys.keeper, 600)
+        .expect("start unbond");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, quote_update(SLOT)),
+        "NotBonded",
+    );
+}
+
+/// The admin can slash during the cooldown; the release is capped at the
+/// remaining bond.
+#[test]
+fn slash_during_unbond_reduces_the_release() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    let before = token_amount(&fixture.svm, fixture.keeper_quote);
+    fixture
+        .unbond_keeper(&keys.keeper, 1_000)
+        .expect("start unbond");
+
+    fixture
+        .slash_keeper(&keys.admin, &keys.keeper, 300)
+        .expect("slash during the cooldown");
+    let bond = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    assert_eq!(bond.bond, 700);
+
+    fixture.warp_to_slot(bond.unbond_ready_slot);
+    fixture
+        .unbond_keeper(&keys.keeper, 0)
+        .expect("release the capped amount");
+    let after = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    assert_eq!(after.bond, 0);
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.keeper_quote),
+        before + 700
+    );
+}
+
+/// A keeper bond from another vault cannot be used here.
+#[test]
+fn unbond_keeper_rejects_a_bond_from_another_vault() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    let foreign_vault = foreign_vault_address(&fixture.program_id);
+    let (foreign_bond, bump) = pda(
+        &[
+            b"keeper",
+            foreign_vault.as_ref(),
+            keys.keeper.pubkey().as_ref(),
+        ],
+        &fixture.program_id,
+    );
+    let bond = KeeperBond {
+        keeper: keys.keeper.pubkey(),
+        bond: 1_000,
+        slashed: 0,
+        unbond_amount: 0,
+        unbond_ready_slot: 0,
+        bump,
+    };
+    fixture
+        .svm
+        .set_account(
+            foreign_bond,
+            solana_account::Account {
+                lamports: 1_000_000_000,
+                data: account_data(&bond),
+                owner: fixture.program_id,
+                ..solana_account::Account::default()
+            },
+        )
+        .unwrap();
+    let unbond = ix(
+        fixture.program_id,
+        arbswap::instruction::UnbondKeeper { amount: 1 },
+        arbswap::accounts::UnbondKeeper {
+            keeper: to_address(keys.keeper.pubkey()),
+            vault: fixture.vault,
+            config: fixture.config,
+            quote_mint: fixture.quote_mint,
+            keeper_quote: fixture.keeper_quote,
+            bond_vault: fixture.bond_vault(),
+            keeper_bond: foreign_bond,
+            token_program: token_program_id(),
+        },
+    );
+    assert_account_rejected(
+        send(&mut fixture.svm, &[&keys.keeper], unbond),
+        "keeper_bond",
+    );
 }

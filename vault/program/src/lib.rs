@@ -119,6 +119,7 @@ pub mod arbswap {
         config.max_inventory_bps = params.max_inventory_bps;
         config.utilization_max_bps = params.utilization_max_bps;
         config.min_bond = params.min_bond;
+        config.unbond_cooldown_slots = params.unbond_cooldown_slots;
         config.max_anchor_dev_bps = params.max_anchor_dev_bps;
         config.flow_window_slots = params.flow_window_slots;
         config.max_window_flow_bps = params.max_window_flow_bps;
@@ -457,9 +458,13 @@ pub mod arbswap {
                 .map_err(|_| error!(ErrorCode::NotBonded))?;
             let bond = KeeperBond::try_deserialize(&mut &data[..])
                 .map_err(|_| error!(ErrorCode::NotBonded))?;
+            // p2-T5: while an unbond is pending, the effective bond is
+            // `bond - unbond_amount`, so a keeper that is releasing its stake
+            // can no longer quote once the effective bond falls below the
+            // configured minimum (quoting deactivates).
             require!(
                 bond.keeper == ctx.accounts.keeper.key()
-                    && bond.bond >= ctx.accounts.config.min_bond,
+                    && bond.bond.saturating_sub(bond.unbond_amount) >= ctx.accounts.config.min_bond,
                 ErrorCode::NotBonded
             );
         }
@@ -1021,6 +1026,7 @@ pub mod arbswap {
         config.max_inventory_bps = update.max_inventory_bps;
         config.utilization_max_bps = update.utilization_max_bps;
         config.min_bond = update.min_bond;
+        config.unbond_cooldown_slots = update.unbond_cooldown_slots;
         config.max_anchor_dev_bps = update.max_anchor_dev_bps;
         config.flow_window_slots = update.flow_window_slots;
         config.max_window_flow_bps = update.max_window_flow_bps;
@@ -1051,6 +1057,61 @@ pub mod arbswap {
             amount,
             total: bond.bond
         });
+        Ok(())
+    }
+
+    /// p2-T5: two-phase keeper unbond. The first call queues `amount` and starts
+    /// the cooldown; a second call after the cooldown releases the queued amount
+    /// (capped at the remaining bond, so a slash during the cooldown reduces the
+    /// payout). The admin may slash at any time; rewards stay claimable.
+    pub fn unbond_keeper(ctx: Context<UnbondKeeper>, amount: u64) -> Result<()> {
+        let clock = Clock::get()?;
+        let bond = &mut ctx.accounts.keeper_bond;
+        if bond.unbond_ready_slot == 0 {
+            require!(
+                amount > 0 && amount <= bond.bond,
+                ErrorCode::InsufficientBond
+            );
+            bond.unbond_amount = amount;
+            bond.unbond_ready_slot = clock
+                .slot
+                .checked_add(ctx.accounts.config.unbond_cooldown_slots)
+                .ok_or(ErrorCode::MathOverflow)?;
+        } else {
+            require!(
+                clock.slot >= bond.unbond_ready_slot,
+                ErrorCode::TimelockNotElapsed
+            );
+            let release = bond.unbond_amount.min(bond.bond);
+            if release > 0 {
+                let bump = [ctx.accounts.vault.bump];
+                let seeds: &[&[u8]] = &[
+                    b"vault",
+                    ctx.accounts.vault.base_mint.as_ref(),
+                    ctx.accounts.vault.quote_mint.as_ref(),
+                    &bump,
+                ];
+                token::transfer(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_program.key(),
+                        Transfer {
+                            from: ctx.accounts.bond_vault.to_account_info(),
+                            to: ctx.accounts.keeper_quote.to_account_info(),
+                            authority: ctx.accounts.vault.to_account_info(),
+                        },
+                        &[seeds],
+                    ),
+                    release,
+                )?;
+            }
+            bond.bond = bond.bond.saturating_sub(release);
+            bond.unbond_amount = 0;
+            bond.unbond_ready_slot = 0;
+            emit!(KeeperUnbonded {
+                keeper: bond.keeper,
+                amount: release
+            });
+        }
         Ok(())
     }
 
@@ -1280,6 +1341,8 @@ pub struct ParamsUpdate {
     pub max_inventory_bps: u32,
     pub utilization_max_bps: u32,
     pub min_bond: u64,
+    /// p2-T5: cooldown before a keeper's unbond releases (slots).
+    pub unbond_cooldown_slots: u64,
     /// Max |anchor - oracle| / oracle in bps (Item 2).
     pub max_anchor_dev_bps: u32,
     /// Item 1a: cumulative one-sided flow window, in slots.
@@ -1316,6 +1379,7 @@ pub struct InitParams {
     pub max_inventory_bps: u32,
     pub utilization_max_bps: u32,
     pub min_bond: u64,
+    pub unbond_cooldown_slots: u64,
     pub max_anchor_dev_bps: u32,
     pub flow_window_slots: u64,
     pub max_window_flow_bps: u32,
@@ -1404,6 +1468,7 @@ pub struct Config {
     pub max_inventory_bps: u32,
     pub utilization_max_bps: u32,
     pub min_bond: u64,
+    pub unbond_cooldown_slots: u64,
     pub max_anchor_dev_bps: u32,
     /// Item 1a: flow window length (slots) and one-sided cap (bps of base reserve).
     pub flow_window_slots: u64,
@@ -1438,6 +1503,10 @@ pub struct KeeperBond {
     pub keeper: Pubkey,
     pub bond: u64,
     pub slashed: u64,
+    /// p2-T5: amount queued for release by `unbond_keeper`, and the slot it
+    /// becomes releasable. `unbond_ready_slot == 0` means no unbond is pending.
+    pub unbond_amount: u64,
+    pub unbond_ready_slot: u64,
     pub bump: u8,
 }
 #[account]
@@ -1497,7 +1566,7 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8)]
     pub config: Box<Account<'info, Config>>,
     #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*3 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
@@ -1730,7 +1799,7 @@ pub struct BondKeeper<'info> {
     pub keeper_quote: Box<Account<'info, TokenAccount>>,
     #[account(init_if_needed, payer = keeper, token::mint = quote_mint, token::authority = vault, seeds=[b"bond", vault.key().as_ref()], bump)]
     pub bond_vault: Box<Account<'info, TokenAccount>>,
-    #[account(init_if_needed, payer = keeper, space = 8 + 32 + 8 + 8 + 1, seeds=[b"keeper", vault.key().as_ref(), keeper.key().as_ref()], bump)]
+    #[account(init_if_needed, payer = keeper, space = 8 + 32 + 8 + 8 + 8 + 8 + 1, seeds=[b"keeper", vault.key().as_ref(), keeper.key().as_ref()], bump)]
     pub keeper_bond: Account<'info, KeeperBond>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -1746,6 +1815,25 @@ impl<'info> BondKeeper<'info> {
             },
         )
     }
+}
+
+#[derive(Accounts)]
+pub struct UnbondKeeper<'info> {
+    #[account(mut)]
+    pub keeper: Signer<'info>,
+    #[account(mut)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(seeds=[b"config",vault.key().as_ref()],bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(address = vault.quote_mint)]
+    pub quote_mint: Box<Account<'info, Mint>>,
+    #[account(mut, constraint = keeper_quote.owner == keeper.key(), constraint = keeper_quote.mint == vault.quote_mint)]
+    pub keeper_quote: Box<Account<'info, TokenAccount>>,
+    #[account(mut, seeds=[b"bond", vault.key().as_ref()], bump)]
+    pub bond_vault: Box<Account<'info, TokenAccount>>,
+    #[account(mut, seeds=[b"keeper", vault.key().as_ref(), keeper.key().as_ref()], bump=keeper_bond.bump)]
+    pub keeper_bond: Box<Account<'info, KeeperBond>>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -1798,7 +1886,7 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+105+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=admin, space=8+32+8+113+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }
@@ -1958,6 +2046,12 @@ pub struct KeeperBonded {
 
 #[event]
 pub struct KeeperSlashed {
+    pub keeper: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct KeeperUnbonded {
     pub keeper: Pubkey,
     pub amount: u64,
 }

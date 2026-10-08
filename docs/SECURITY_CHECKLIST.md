@@ -88,6 +88,13 @@ Legend for bindings: **PDA** = seeds constraint; **addr** = `address = vault.*`;
 | | `keeper_quote` | `owner == keeper`, `mint == vault.quote_mint` | — |
 | | `bond_vault` | PDA `[b"bond", vault]`, `token::authority = vault` | `slash_keeper_rejects_a_bond_vault_from_another_vault` |
 | | `keeper_bond` | PDA `[b"keeper", vault, keeper]` | `slash_keeper_rejects_a_bond_from_another_vault` |
+| `unbond_keeper` | `keeper` | Signer | — |
+| | `vault` | mut | — |
+| | `config` | PDA `[b"config", vault]` | — |
+| | `quote_mint` | `address = vault.quote_mint` | — |
+| | `keeper_quote` | `owner == keeper`, `mint == vault.quote_mint` | — |
+| | `bond_vault` | PDA `[b"bond", vault]` | `unbond_keeper_rejects_a_bond_from_another_vault` |
+| | `keeper_bond` | PDA `[b"keeper", vault, keeper]` | `unbond_keeper_rejects_a_bond_from_another_vault` |
 | `slash_keeper` | `admin` | Signer + body `admin == vault.admin` | `admin_only_controls_reject_non_admins` |
 | | `vault` | mut | — |
 | | `quote_reserve` | `address = vault.quote_reserve` | — |
@@ -140,6 +147,19 @@ leaves the previous quote to expire (safe failure), tested by
 `rejected_wide_confidence_leaves_the_old_quote_to_expire`. `reset_breaker` is
 admin-only.
 
+## 2b. Keeper unbond (p2-T5)
+
+`unbond_keeper(amount)` is two-phase: the first call queues `amount` and sets
+`unbond_ready_slot = now + config.unbond_cooldown_slots`; a second call after the
+cooldown releases `min(unbond_amount, bond)` and resets the pending state. The
+admin can `slash_keeper` during the cooldown, which reduces the eventual
+release. While an unbond is pending, `update_quote` uses the **effective bond**
+(`bond − unbond_amount`), so a keeper that releases below `min_bond` can no
+longer quote (quoting deactivates). Rewards remain claimable. Tests:
+`unbond_keeper_cooldown_and_release`, `unbond_below_min_bond_deactivates_quoting`,
+`slash_during_unbond_reduces_the_release`,
+`unbond_keeper_rejects_a_bond_from_another_vault`.
+
 ## 3. Compute units (LiteSVM, program instruction only)
 
 Measured on this branch; re-measured in `measure_instruction_compute_units`
@@ -159,6 +179,7 @@ Measured with `measure_instruction_compute_units` (bonded path) after p2-T3:
 | `claim_withdraw` | 24,158 |
 | `crank_epoch` | 5,157 |
 | `bond_keeper` / `slash_keeper` / `claim_keeper_reward` | 26,409 / 15,507 / 13,967 |
+| `unbond_keeper` (queue / release) | 16,242 / 18,379 |
 
 `update_quote` now exceeds the keeper's former 60k limit, so
 `MAX_UPDATE_COMPUTE_UNITS` was raised to 80,000. All instructions remain inside
