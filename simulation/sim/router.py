@@ -70,7 +70,7 @@ def _exec_price(venue: Venue, side: str, amount_in: float, ref: float, prop_ref:
 
 def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s=1.0,
                  insensitive_share=0.2, slippage_bps=1.0, seed=20261006,
-                 informed_max_notional=5_000.0):
+                 informed_max_notional=5_000.0, informed_enabled=True):
     params = params or QuoteParams()
     venues = [
         _build("vault", params=params, b1_fee=b1_fee, prop_hs=prop_hs, latency_steps=1, start_price=prices[0].price),
@@ -110,7 +110,7 @@ def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s
             p = _exec_price(v, "sell", informed_max_notional, ref, prop_ref)
             if p is not None and p > ref:
                 edges.append((10_000.0 * (p - ref) / ref, v, "sell"))
-        if edges:
+        if edges and informed_enabled:
             _edge, v, side = max(edges, key=lambda e: e[0])
             amount_in = informed_max_notional if side == "buy" else informed_max_notional / ref
             _apply(v, side, amount_in, ref, prop_ref, record)
