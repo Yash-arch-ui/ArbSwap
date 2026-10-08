@@ -27,6 +27,7 @@ target/deploy/*.json
 !/docs/FORMULA.md
 !/docs/LEFTOVER_TASKS.md
 !/docs/SECURITY_CHECKLIST.md
+!/docs/ASSUMPTIONS.md
 !/TARGETIDEATASKS.md
 !/TARGETIDEATASKS_P2.md
 !/MasterPlan.md

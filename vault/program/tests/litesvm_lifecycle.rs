@@ -234,6 +234,7 @@ impl Fixture {
             max_staleness_seconds: 30,
             max_conf_bps: 10,
             max_anchor_step_bps: 100,
+            min_spread_bps: 2,
             max_spread_bps: 50,
             max_quote_size: MAX_QUOTE_SIZE,
             max_inventory_bps: 2_000,
@@ -2399,4 +2400,50 @@ fn execute_fee_claim_rejects_a_non_treasury_destination() {
         send(&mut fixture.svm, &[&keys.admin], execute),
         "ConstraintRaw",
     );
+}
+
+/// T2: a quote below the configured minimum (including zero) spread is rejected.
+#[test]
+fn a_zero_spread_quote_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+
+    let mut zero = quote_update(SLOT);
+    zero.half_spread_bps = 0;
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, zero),
+        "SpreadOutOfBounds",
+    );
+
+    // 1 bps is below the configured `min_spread_bps = 2`.
+    let mut sub_minimum = quote_update(SLOT);
+    sub_minimum.half_spread_bps = 1;
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, sub_minimum),
+        "SpreadOutOfBounds",
+    );
+
+    // A spread inside [min, max] still passes.
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("an in-bounds spread is accepted");
+}
+
+/// T2: the timelocked parameter path rejects `min_spread_bps > max_spread_bps`.
+#[test]
+fn apply_params_rejects_min_spread_above_max() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let bad = arbswap::ParamsUpdate {
+        min_spread_bps: 60,
+        max_spread_bps: 50,
+        ..Default::default()
+    };
+    fixture
+        .set_params(&keys.admin, bad)
+        .expect("admin proposes");
+    let pending = read_state::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
+    fixture.warp_to_slot(pending.activate_slot);
+    assert_anchor_error(fixture.apply_params(&keys.admin), "InvalidParams");
 }

@@ -157,6 +157,14 @@ absolute-inventory term. Report the distinction in calibration results.
 
 **Status:** SPEC/HEURISTIC. No coefficient is a theorem or a promise.
 
+**On-chain bound (p2-T2).** `update_quote` requires
+`config.min_spread_bps <= half_spread_bps <= config.max_spread_bps`. The
+recommended protocol default is `min_spread_bps = 2` bps, matching the frozen
+simulator `spread_floor` (`simulation/data/results/frozen_params.json`:
+`spread_floor = 0.0002`). The keeper's `KeeperParams` defaults are aligned
+(`spread_floor_bps = spread_min_bps = 2`) so a calm-state keeper quote is never
+below the on-chain minimum; `test_keeper_parity.py` mirrors these values.
+
 The keeper (`keeper/src/lib.rs`) implements this formula with the same unit
 convention as the reference: each coefficient is `reference_coeff × 10_000`, so
 a bps term is `coefficient_bps × signal(as a fraction)`. The volatility,

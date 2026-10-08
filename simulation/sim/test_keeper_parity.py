@@ -29,8 +29,8 @@ BPS = 10_000
 ROOT = Path(__file__).resolve().parents[2]
 
 # KeeperParams::default() values this test mirrors.
-SPREAD_FLOOR = 1
-SPREAD_MIN = 1
+SPREAD_FLOOR = 2
+SPREAD_MIN = 2
 SPREAD_MAX = 50
 INVENTORY_COEFF = 5
 VOLATILITY_COEFF = 10_000

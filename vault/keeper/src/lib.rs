@@ -128,8 +128,8 @@ pub struct KeeperParams {
 impl Default for KeeperParams {
     fn default() -> Self {
         Self {
-            spread_floor_bps: 1,
-            spread_min_bps: 1,
+            spread_floor_bps: 2,
+            spread_min_bps: 2,
             spread_max_bps: 50,
             inventory_coeff_bps: 5,
             volatility_coeff_bps: 10_000,

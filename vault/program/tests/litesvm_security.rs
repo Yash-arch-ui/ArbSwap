@@ -37,6 +37,7 @@ fn params(base_mint: Address, quote_mint: Address, admin: &Keypair) -> InitParam
         max_staleness_seconds: 30,
         max_conf_bps: 10,
         max_anchor_step_bps: 100,
+        min_spread_bps: 2,
         max_spread_bps: 50,
         max_quote_size: 1_000_000,
         max_inventory_bps: 2_000,
@@ -183,4 +184,39 @@ fn a_non_admin_cannot_initialize_a_vault() {
         &share_lock_kp,
     ];
     assert_anchor_error(send(&mut svm, &signers, hostile), "Unauthorized");
+}
+
+/// T2: `initialize_vault` rejects `min_spread_bps > max_spread_bps`.
+#[test]
+fn initialize_vault_rejects_min_spread_above_max() {
+    let (mut svm, program_id, admin, base_mint, quote_mint) = bootstrapped();
+    let base_reserve = Keypair::new();
+    let quote_reserve = Keypair::new();
+    let share_mint_kp = Keypair::new();
+    let share_lock_kp = Keypair::new();
+    let reserves = [
+        &base_reserve,
+        &quote_reserve,
+        &share_mint_kp,
+        &share_lock_kp,
+    ];
+    let mut invalid = params(base_mint, quote_mint, &admin);
+    invalid.min_spread_bps = 60;
+    invalid.max_spread_bps = 50;
+    let bad = initialize_vault_ix(
+        program_id,
+        to_address(admin.pubkey()),
+        base_mint,
+        quote_mint,
+        invalid,
+        &reserves,
+    );
+    let signers: [&Keypair; 5] = [
+        &admin,
+        &base_reserve,
+        &quote_reserve,
+        &share_mint_kp,
+        &share_lock_kp,
+    ];
+    assert_anchor_error(send(&mut svm, &signers, bad), "InvalidParams");
 }

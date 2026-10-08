@@ -214,6 +214,7 @@ fn update_quote_executes_only_with_full_pyth_account() {
         max_staleness_seconds: 30,
         max_conf_bps: 10,
         max_anchor_step_bps: 100,
+        min_spread_bps: 2,
         max_spread_bps: 50,
         max_quote_size: 1_000_000,
         max_inventory_bps: 10_000,
@@ -299,7 +300,7 @@ fn update_quote_executes_only_with_full_pyth_account() {
         },
     )
     .unwrap();
-    let levels = anchor_ladder(ANCHOR_SQRT, 1, [1, 2, 3, 4, 5, 6]);
+    let levels = anchor_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6]);
     let update = QuoteUpdate {
         update_slot: 1,
         oracle_publish_time: 1_000,
@@ -307,7 +308,7 @@ fn update_quote_executes_only_with_full_pyth_account() {
         oracle_conf_bps: 1,
         anchor_sqrt_price: ANCHOR_SQRT,
         p_res_sqrt: ANCHOR_SQRT,
-        half_spread_bps: 1,
+        half_spread_bps: 2,
         ask_extra_bps: 0,
         bid_extra_bps: 0,
         depth_mult_bps: 10_000,
