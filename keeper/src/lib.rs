@@ -235,6 +235,33 @@ fn directional_addon(price_q64: u128, previous_price_q64: u128, coeff_bps: u32) 
     (ask, bid)
 }
 
+/// Item 3: LP-available reserves for ladder sizing. The insurance, keeper and
+/// protocol buckets are claims on the reserves, so the keeper must size the
+/// ladder from the reserve *net* of those buckets, never the gross reserve.
+/// Returns `(base_available, quote_available)`, saturating at zero.
+#[allow(clippy::too_many_arguments)]
+pub fn available_reserves(
+    base: u128,
+    quote: u128,
+    insurance_base: u128,
+    insurance_quote: u128,
+    keeper_base: u128,
+    keeper_quote: u128,
+    protocol_base: u128,
+    protocol_quote: u128,
+) -> (u128, u128) {
+    let base_liab = insurance_base
+        .saturating_add(keeper_base)
+        .saturating_add(protocol_base);
+    let quote_liab = insurance_quote
+        .saturating_add(keeper_quote)
+        .saturating_add(protocol_quote);
+    (
+        base.saturating_sub(base_liab),
+        quote.saturating_sub(quote_liab),
+    )
+}
+
 pub fn compute_quote(
     tick: OracleTick,
     state: VolatilityState,
@@ -621,6 +648,16 @@ impl QuoteSender for DryRunSender {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn available_reserves_excludes_the_buckets() {
+        // 1_000 base / 150_000 quote with buckets of 100 base and 20_000 quote.
+        let (b, q) = available_reserves(1_000, 150_000, 40, 10_000, 30, 5_000, 30, 5_000);
+        assert_eq!(b, 900); // 1000 - (40+30+30)
+        assert_eq!(q, 130_000); // 150000 - (10000+5000+5000)
+        // Saturates rather than underflowing when liabilities exceed reserves.
+        let (b, q) = available_reserves(10, 10, 10, 10, 10, 10, 10, 10);
+        assert_eq!((b, q), (0, 0));
+    }
     #[test]
     fn ewma_is_deterministic() {
         let a = VolatilityState::default().update(100 * Q64, 9400, 9900, 4);

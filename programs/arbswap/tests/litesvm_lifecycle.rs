@@ -226,6 +226,7 @@ impl Fixture {
             max_quote_size: MAX_QUOTE_SIZE,
             max_inventory_bps: 2_000,
             min_bond,
+            max_anchor_dev_bps: 500,
             offsets_bps: OFFSETS,
             weights_bps: WEIGHTS,
         };
@@ -844,6 +845,83 @@ fn reservation_outside_the_inventory_band_is_rejected() {
         "InventoryOutOfBounds",
     );
     assert_eq!(fixture.quote_state_value().version, 0);
+}
+
+/// Item 2: bind the anchor to the **verified** Pyth price, not only to the
+/// previous anchor. On the first update the previous anchor is 0 (the step check
+/// is skipped), so an anchor 1000 bps above the 150 oracle must be rejected by
+/// the new `max_anchor_dev_bps` bound.
+#[test]
+fn anchor_far_from_the_oracle_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    let mut bad = quote_update(SLOT);
+    // anchor = sqrt(165) -> price 165 = 1000 bps above the 150 oracle (> 500).
+    bad.anchor_sqrt_price = arb_math::sqrt_q64(165u128 << 64).unwrap();
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, bad),
+        "AnchorTooFarFromOracle",
+    );
+    assert_eq!(fixture.quote_state_value().version, 0);
+}
+
+/// Item 3 invariant: after any sequence of swaps, the physical reserves never
+/// fall below the tracked (LP-excluded) liabilities. This is the on-chain form
+/// of "ladder capacity may not draw on the fee buckets": the buckets are claims
+/// on the reserves, so reserves must always cover insurance + keeper + protocol.
+#[test]
+fn reserves_never_fall_below_tracked_liabilities_after_swaps() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let check = |fixture: &Fixture| {
+        let v = fixture.vault_state();
+        let base_reserve = token_amount(&fixture.svm, fixture.base_reserve);
+        let quote_reserve = token_amount(&fixture.svm, fixture.quote_reserve);
+        let base_liab = v
+            .insurance_base
+            .saturating_add(v.keeper_base)
+            .saturating_add(v.protocol_base);
+        let quote_liab = v
+            .insurance_quote
+            .saturating_add(v.keeper_quote)
+            .saturating_add(v.protocol_quote);
+        assert!(
+            base_reserve >= base_liab,
+            "base reserve {base_reserve} < liabilities {base_liab}"
+        );
+        assert!(
+            quote_reserve >= quote_liab,
+            "quote reserve {quote_reserve} < liabilities {quote_liab}"
+        );
+    };
+
+    // A sequence of buys across quote refreshes (each swap retains fees that
+    // accrue to the buckets, so the liabilities grow while they stay covered).
+    for round in 0..4u64 {
+        fixture.warp_to_slot(SLOT + 2 * round);
+        let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+        fixture
+            .update_quote(&keys.keeper, honest, quote_update(SLOT + 2 * round))
+            .expect("quote");
+        fixture
+            .swap(&keys.trader, AMOUNT_IN, 0, 2 * round + 1)
+            .expect("buy base");
+        check(&fixture);
+        fixture.warp_to_slot(SLOT + 2 * round + 1);
+        let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+        fixture
+            .update_quote(&keys.keeper, honest, quote_update(SLOT + 2 * round + 1))
+            .expect("quote");
+        fixture
+            .swap(&keys.trader, AMOUNT_IN / 2, 0, 2 * round + 2)
+            .expect("buy base again");
+        check(&fixture);
+    }
 }
 
 /// F-10: a second deposit reuses the (now `init_if_needed`) ticket, and the

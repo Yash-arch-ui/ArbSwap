@@ -214,6 +214,7 @@ fn update_quote_executes_only_with_full_pyth_account() {
         max_quote_size: 1_000_000,
         max_inventory_bps: 10_000,
         min_bond: 0,
+        max_anchor_dev_bps: 500,
         bump: config_bump,
     };
     let quote_state = QuoteState {

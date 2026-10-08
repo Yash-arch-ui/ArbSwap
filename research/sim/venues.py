@@ -153,16 +153,35 @@ class VaultVenue:
     volatility: VolatilityState = field(default_factory=VolatilityState)
     quote_state: Quote | None = None
     displayed_quote: Quote | None = None
+    # Item 3: accrued (LP-excluded) liabilities, in tokens. Ladder capacity must
+    # be built from reserves *minus* these buckets, never from the gross reserve,
+    # so the vault cannot quote away the insurance/keeper/protocol liabilities.
+    fee_buckets_base: float = 0.0
+    fee_buckets_quote: float = 0.0
+
+    @property
+    def available_base(self) -> float:
+        """Base reserve net of the tracked (LP-excluded) fee buckets."""
+        return max(0.0, self.base - self.fee_buckets_base)
+
+    @property
+    def available_quote(self) -> float:
+        """Quote reserve net of the tracked (LP-excluded) fee buckets."""
+        return max(0.0, self.quote - self.fee_buckets_quote)
 
     def refresh(self, *, price: float, confidence: float, age: float,
                 previous_price: float | None, depth_budget: float = 1.0) -> None:
         # The quote a trader could have read at the end of the previous slot.
         self.displayed_quote = self.quote_state
+        # Item 3: capacity is sized from the LP-available reserves, excluding the
+        # insurance/keeper/protocol fee buckets.
+        base_avail = self.available_base
+        quote_avail = self.available_quote
         if self.engine_enabled:
             quote = compute_quote(
                 price=price,
-                base_reserve=self.base,
-                quote_reserve=self.quote,
+                base_reserve=base_avail,
+                quote_reserve=quote_avail,
                 confidence=confidence,
                 age=age,
                 volatility=self.volatility,
@@ -175,8 +194,8 @@ class VaultVenue:
         else:
             quote = compute_quote(
                 price=price,
-                base_reserve=self.base,
-                quote_reserve=self.quote,
+                base_reserve=base_avail,
+                quote_reserve=quote_avail,
                 confidence=0.0,
                 age=0.0,
                 volatility=VolatilityState(),
@@ -295,10 +314,14 @@ class VaultVenue:
         fee = amount_in * self.fee_bps / 10_000.0
         self._consume(side, amount_in - fee)
         if side == "buy":
+            # The fee is retained in quote; book it to the LP-excluded bucket.
+            self.fee_buckets_quote += fee
             self.base -= output
             self.quote += amount_in
             return Fill(side, amount_in, output, exec_price, amount_in,
                         -output, quoted_out, gap_bps)
+        # sell: the fee is retained in base.
+        self.fee_buckets_base += fee
         self.base += amount_in
         self.quote -= output
         return Fill(side, amount_in, output, exec_price, -output, amount_in,

@@ -102,6 +102,7 @@ pub mod arbswap {
         config.max_quote_size = params.max_quote_size;
         config.max_inventory_bps = params.max_inventory_bps;
         config.min_bond = params.min_bond;
+        config.max_anchor_dev_bps = params.max_anchor_dev_bps;
         config.bump = ctx.bumps.config;
 
         ctx.accounts.quote_state.bump = ctx.bumps.quote_state;
@@ -441,6 +442,15 @@ pub mod arbswap {
             );
         }
         let clock = Clock::get()?;
+        // Item 2 decision: keep `<= clock.slot`, NOT `== clock.slot`. A keeper
+        // observes the oracle at slot X and the transaction lands at X+k due to
+        // network/landing delay (the simulator models this explicitly, see
+        // `costs.landing_delay`). Requiring equality would reject every
+        // realistically-landed update. Backdating within the window is harmless:
+        // quote expiry and freshness are evaluated against the *actual* clock at
+        // swap/verify time, not against `update_slot`, so a stale `update_slot`
+        // buys the keeper nothing and the monotonic `> stored` guard prevents
+        // reusing an old slot to overwrite a newer quote.
         require!(
             update.update_slot > ctx.accounts.quote_state.update_slot
                 && update.update_slot <= clock.slot,
@@ -527,6 +537,22 @@ pub mod arbswap {
         let anchor_price = arb_math::price_from_sqrt(update.anchor_sqrt_price)
             .map_err(|_| ErrorCode::InvalidPrice)?;
         require!(anchor_price > 0, ErrorCode::InvalidPrice);
+        // Item 2: bind the anchor to the **verified** Pyth price, not only to the
+        // previous anchor. `update.oracle_price` is the Q64 price already proven
+        // == the Pyth payload above. Without this, a keeper could (over steps, or
+        // on the first update where the previous anchor is 0) quote far from the
+        // oracle. `max_anchor_dev_bps` is the max |anchor - oracle|/oracle.
+        let oracle_price = update.oracle_price; // Q64 price, == Pyth, > 0 (checked)
+        let anchor_dev = if anchor_price >= oracle_price {
+            anchor_price - oracle_price
+        } else {
+            oracle_price - anchor_price
+        };
+        require!(
+            anchor_dev.saturating_mul(BPS_DENOM as u128)
+                <= oracle_price.saturating_mul(ctx.accounts.config.max_anchor_dev_bps as u128),
+            ErrorCode::AnchorTooFarFromOracle
+        );
         let outer = update.offsets_bps[LEVELS - 1];
         let ask_band = update
             .half_spread_bps
@@ -853,6 +879,7 @@ pub mod arbswap {
         config.max_quote_size = update.max_quote_size;
         config.max_inventory_bps = update.max_inventory_bps;
         config.min_bond = update.min_bond;
+        config.max_anchor_dev_bps = update.max_anchor_dev_bps;
         ctx.accounts.pending_config.activate_slot = u64::MAX;
         emit!(ParamsApplied {
             slot: Clock::get()?.slot
@@ -998,6 +1025,8 @@ pub struct ParamsUpdate {
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
     pub min_bond: u64,
+    /// Max |anchor - oracle| / oracle in bps (Item 2).
+    pub max_anchor_dev_bps: u32,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -1022,6 +1051,7 @@ pub struct InitParams {
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
     pub min_bond: u64,
+    pub max_anchor_dev_bps: u32,
     pub offsets_bps: [u32; LEVELS],
     pub weights_bps: [u32; LEVELS],
 }
@@ -1095,6 +1125,7 @@ pub struct Config {
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
     pub min_bond: u64,
+    pub max_anchor_dev_bps: u32,
     pub bump: u8,
 }
 /// Pending timelocked parameter change (F-17), seeded `[b"pending", vault]`.
@@ -1172,7 +1203,7 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*3 + 2*4 + 8*7 + 4*4 + 8 + 4 + 1)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*3 + 2*4 + 8*7 + 4*5 + 8 + 4 + 1)]
     pub config: Box<Account<'info, Config>>,
     #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*3 + 16*3 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
@@ -1460,7 +1491,7 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+48+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=admin, space=8+32+8+52+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }
@@ -1637,6 +1668,8 @@ pub enum ErrorCode {
     WideConfidence,
     #[msg("Anchor step too large")]
     AnchorStepTooLarge,
+    #[msg("Anchor too far from the verified oracle price")]
+    AnchorTooFarFromOracle,
     #[msg("Timelock has not elapsed")]
     TimelockNotElapsed,
     #[msg("Insufficient keeper bond")]
