@@ -21,8 +21,8 @@ custom-panic = []
 
 [dependencies]
 arb-math = { path = "../../crates/arb-math" }
-anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
-anchor-spl = "1.1.2"
+anchor-lang = { version = "1.2.1", features = ["init-if-needed"] }
+anchor-spl = "1.2.1"
 pyth-solana-receiver-sdk = "2.0.0"
 
 [dev-dependencies]

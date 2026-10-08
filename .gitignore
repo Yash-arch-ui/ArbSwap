@@ -19,6 +19,7 @@ target/deploy/*.json
 *.md
 !/README.md
 !/MATH.md
+!/docs/SECURITY.md
 
 # Generated analytics output (dashboard, event dumps)
 analytics/out/
