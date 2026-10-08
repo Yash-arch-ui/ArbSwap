@@ -10,7 +10,7 @@ funds are not gated on it).
 | Phase | Verdict | Note |
 |---|---|---|
 | P0 | PASS | assumptions/CI green |
-| P1 | **PASS** (completed) | B1 calibrated to the paper (markout −0.02 / half-spread 2.41 on W1, within tolerance); router + fill/volume share; honesty tolerance tables; real-flow + measured-vol window labels + injected jumps; pre/post-fix; operating envelope. Caveat: the pre-registered stress weeks measured mid/low vol (see open findings) |
+| P1 | **PARTIAL** | Contamination fixed (venue init at path start) + B1 calibrated (markout −0.02 / half-spread 2.41); router + shares; honesty CIs; pre/post; envelope. **Not yet**: stress windows ≥2× (C1=1.75e-4 is 1.26×); all pre-fix numbers superseded |
 | P2 | PASS (local) | 75 Rust tests; anchor bound to oracle; per-window flow cap; devnet gate open |
 | P3 | PASS (core) | keeper/replay + bond/slash/reward + rotation; live RPC dry-run only |
 | P4 | **PASS** (gate) | dashboard reproduces E1-E4 from indexed events; `build` writes dashboard.html |
