@@ -91,6 +91,9 @@ fn expired_quote_can_trip_breaker_and_live_quote_cannot() {
         bid_extra_bps: 0,
         depth_mult_bps: 10_000,
         flow_n: 0,
+        window_start_slot: 0,
+        window_base_sold: 0,
+        window_base_bought: 0,
         oracle_publish_time: 0,
         oracle_conf_bps: 1,
         levels: [Level {
@@ -215,7 +218,9 @@ fn update_quote_executes_only_with_full_pyth_account() {
         max_quote_size: 1_000_000,
         max_inventory_bps: 10_000,
         min_bond: 0,
-        max_anchor_dev_bps: 500,
+        max_anchor_dev_bps: 100,
+        flow_window_slots: 100,
+        max_window_flow_bps: 10_000,
         bump: config_bump,
     };
     let quote_state = QuoteState {
@@ -229,6 +234,9 @@ fn update_quote_executes_only_with_full_pyth_account() {
         bid_extra_bps: 0,
         depth_mult_bps: 0,
         flow_n: 0,
+        window_start_slot: 0,
+        window_base_sold: 0,
+        window_base_bought: 0,
         oracle_publish_time: 0,
         oracle_conf_bps: 0,
         levels: [Level::default(); 6],

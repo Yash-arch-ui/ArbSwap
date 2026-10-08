@@ -104,6 +104,8 @@ pub mod arbswap {
         config.max_inventory_bps = params.max_inventory_bps;
         config.min_bond = params.min_bond;
         config.max_anchor_dev_bps = params.max_anchor_dev_bps;
+        config.flow_window_slots = params.flow_window_slots;
+        config.max_window_flow_bps = params.max_window_flow_bps;
         config.bump = ctx.bumps.config;
 
         ctx.accounts.quote_state.bump = ctx.bumps.quote_state;
@@ -111,6 +113,9 @@ pub mod arbswap {
         ctx.accounts.quote_state.update_slot = 0;
         ctx.accounts.quote_state.expiry_slot = 0;
         ctx.accounts.quote_state.flow_n = 0;
+        ctx.accounts.quote_state.window_start_slot = 0;
+        ctx.accounts.quote_state.window_base_sold = 0;
+        ctx.accounts.quote_state.window_base_bought = 0;
         ctx.accounts.quote_state.levels = [Level::default(); LEVELS];
         emit!(VaultInitialized {
             slot: Clock::get()?.slot,
@@ -543,6 +548,14 @@ pub mod arbswap {
         // == the Pyth payload above. Without this, a keeper could (over steps, or
         // on the first update where the previous anchor is 0) quote far from the
         // oracle. `max_anchor_dev_bps` is the max |anchor - oracle|/oracle.
+        //
+        // Item 1b worst-case loss bound. A keeper that posts an anchor `d`
+        // (fraction) away from the oracle exposes the ladder depth, capped at
+        // `u = utilization_max` of reserves, to a pick-off worth ~`d`:
+        //     loss_per_update <= u * d * V          (V = vault value)
+        // With u = 0.5 and the recommended default d = 100 bps:
+        //     loss_per_update <= 0.5 * 0.01 * V = 0.005 V   (0.5% of V per update)
+        // and the per-window loss is additionally bounded by the flow cap (1a).
         let oracle_price = update.oracle_price; // Q64 price, == Pyth, > 0 (checked)
         let anchor_dev = if anchor_price >= oracle_price {
             anchor_price - oracle_price
@@ -683,6 +696,49 @@ pub mod arbswap {
         require!(result.remaining == 0, ErrorCode::CapacityExceeded);
         let out = result.out as u64;
         require!(out >= min_out, ErrorCode::SlippageExceeded);
+        // Item 1a: bound a compromised keeper with a per-window cumulative
+        // one-sided flow cap. The window rolls over on the slot clock, NOT on
+        // update_quote, so a keeper cannot reset the cap by re-quoting.
+        let window = ctx.accounts.config.flow_window_slots;
+        if window > 0
+            && clock.slot
+                >= ctx
+                    .accounts
+                    .quote_state
+                    .window_start_slot
+                    .saturating_add(window)
+        {
+            ctx.accounts.quote_state.window_start_slot = clock.slot;
+            ctx.accounts.quote_state.window_base_sold = 0;
+            ctx.accounts.quote_state.window_base_bought = 0;
+        }
+        let flow_cap = arb_math::mul_div_floor(
+            ctx.accounts.base_reserve.amount as u128,
+            ctx.accounts.config.max_window_flow_bps as u128,
+            BPS_DENOM as u128,
+        )
+        .unwrap_or(0) as u64;
+        let (base_sold, base_bought) = match side {
+            SwapSide::BuyBase => (out, 0u64),
+            SwapSide::SellBase => (0u64, net),
+        };
+        ctx.accounts.quote_state.window_base_sold = ctx
+            .accounts
+            .quote_state
+            .window_base_sold
+            .checked_add(base_sold)
+            .ok_or(ErrorCode::MathOverflow)?;
+        ctx.accounts.quote_state.window_base_bought = ctx
+            .accounts
+            .quote_state
+            .window_base_bought
+            .checked_add(base_bought)
+            .ok_or(ErrorCode::MathOverflow)?;
+        require!(
+            ctx.accounts.quote_state.window_base_sold <= flow_cap
+                && ctx.accounts.quote_state.window_base_bought <= flow_cap,
+            ErrorCode::FlowCapExceeded
+        );
         let insurance =
             (fee as u128).saturating_mul(ctx.accounts.config.insurance_bps as u128) / 10_000;
         let keeper = (fee as u128).saturating_mul(ctx.accounts.config.keeper_bps as u128) / 10_000;
@@ -881,6 +937,8 @@ pub mod arbswap {
         config.max_inventory_bps = update.max_inventory_bps;
         config.min_bond = update.min_bond;
         config.max_anchor_dev_bps = update.max_anchor_dev_bps;
+        config.flow_window_slots = update.flow_window_slots;
+        config.max_window_flow_bps = update.max_window_flow_bps;
         if let Some(new_keeper) = update.keeper {
             config.keeper = new_keeper;
         }
@@ -1023,6 +1081,11 @@ pub mod arbswap {
             ctx.accounts.admin.key() == ctx.accounts.vault.admin,
             ErrorCode::Unauthorized
         );
+        // Item 1c: the insurance bucket is NOT claimable to the treasury. It is
+        // the loss buffer; only protocol fees may be withdrawn. (A separate
+        // governance rule for using the buffer to compensate LPs is design-only;
+        // see docs/AUDIT_FULL.md.)
+        require!(kind == FeeKind::Protocol, ErrorCode::InsuranceNotClaimable);
         let now = Clock::get()?.slot;
         let pending = &mut ctx.accounts.pending_claim;
         pending.admin = ctx.accounts.admin.key();
@@ -1132,6 +1195,10 @@ pub struct ParamsUpdate {
     pub min_bond: u64,
     /// Max |anchor - oracle| / oracle in bps (Item 2).
     pub max_anchor_dev_bps: u32,
+    /// Item 1a: cumulative one-sided flow window, in slots.
+    pub flow_window_slots: u64,
+    /// Item 1a: max one-sided base flow per window, in bps of base reserve.
+    pub max_window_flow_bps: u32,
     /// Item 5: optional keeper rotation, applied (timelocked) when set.
     pub keeper: Option<Pubkey>,
 }
@@ -1161,6 +1228,8 @@ pub struct InitParams {
     pub max_inventory_bps: u32,
     pub min_bond: u64,
     pub max_anchor_dev_bps: u32,
+    pub flow_window_slots: u64,
+    pub max_window_flow_bps: u32,
     pub offsets_bps: [u32; LEVELS],
     pub weights_bps: [u32; LEVELS],
 }
@@ -1245,6 +1314,9 @@ pub struct Config {
     pub max_inventory_bps: u32,
     pub min_bond: u64,
     pub max_anchor_dev_bps: u32,
+    /// Item 1a: flow window length (slots) and one-sided cap (bps of base reserve).
+    pub flow_window_slots: u64,
+    pub max_window_flow_bps: u32,
     pub bump: u8,
 }
 /// Pending timelocked parameter change (F-17), seeded `[b"pending", vault]`.
@@ -1293,6 +1365,10 @@ pub struct QuoteState {
     /// Recorded for future inventory pricing; the ladder does not read it yet
     /// (the reservation skew already moves `p_res_sqrt`).
     pub flow_n: i128,
+    /// Item 1a: cumulative one-sided base flow within the current window.
+    pub window_start_slot: u64,
+    pub window_base_sold: u64,
+    pub window_base_bought: u64,
     pub oracle_publish_time: i64,
     pub oracle_conf_bps: u32,
     pub levels: [Level; LEVELS],
@@ -1330,9 +1406,9 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*7 + 4*5 + 8 + 4 + 1)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1)]
     pub config: Box<Account<'info, Config>>,
-    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*3 + 16*3 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
+    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*3 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
     #[account(address = params.base_mint)]
     pub base_mint: Box<Account<'info, Mint>>,
@@ -1618,7 +1694,7 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+85+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=admin, space=8+32+8+97+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }
@@ -1845,6 +1921,10 @@ pub enum ErrorCode {
     AnchorStepTooLarge,
     #[msg("Anchor too far from the verified oracle price")]
     AnchorTooFarFromOracle,
+    #[msg("Cumulative one-sided flow cap exceeded for this window")]
+    FlowCapExceeded,
+    #[msg("The insurance buffer cannot be claimed to the treasury")]
+    InsuranceNotClaimable,
     #[msg("Timelock has not elapsed")]
     TimelockNotElapsed,
     #[msg("Insufficient keeper bond")]

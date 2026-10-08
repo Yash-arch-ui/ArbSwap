@@ -122,6 +122,10 @@ impl Fixture {
     }
 
     fn with_min_bond(keys: &Keys, min_bond: u64) -> Self {
+        Self::with_config(keys, min_bond, 100, 10_000)
+    }
+
+    fn with_config(keys: &Keys, min_bond: u64, flow_window_slots: u64, max_window_flow_bps: u32) -> Self {
         // LiteSVM defaults the whole transaction to 200k CU, which is not
         // enough to *measure* a swap. Raise the budget so the meter reports
         // true consumption; on-chain the sender sets the same value with a
@@ -227,7 +231,9 @@ impl Fixture {
             max_quote_size: MAX_QUOTE_SIZE,
             max_inventory_bps: 2_000,
             min_bond,
-            max_anchor_dev_bps: 500,
+            max_anchor_dev_bps: 100,
+            flow_window_slots,
+            max_window_flow_bps,
             offsets_bps: OFFSETS,
             weights_bps: WEIGHTS,
         };
@@ -1763,4 +1769,80 @@ fn measure_instruction_compute_units() {
     );
     let m = send(&mut fixture.svm, &[&keys.lp], claim).expect("claim_withdraw");
     println!("cu_claim_withdraw={}", m.compute_units_consumed);
+}
+
+/// Item 1a (negative): the per-window cumulative one-sided flow cap rejects a
+/// keeper-driven run of same-side swaps once the window cap is exceeded, and the
+/// cap is NOT reset by refreshing the quote (only by the slot window rolling).
+#[test]
+fn window_flow_cap_stops_one_sided_flow() {
+    let keys = Keys::new();
+    // 1 bp of the base reserve, so the cap is small in this fixture.
+    let mut fixture = Fixture::with_config(&keys, 0, 100, 1);
+    // Small reserve: cap = 10_000 * 1 / 10_000 = 1 base atom.
+    fixture
+        .deposit(&keys.lp, 10_000, 1_500_000, 1)
+        .expect("deposit");
+
+    let mut tripped = false;
+    for i in 0..40u64 {
+        fixture.warp_to_slot(SLOT + i);
+        let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+        fixture
+            .update_quote(&keys.keeper, honest, quote_update(SLOT + i))
+            .expect("quote");
+        match fixture.swap(&keys.trader, AMOUNT_IN, 0, i + 1) {
+            Ok(_) => {}
+            Err(fail) => {
+                assert!(
+                    fail.meta
+                        .logs
+                        .iter()
+                        .any(|line| line.contains("FlowCapExceeded")),
+                    "unexpected error: {:?}",
+                    fail.meta.logs
+                );
+                tripped = true;
+                break;
+            }
+        }
+    }
+    assert!(tripped, "the per-window flow cap never tripped");
+}
+
+/// Item 1c: the insurance buffer cannot be claimed to the treasury; only the
+/// protocol bucket is claimable.
+#[test]
+fn insurance_bucket_cannot_be_claimed_to_treasury() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let claim_pda = pda(&[b"claim", fixture.vault.as_ref()], &fixture.program_id).0;
+    let propose = |kind: arbswap::FeeKind| {
+        ix(
+            fixture.program_id,
+            arbswap::instruction::ProposeFeeClaim { kind },
+            arbswap::accounts::ProposeFeeClaim {
+                admin: to_address(keys.admin.pubkey()),
+                vault: fixture.vault,
+                pending_claim: claim_pda,
+                system_program: anchor_lang::system_program::ID,
+            },
+        )
+    };
+    // Borrow fix: build the two instructions before sending.
+    let ins = ix(
+        fixture.program_id,
+        arbswap::instruction::ProposeFeeClaim {
+            kind: arbswap::FeeKind::Insurance,
+        },
+        arbswap::accounts::ProposeFeeClaim {
+            admin: to_address(keys.admin.pubkey()),
+            vault: fixture.vault,
+            pending_claim: claim_pda,
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    assert_anchor_error(send(&mut fixture.svm, &[&keys.admin], ins), "InsuranceNotClaimable");
+    let proto = propose(arbswap::FeeKind::Protocol);
+    send(&mut fixture.svm, &[&keys.admin], proto).expect("protocol claim proposes");
 }
