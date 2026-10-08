@@ -70,14 +70,15 @@ def _exec_price(venue: Venue, side: str, amount_in: float, ref: float, prop_ref:
 
 def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s=1.0,
                  insensitive_share=0.2, slippage_bps=1.0, seed=20261006,
-                 informed_max_notional=5_000.0, informed_enabled=True):
+                 informed_max_notional=5_000.0, informed_enabled=True, include_prop=True):
     params = params or QuoteParams()
     venues = [
         _build("vault", params=params, b1_fee=b1_fee, prop_hs=prop_hs, latency_steps=1, start_price=prices[0].price),
         _build("pool", params=params, b1_fee=b1_fee, prop_hs=prop_hs, latency_steps=1, start_price=prices[0].price),
-        _build("prop", params=params, b1_fee=b1_fee, prop_hs=prop_hs,
-               latency_steps=max(1, round(prop_latency_s / 0.4)), start_price=prices[0].price),
     ]
+    if include_prop:
+        venues.append(_build("prop", params=params, b1_fee=b1_fee, prop_hs=prop_hs,
+                             latency_steps=max(1, round(prop_latency_s / 0.4)), start_price=prices[0].price))
     rng = random.Random(seed)
     noise = NoiseFlow(seed=seed, arrival_rate=NOISE_ARRIVAL_RATE, mean_size=NOISE_MEAN_SIZE)
     informed = InformedFlow()
@@ -92,7 +93,7 @@ def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s
     for point in prices:
         step, ref = point.second, point.price
         # PropAMM reprices on a delayed oracle.
-        prop_ref = ref_by_step.get(max(0, step - venues[2].latency_steps), prop_ref)
+        prop_ref = ref_by_step.get(max(0, step - (venues[2].latency_steps if include_prop else 1)), prop_ref)
         venues[0].venue.refresh(price=ref, confidence=0.0, age=0.0, previous_price=prev)
         prev = ref
 
@@ -142,13 +143,21 @@ def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s
                               exec_price=ep, mid_at_fill=m)
                   for (s, sd, ep, m, nt, ba) in v.trades]
         lookup = ref_by_step.get
+        mo = notional_weighted_markout(trades, 2, lookup)
+        halves = sorted(abs(t[2] - t[3]) / t[3] * 10_000.0 for t in v.trades)
+        def _pct(p):
+            return halves[min(len(halves) - 1, int(p * len(halves)))] if halves else 0.0
         rows.append({
             "venue": v.name,
             "orders": v.orders,
+            "notional_quote": v.notional,
             "volume_share": v.notional / total_notional,
             "fill_share": v.fills / total_fills,
-            "markout_2s_bps": notional_weighted_markout(trades, 2, lookup),
+            "markout_2s_bps": mo,
+            "hedged_pnl_quote": mo * v.notional / 10_000.0,  # venue 2s PnL
             "quiet_half_spread_bps": retail_half_spread_bps(trades, lookup, step_seconds=1.0),
+            "half_spread_p50_bps": _pct(0.50),
+            "half_spread_p95_bps": _pct(0.95),
             "gap_bps": notional_weighted_gap(trades),
             "rejection_rate": (v.rejects / v.orders) if v.orders else 0.0,
         })
