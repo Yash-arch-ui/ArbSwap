@@ -67,3 +67,34 @@ rate, and per-venue **volume share** and **fill share**.
 
 All raw data stays gitignored; per-file SHA-256 hashes are recorded in
 `docs/DATA_MANIFEST.md`.
+---
+
+## Amendment 1 (dated 2026-10-08) — contamination cleanup, routed-world honesty, stress windows
+
+Registered before running any experiment in this amendment. Nothing here changes
+the original targets/windows; it fixes an initialization bug and extends the
+analysis.
+
+1. **Contamination fix.** A guard asserts every venue's initial price equals the
+first oracle price; all prior artifacts that used the price-150 init are marked
+superseded. E1 *ratios* are dropped from headline tables in favour of **absolute
+hedged PnL** with bootstrap CIs (10,000 resamples of the per-trade PnL series).
+2. **Pre/post.** The separating fix is commit `b083ba5` (venue init at the path
+   start). The "pre" side of the pre/post table predates it and therefore
+   *contains the init bug*; this is stated.
+3. **Routed world.** For every venue report quoted half-spread distribution,
+   hedged PnL, 2s markout, volume share and fill share. The competing propAMM's
+   spread is set at its **break-even** and swept 0.3/0.5/1.0/2.0 bps. A
+   propAMM-free world (ArbSwap vs B1 fee tiers 1/5/30 bps) is also reported.
+4. **Frontier.** ArbSwap's `spread_floor` and coefficients are calibrated on W1
+   only, with the objective `volume_share - λ·max(0, −hedged_pnl)` (constraint
+   hedged PnL ≥ 0). Held-out windows are never used.
+5. **Stress windows (F-19).** Genuinely high-volatility real periods are added by
+   a fixed rule: the two highest realized-volatility weeks in the archive
+   2026-05-01…2026-10-04, required to measure **≥ 2×** the existing windows
+   (σ ≥ ~2e-4). Acceptance (d) stays **PARTIAL** until they run.
+6. **Envelope.** Rebuilt in the routed world with ≥ 5 values per axis (latency,
+   vault fee, volatility), reporting hedged PnL **and** volume share together;
+   losing and zero-share cells marked.
+7. **Bootstrap CIs** (10,000 resamples) accompany rejection, would-be gap and
+   hedged-PnL tables.
