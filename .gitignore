@@ -15,25 +15,7 @@ simulation/data/raw/
 *.json.gz
 # Program keypair is generated locally by `anchor keys` / keygen
 target/deploy/*.json
-# Keep only README.md and MATH.md tracked; all other markdown is ignored
-*.md
-!/README.md
-!/MATH.md
-!/docs/SECURITY.md
-!/docs/P1_PREREGISTRATION.md
-!/docs/DATA_MANIFEST.md
-!/docs/P1_RESULTS.md
-!/docs/P1_SYNTHETIC.md
-!/docs/FORMULA.md
-!/docs/LEFTOVER_TASKS.md
-!/docs/SECURITY_CHECKLIST.md
-!/docs/ASSUMPTIONS.md
-!/docs/THREAT_MODEL.md
-!/docs/ARCHITECTURE.md
-!/TARGETIDEATASKS.md
-!/TARGETIDEATASKS_P2.md
-!/MasterPlan.md
-!/BuilderPlan.md
-
+# Markdown (spec, plan, audit, docs) is tracked. Only generated analytics
+# output is ignored.
 # Generated analytics output (dashboard, event dumps)
 simulation/analytics/out/
