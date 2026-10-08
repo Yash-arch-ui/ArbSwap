@@ -46,6 +46,7 @@ def test_jsonl_round_trip(tmp_path):
 def _simulated(regime: str = "crash", length: int = 900, seed: int = 5):
     from simulation.sim.engine import simulate
     from simulation.sim.flow import InformedFlow, NoiseFlow
+    from simulation.sim.flow_config import NOISE_ARRIVAL_RATE, NOISE_MEAN_SIZE, pool_kwargs
     from simulation.sim.oracle import OracleModel
     from simulation.sim.price_source import synthetic_series
     from simulation.sim.venues import VaultVenue
@@ -146,6 +147,7 @@ def test_reproduces_e1_from_indexed_events():
     from simulation.sim.experiments import e1_lvr_reduction as simulator_e1
     from simulation.sim.experiments import run_venues
     from simulation.sim.flow import InformedFlow, NoiseFlow
+    from simulation.sim.flow_config import NOISE_ARRIVAL_RATE, NOISE_MEAN_SIZE, pool_kwargs
     from simulation.sim.oracle import OracleModel
     from simulation.sim.price_source import synthetic_series
     from simulation.sim.venues import PassivePool, VaultVenue
@@ -160,14 +162,14 @@ def test_reproduces_e1_from_indexed_events():
             venue=venue,
             prices=points,
             oracle=OracleModel(),
-            noise=NoiseFlow(seed=5),
+            noise=NoiseFlow(seed=5, arrival_rate=NOISE_ARRIVAL_RATE, mean_size=NOISE_MEAN_SIZE),
             informed=InformedFlow(),
             step_seconds=1.0,
             seed=5,
         )
         return analytics_for(result, name, lookup.get)
 
-    arb = analytics_for_venue(VaultVenue(), "ArbSwap")
-    b1 = analytics_for_venue(PassivePool(fee=0.0001), "B1_passive")
+    arb = analytics_for_venue(VaultVenue(**pool_kwargs(points[0].price)), "ArbSwap")
+    b1 = analytics_for_venue(PassivePool(fee=0.0001, **pool_kwargs(points[0].price)), "B1_passive")
     assert metrics.e1_lvr_reduction(arb.hedged_pnl, b1.hedged_pnl) == pytest.approx(
         simulator_e1(reports), rel=1e-6)

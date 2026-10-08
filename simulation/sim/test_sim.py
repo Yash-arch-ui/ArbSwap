@@ -244,6 +244,7 @@ def test_run_venues_gives_every_venue_its_own_fresh_oracle():
     gives each a different stretch of the noise stream and breaks the paired
     comparison. ArbSwap must match a standalone run with its own oracle."""
     from simulation.sim.experiments import RunConfig, run_venues
+    from simulation.sim.flow_config import NOISE_ARRIVAL_RATE, NOISE_MEAN_SIZE, pool_kwargs
 
     prices = synthetic_series(regime="crash", length=400, seed=7)
     config = RunConfig()
@@ -251,10 +252,10 @@ def test_run_venues_gives_every_venue_its_own_fresh_oracle():
 
     direct = simulate(
         venue_name="ArbSwap",
-        venue=VaultVenue(params=QuoteParams(), fee_bps=1.0),
+        venue=VaultVenue(params=QuoteParams(), fee_bps=1.0, **pool_kwargs(prices[0].price)),
         prices=prices,
         oracle=OracleModel(),
-        noise=NoiseFlow(seed=config.seed),
+        noise=NoiseFlow(seed=config.seed, arrival_rate=NOISE_ARRIVAL_RATE, mean_size=NOISE_MEAN_SIZE),
         informed=InformedFlow(),
         **config.simulate_kwargs(),
     )
