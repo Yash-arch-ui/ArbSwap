@@ -15,8 +15,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --all -- --check
-      - name: Clippy (workspace, excluding SBF-only program)
-        run: cargo clippy -p arb-math -p arbswap-keeper -- -D warnings
+      - name: Clippy (workspace incl. program)
+        run: cargo clippy -p arb-math -p arbswap-keeper -p arb-aggregator -p arbswap -- -D warnings
       - name: Tests
         run: cargo test --workspace
 

@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)] // Anchor macros emit `cfg(target_os="solana")`
+
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 use arb_math::{walk_ladder, Level as MathLevel, Side as MathSide};
@@ -505,11 +507,7 @@ pub mod arbswap {
         );
         if ctx.accounts.quote_state.anchor_sqrt_price > 0 {
             let old = ctx.accounts.quote_state.anchor_sqrt_price;
-            let diff = if update.anchor_sqrt_price >= old {
-                update.anchor_sqrt_price - old
-            } else {
-                old - update.anchor_sqrt_price
-            };
+            let diff = update.anchor_sqrt_price.abs_diff(old);
             require!(
                 diff.saturating_mul(10_000)
                     <= old.saturating_mul(ctx.accounts.config.max_anchor_step_bps as u128),
@@ -557,11 +555,7 @@ pub mod arbswap {
         //     loss_per_update <= 0.5 * 0.01 * V = 0.005 V   (0.5% of V per update)
         // and the per-window loss is additionally bounded by the flow cap (1a).
         let oracle_price = update.oracle_price; // Q64 price, == Pyth, > 0 (checked)
-        let anchor_dev = if anchor_price >= oracle_price {
-            anchor_price - oracle_price
-        } else {
-            oracle_price - anchor_price
-        };
+        let anchor_dev = anchor_price.abs_diff(oracle_price);
         require!(
             anchor_dev.saturating_mul(BPS_DENOM as u128)
                 <= oracle_price.saturating_mul(ctx.accounts.config.max_anchor_dev_bps as u128),
@@ -1044,7 +1038,7 @@ pub mod arbswap {
                         to: ctx.accounts.keeper_base.to_account_info(),
                         authority: ctx.accounts.vault.to_account_info(),
                     },
-                    &[&seeds],
+                    &[seeds],
                 ),
                 base_reward,
             )?;
@@ -1058,7 +1052,7 @@ pub mod arbswap {
                         to: ctx.accounts.keeper_quote.to_account_info(),
                         authority: ctx.accounts.vault.to_account_info(),
                     },
-                    &[&seeds],
+                    &[seeds],
                 ),
                 quote_reward,
             )?;
@@ -1139,7 +1133,7 @@ pub mod arbswap {
                         to: ctx.accounts.treasury_base.to_account_info(),
                         authority: ctx.accounts.vault.to_account_info(),
                     },
-                    &[&seeds],
+                    &[seeds],
                 ),
                 base_amt,
             )?;
@@ -1153,7 +1147,7 @@ pub mod arbswap {
                         to: ctx.accounts.treasury_quote.to_account_info(),
                         authority: ctx.accounts.vault.to_account_info(),
                     },
-                    &[&seeds],
+                    &[seeds],
                 ),
                 quote_amt,
             )?;
@@ -1749,7 +1743,7 @@ fn ceil_div_u128(numerator: u128, denominator: u128) -> u128 {
     if denominator == 0 {
         return 0;
     }
-    numerator / denominator + u128::from(numerator % denominator != 0)
+    numerator / denominator + u128::from(!numerator.is_multiple_of(denominator))
 }
 
 fn integer_sqrt(n: u128) -> u128 {

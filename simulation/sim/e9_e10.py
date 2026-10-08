@@ -98,3 +98,27 @@ if __name__ == "__main__":
         print(f"  {key} = {value}")
     print("\nE8 is blocked offline (needs real Solana-pool quote data); "
           "see docs/AGGREGATOR.md and docs/P5_REPORT.md.")
+
+def envelope(*, length: int = 600, seed: int = 20261006) -> list[dict]:
+    """Item 3e: where ArbSwap wins, ties, or loses vs B1.
+
+    Dimensions: oracle latency, vault fee, and volatility regime. A verdict of
+    "win" is E1 > +2%, "tie" is |E1| <= 2%, "lose" is E1 < -2%.
+    """
+    rows: list[dict] = []
+    for regime in REGIMES:
+        prices = synthetic_series(regime=regime, length=length, seed=seed)
+        for vault_fee in (1, 3, 10):
+            for latency in (0.2, 1.0, 4.0):
+                reports = run_venues(
+                    prices, params=QuoteParams(), seed=seed,
+                    vault_fee_bps=vault_fee,
+                    oracle=OracleModel(latency_seconds=latency, seed=seed),
+                )
+                e1 = e1_lvr_reduction(reports)
+                verdict = "win" if e1 > 0.02 else ("lose" if e1 < -0.02 else "tie")
+                rows.append({
+                    "regime": regime, "vault_fee_bps": vault_fee,
+                    "latency_s": latency, "e1": round(e1, 4), "verdict": verdict,
+                })
+    return rows

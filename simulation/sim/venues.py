@@ -163,6 +163,13 @@ class VaultVenue:
     honesty_rejects: int = 0
     capacity_rejects: int = 0
     reserve_rejects: int = 0
+    # Item 2a: trader slippage tolerance on min_out, in bps. 0 = the strict
+    # honesty rule (reject any fill worse than the displayed quote).
+    min_out_tol_bps: float = 0.0
+    # Item 2b: the would-be quote-vs-fill gap (bps) of every *attempted* fill,
+    # recorded BEFORE the honesty decision, for the survivorship analysis.
+    attempt_gaps: list = field(default_factory=list)
+    _last_attempt_gap: tuple | None = None
 
     @property
     def available_base(self) -> float:
@@ -249,16 +256,22 @@ class VaultVenue:
             raise ValueError("insufficient quote reserve")
 
         quoted_out = _output_for(self.displayed_quote, side, amount_in, self.fee_bps)
-        if (
-            self.honest_enabled
-            and quoted_out is not None
-            and output < quoted_out * (1 - 1e-12)
-        ):
-            raise HonestyRejected("fill would be worse than the last displayed quote")
-
+        # Item 2b: gap is computed BEFORE the honesty decision so the rejected
+        # fills can be recorded (the post-rejection gap is non-positive by
+        # construction; this is the would-be gap).
         gap_bps = 0.0
         if quoted_out is not None and quoted_out > 0:
             gap_bps = 10_000.0 * (quoted_out - output) / quoted_out
+        notional = amount_in if side == "buy" else output
+        self._last_attempt_gap = (gap_bps, notional)
+        # Item 2a: honesty rejects a fill worse than the displayed quote by more
+        # than the trader's slippage tolerance.
+        if (
+            self.honest_enabled
+            and quoted_out is not None
+            and output < quoted_out * (1.0 - self.min_out_tol_bps / 10_000.0)
+        ):
+            raise HonestyRejected("fill would be worse than the last displayed quote")
 
         if side == "buy":
             return output, amount_in / output, gap_bps, quoted_out
@@ -317,8 +330,12 @@ class VaultVenue:
     def fill(self, side: str, amount_in: float) -> Fill:
         try:
             output, exec_price, gap_bps, quoted_out = self._preview_fill(side, amount_in)
+            if self._last_attempt_gap is not None:
+                self.attempt_gaps.append(self._last_attempt_gap)
         except HonestyRejected:
             self.honesty_rejects += 1
+            if self._last_attempt_gap is not None:
+                self.attempt_gaps.append(self._last_attempt_gap)
             raise
         except ValueError as exc:
             # Distinguish "the ladder cannot absorb this" from "the vault would

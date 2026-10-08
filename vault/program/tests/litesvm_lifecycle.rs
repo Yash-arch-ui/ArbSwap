@@ -125,7 +125,12 @@ impl Fixture {
         Self::with_config(keys, min_bond, 100, 10_000)
     }
 
-    fn with_config(keys: &Keys, min_bond: u64, flow_window_slots: u64, max_window_flow_bps: u32) -> Self {
+    fn with_config(
+        keys: &Keys,
+        min_bond: u64,
+        flow_window_slots: u64,
+        max_window_flow_bps: u32,
+    ) -> Self {
         // LiteSVM defaults the whole transaction to 200k CU, which is not
         // enough to *measure* a swap. Raise the budget so the meter reports
         // true consumption; on-chain the sender sets the same value with a
@@ -1842,7 +1847,10 @@ fn insurance_bucket_cannot_be_claimed_to_treasury() {
             system_program: anchor_lang::system_program::ID,
         },
     );
-    assert_anchor_error(send(&mut fixture.svm, &[&keys.admin], ins), "InsuranceNotClaimable");
+    assert_anchor_error(
+        send(&mut fixture.svm, &[&keys.admin], ins),
+        "InsuranceNotClaimable",
+    );
     let proto = propose(arbswap::FeeKind::Protocol);
     send(&mut fixture.svm, &[&keys.admin], proto).expect("protocol claim proposes");
 }

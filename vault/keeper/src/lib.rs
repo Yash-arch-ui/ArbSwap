@@ -583,6 +583,8 @@ pub fn build_update_quote_transaction(
         update_quote,
     ];
     let mut transaction = Transaction::new_with_payer(&instructions, Some(&plan.keeper));
+    // `Hash` is not `Copy` in every feature configuration, so clone it.
+    #[allow(clippy::clone_on_copy)]
     transaction.sign(&[keeper], plan.recent_blockhash.clone());
     transaction
 }
