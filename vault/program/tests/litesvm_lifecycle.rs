@@ -109,6 +109,7 @@ struct Fixture {
     lp_base: Address,
     lp_quote: Address,
     lp_shares: Address,
+    trader_shares: Address,
     trader_base: Address,
     trader_quote: Address,
     keeper_base: Address,
@@ -271,6 +272,7 @@ impl Fixture {
             lp_base,
             lp_quote,
             lp_shares: Address::new_unique(),
+            trader_shares: Address::new_unique(),
             trader_base,
             trader_quote,
             keeper_base,
@@ -292,7 +294,90 @@ impl Fixture {
             keys.lp.pubkey(),
             0,
         );
+        set_token_account(
+            &mut fixture.svm,
+            fixture.trader_shares,
+            fixture.share_mint,
+            keys.trader.pubkey(),
+            0,
+        );
         fixture
+    }
+
+    /// Deposit as an arbitrary user (deriving that user's deposit ticket), so a
+    /// second LP can be used as the victim in the inflation test.
+    #[allow(clippy::too_many_arguments)]
+    fn deposit_as(
+        &mut self,
+        user: &Keypair,
+        user_base: Address,
+        user_quote: Address,
+        user_shares: Address,
+        base_amount: u64,
+        quote_amount: u64,
+        min_shares: u64,
+    ) -> litesvm::types::TransactionResult {
+        let user_address = to_address(user.pubkey());
+        let (deposit_ticket, _) = pda(
+            &[b"dep", self.vault.as_ref(), user_address.as_ref()],
+            &self.program_id,
+        );
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::Deposit {
+                base_amount,
+                quote_amount,
+                min_shares,
+            },
+            arbswap::accounts::Deposit {
+                user: user_address,
+                vault: self.vault,
+                config: self.config,
+                base_reserve: self.base_reserve,
+                quote_reserve: self.quote_reserve,
+                share_mint: self.share_mint,
+                share_lock: self.share_lock,
+                user_base,
+                user_quote,
+                user_shares,
+                deposit_ticket,
+                token_program: token_program_id(),
+                system_program: anchor_lang::system_program::ID,
+            },
+        );
+        send(&mut self.svm, &[user], instruction)
+    }
+
+    /// Swap with an explicit side (the default helper is buy-only).
+    fn swap_side(
+        &mut self,
+        trader: &Keypair,
+        side: arbswap::SwapSide,
+        amount_in: u64,
+        min_out: u64,
+        min_version: u64,
+    ) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::Swap {
+                side,
+                amount_in,
+                min_out,
+                min_version,
+            },
+            arbswap::accounts::Swap {
+                trader: to_address(trader.pubkey()),
+                vault: self.vault,
+                config: self.config,
+                quote_state: self.quote_state,
+                base_reserve: self.base_reserve,
+                quote_reserve: self.quote_reserve,
+                trader_base: self.trader_base,
+                trader_quote: self.trader_quote,
+                token_program: token_program_id(),
+            },
+        );
+        send(&mut self.svm, &[trader], instruction)
     }
 
     fn program_config(&self) -> Address {
@@ -3026,4 +3111,191 @@ fn malicious_keeper_at_max_deviation_every_slot() {
     println!(
         "t6_landed={landed} t6_loss={lost} per_update_bound={per_update_bound} per_window_bound={per_window_bound}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// T7: share accounting, round-trip, expiry, and account-space invariants.
+// ---------------------------------------------------------------------------
+
+/// A first depositor cannot steal from a later depositor by donating reserves:
+/// the victim's pro-rata claim is fair to within rounding.
+#[test]
+fn first_depositor_inflation_loses_at_most_rounding() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+
+    // Attacker makes the minimum first deposit.
+    fixture
+        .deposit(&keys.lp, 1_000_000, 1_000_000, 1)
+        .expect("attacker deposit");
+    let attacker_shares = token_amount(&fixture.svm, fixture.lp_shares);
+    assert_eq!(attacker_shares, 999_999, "MIN_LIQUIDITY is burned");
+
+    // Attacker donates 1e6 of each token directly into the reserves (no shares).
+    let vault_authority = pubkey(fixture.vault);
+    let base_new = token_amount(&fixture.svm, fixture.base_reserve) + 1_000_000;
+    let quote_new = token_amount(&fixture.svm, fixture.quote_reserve) + 1_000_000;
+    set_token_account(
+        &mut fixture.svm,
+        fixture.base_reserve,
+        fixture.base_mint,
+        vault_authority,
+        base_new,
+    );
+    set_token_account(
+        &mut fixture.svm,
+        fixture.quote_reserve,
+        fixture.quote_mint,
+        vault_authority,
+        quote_new,
+    );
+
+    // Victim deposits the same size; shares are priced on the inflated reserves.
+    fixture
+        .deposit_as(
+            &keys.trader,
+            fixture.trader_base,
+            fixture.trader_quote,
+            fixture.trader_shares,
+            1_000_000,
+            1_000_000,
+            0,
+        )
+        .expect("victim deposit");
+    let victim_shares = token_amount(&fixture.svm, fixture.trader_shares);
+    let total = fixture.vault_state().total_shares;
+    assert_eq!(victim_shares, 500_000);
+    assert_eq!(total, 1_500_000);
+
+    // Victim's pro-rata claim is at least the deposit minus one atom of rounding.
+    let base_avail = token_amount(&fixture.svm, fixture.base_reserve);
+    let quote_avail = token_amount(&fixture.svm, fixture.quote_reserve);
+    let claim_base = (victim_shares as u128) * (base_avail as u128) / (total as u128);
+    let claim_quote = (victim_shares as u128) * (quote_avail as u128) / (total as u128);
+    assert!(claim_base + 1 >= 1_000_000, "victim lost base value");
+    assert!(claim_quote + 1 >= 1_000_000, "victim lost quote value");
+}
+
+/// Invariant 2 (Build Plan §10): selling then buying the same size can never
+/// leave the trader with more base than they started with.
+#[test]
+fn sell_then_buy_same_size_never_creates_value() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+
+    let base_before = token_amount(&fixture.svm, fixture.trader_base);
+    let quote_before = token_amount(&fixture.svm, fixture.trader_quote);
+    fixture
+        .swap_side(&keys.trader, arbswap::SwapSide::SellBase, 100, 0, 1)
+        .expect("sell base");
+    let proceeds = token_amount(&fixture.svm, fixture.trader_quote) - quote_before;
+    assert!(proceeds > 0);
+    fixture
+        .swap_side(&keys.trader, arbswap::SwapSide::BuyBase, proceeds, 0, 1)
+        .expect("buy base back");
+    let base_after = token_amount(&fixture.svm, fixture.trader_base);
+    assert!(
+        base_after <= base_before,
+        "round trip created base: {base_after} > {base_before}"
+    );
+}
+
+/// Invariant 4 (Build Plan §10): a quote at or past its expiry always rejects.
+#[test]
+fn expired_quote_always_rejects_swap() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    let expiry = fixture.quote_state_value().expiry_slot;
+    fixture.warp_to_slot(expiry);
+    assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, 0, 1), "QuoteExpired");
+}
+
+/// P2-F11: every account's allocated `space` covers its serialized size.
+#[test]
+fn account_spaces_match_serialized_sizes() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+
+    // Create every account type.
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    fixture.warp_to_slot(SLOT + 2);
+    let shares = token_amount(&fixture.svm, fixture.lp_shares);
+    let request = ix(
+        fixture.program_id,
+        arbswap::instruction::RequestWithdraw { shares },
+        arbswap::accounts::RequestWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            share_lock: fixture.share_lock,
+            deposit_ticket: fixture.deposit_ticket,
+            user_shares: fixture.lp_shares,
+            withdraw_ticket: fixture.withdraw_ticket,
+            token_program: token_program_id(),
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    send(&mut fixture.svm, &[&keys.lp], request).expect("request");
+    fixture
+        .set_params(
+            &keys.admin,
+            arbswap::ParamsUpdate {
+                fee_bps: 5,
+                ..Default::default()
+            },
+        )
+        .expect("set_params");
+    let claim_pda = pda(&[b"claim", fixture.vault.as_ref()], &fixture.program_id).0;
+    let propose = ix(
+        fixture.program_id,
+        arbswap::instruction::ProposeFeeClaim {
+            kind: arbswap::FeeKind::Protocol,
+        },
+        arbswap::accounts::ProposeFeeClaim {
+            admin: to_address(keys.admin.pubkey()),
+            vault: fixture.vault,
+            pending_claim: claim_pda,
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    send(&mut fixture.svm, &[&keys.admin], propose).expect("propose");
+
+    fn check<T: anchor_lang::AccountSerialize + anchor_lang::AccountDeserialize>(
+        svm: &litesvm::LiteSVM,
+        key: Address,
+    ) {
+        let needed = account_data(&read_state::<T>(svm, key)).len();
+        let allocated = svm.get_account(&key).expect("account missing").data.len();
+        assert!(
+            allocated >= needed,
+            "account {key:?}: allocated {allocated} < serialized {needed}"
+        );
+    }
+
+    let program_config = pda(&[b"program"], &fixture.program_id).0;
+    check::<arbswap::ProgramConfig>(&fixture.svm, program_config);
+    check::<Vault>(&fixture.svm, fixture.vault);
+    check::<Config>(&fixture.svm, fixture.config);
+    check::<QuoteState>(&fixture.svm, fixture.quote_state);
+    check::<DepositTicket>(&fixture.svm, fixture.deposit_ticket);
+    check::<arbswap::WithdrawTicket>(&fixture.svm, fixture.withdraw_ticket);
+    check::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    check::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
+    check::<arbswap::PendingClaim>(&fixture.svm, claim_pda);
 }
