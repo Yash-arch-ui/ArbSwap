@@ -47,6 +47,8 @@ class SimResult:
     price_path: list[float] = field(default_factory=list)
     rejects: int = 0
     quote_updates: int = 0
+    # Item 1g: ticks where the quote was expired so no fill was attempted.
+    expired_skips: int = 0
     update_gas_quote: float = 0.0
     update_priority_quote: float = 0.0
     swap_gas_quote: float = 0.0
@@ -146,6 +148,7 @@ def simulate(
     last_volatility_time: float | None = None
     cash_flow = 0.0
     rejects = 0
+    expired_skips = 0
     quote_updates = 0
     decision_times: list[float] = []
     update_gas = 0.0
@@ -215,6 +218,8 @@ def simulate(
                         update_priority += priority
             quote_fresh = (venue.quote_state is not None
                            and now - last_refresh_time < venue.params.expiry_slots * slot_seconds)
+            if not quote_fresh:
+                expired_skips += 1
 
         side, amount = _informed_trade(venue, reference, informed) if quote_fresh else (None, 0.0)
         if side is not None and amount > 0:
@@ -260,6 +265,7 @@ def simulate(
         price_path=price_path,
         rejects=rejects,
         quote_updates=quote_updates,
+        expired_skips=expired_skips,
         decision_times=decision_times,
         update_gas_quote=update_gas,
         update_priority_quote=update_priority,

@@ -158,6 +158,11 @@ class VaultVenue:
     # so the vault cannot quote away the insurance/keeper/protocol liabilities.
     fee_buckets_base: float = 0.0
     fee_buckets_quote: float = 0.0
+    # Item 1g: rejection-reason counters for the actual execution path only
+    # (not for the informed trader's `preview` probes).
+    honesty_rejects: int = 0
+    capacity_rejects: int = 0
+    reserve_rejects: int = 0
 
     @property
     def available_base(self) -> float:
@@ -310,7 +315,19 @@ class VaultVenue:
             self.quote_state = replace(self.quote_state, bids=tuple(updated))
 
     def fill(self, side: str, amount_in: float) -> Fill:
-        output, exec_price, gap_bps, quoted_out = self._preview_fill(side, amount_in)
+        try:
+            output, exec_price, gap_bps, quoted_out = self._preview_fill(side, amount_in)
+        except HonestyRejected:
+            self.honesty_rejects += 1
+            raise
+        except ValueError as exc:
+            # Distinguish "the ladder cannot absorb this" from "the vault would
+            # pay out more than it holds"; both are capacity-side failures.
+            if "insufficient" in str(exc):
+                self.reserve_rejects += 1
+            else:
+                self.capacity_rejects += 1
+            raise
         fee = amount_in * self.fee_bps / 10_000.0
         self._consume(side, amount_in - fee)
         if side == "buy":
