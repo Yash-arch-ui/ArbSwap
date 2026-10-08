@@ -17,7 +17,12 @@ from __future__ import annotations
 
 import pytest
 
-from research.sim.costs import CostModel, LANDING_DELAY_SECONDS, landing_delay
+from research.sim.costs import (
+    CU_UPDATE_QUOTE,
+    CostModel,
+    LANDING_DELAY_SECONDS,
+    landing_delay,
+)
 from research.sim.engine import simulate
 from research.sim.flow import InformedFlow, NoiseFlow
 from research.sim.metrics import hedged_pnl
@@ -169,7 +174,7 @@ def test_cost_model_splits_base_fee_from_priority_fee():
     costs = CostModel(priority_micro_lamports_per_cu=1_000.0)
     gas, priority = costs.update(sol_price=100.0)
     assert gas == pytest.approx(5_000 / 1e9 * 100.0)
-    assert priority == pytest.approx((12_802 * 1_000.0 / 1e6) / 1e9 * 100.0)
+    assert priority == pytest.approx((CU_UPDATE_QUOTE * 1_000.0 / 1e6) / 1e9 * 100.0)
     swap_gas, swap_priority = costs.swap(sol_price=100.0)
     assert swap_gas == gas
     assert swap_priority > priority, "a swap must cost more CU than an update"

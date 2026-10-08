@@ -15,9 +15,14 @@ research/data/raw/
 *.json.gz
 # Program keypair is generated locally by `anchor keys` / keygen
 target/deploy/*.json
-# Spec source documents (local copies, not repo content)
-BuilderPlan.md
-MasterPlan.md
+# Keep only README.md and MATH.md tracked; all other markdown is ignored
+*.md
+!/README.md
+!/MATH.md
+
+# Generated analytics output (dashboard, event dumps)
+analytics/out/
+
 # Frontend build artifacts
 dist/
 app/dist/

@@ -132,8 +132,8 @@ impl Default for KeeperParams {
             spread_min_bps: 1,
             spread_max_bps: 50,
             inventory_coeff_bps: 5,
-            volatility_coeff_bps: 2,
-            confidence_coeff_bps: 1,
+            volatility_coeff_bps: 10_000,
+            confidence_coeff_bps: 10_000,
             confidence_max_bps: 10,
             age_coeff_bps: 1,
             jump_extra_bps: 5,
@@ -272,20 +272,22 @@ pub fn compute_quote(
     let reservation_price = mul_div(tick.price_q64, reservation_factor, BPS)?;
 
     let sigma = state.sigma_q64();
-    // Keep sub-basis-point resolution: `coeff * sigma_fraction * 10^4`. The old
-    // form floored sigma to whole bps first and then divided by 10^4 again, so
-    // the volatility term was always zero for realistic sigma (audit F-09).
-    let vol_term_bps = mul_div(
-        sigma.saturating_mul(params.volatility_coeff_bps as u128),
-        BPS,
-        Q64,
-    )?;
+    // F-09: match `quote_math.compute_half_spread` exactly. The reference works
+    // in price *fractions* with dimensionless coefficients; its term is
+    // `coeff * signal(grasp as a fraction)`. The keeper stores each coefficient
+    // as `reference_coeff * 10_000`, so the bps term is
+    // `coefficient_bps * signal_fraction`. (The earlier form multiplied by 10^4
+    // again, so the volatility term was always zero for realistic sigma.)
+    let vol_term_bps = mul_div(params.volatility_coeff_bps as u128, sigma, Q64)?;
+    let inventory_term_bps =
+        (params.inventory_coeff_bps as u128).saturating_mul(q_bps.unsigned_abs()) / BPS;
     let confidence_term_bps =
         (params.confidence_coeff_bps as u128).saturating_mul(tick.confidence_bps as u128) / BPS;
     let age_term_bps = (params.age_coeff_bps as u128)
         .saturating_mul(age.saturating_sub(params.grace_slots) as u128);
     let raw_spread = (params.spread_floor_bps as u128)
         .saturating_add(vol_term_bps)
+        .saturating_add(inventory_term_bps)
         .saturating_add(confidence_term_bps)
         .saturating_add(age_term_bps)
         .saturating_add(if state.jump {
@@ -424,6 +426,89 @@ pub trait QuoteSender {
     fn send(&mut self, quote: QuoteUpdate, priority_fee_lamports: u64) -> Result<(), Self::Error>;
 }
 
+/// Tight compute-unit limit for an `update_quote` transaction. The measured
+/// instruction cost is 12,802 CU (ASSUMPTIONS A-17), so 60,000 leaves room for
+/// the Pyth verification + account deserialisation that must fit in the same
+/// transaction (the program verifies the update in-band).
+pub const MAX_UPDATE_COMPUTE_UNITS: u32 = 60_000;
+
+/// A streaming price source (Pyth Hermes or a replayed feed).
+pub trait PriceSource {
+    type Error;
+    /// Latest tick, tagged with the slot it was read at. `Ok(None)` means the
+    /// source has no usable tick this round (stale, wide, or unparseable), and
+    /// the loop must skip the update and let the quote expire (safe).
+    fn latest(&self, slot: u64) -> Result<Option<OracleTick>, Self::Error>;
+}
+
+/// Convert a Pyth `(price, exponent)` pair to Q64.64, floor. Mirrors the
+/// program's `pyth_price_q64`.
+pub fn pyth_decimal_to_q64(value: i64, exponent: i32) -> Option<u128> {
+    if value <= 0 {
+        return None;
+    }
+    let magnitude = value as u128;
+    if exponent >= 0 {
+        let scale = 10u128.checked_pow(exponent as u32)?;
+        magnitude.checked_mul(scale)?.checked_mul(Q64)
+    } else {
+        let divisor = 10u128.checked_pow((-exponent) as u32)?;
+        magnitude.checked_mul(Q64)?.checked_div(divisor)
+    }
+}
+
+/// `ceil(conf * 10_000 / price)` in bps, matching the program's
+/// `decoded_conf_bps`.
+pub fn confidence_bps(conf: u64, price: i64) -> u32 {
+    if price <= 0 {
+        return u32::MAX;
+    }
+    let numerator = (conf as u128).saturating_mul(BPS);
+    numerator.div_ceil(price as u128).min(u32::MAX as u128) as u32
+}
+
+/// Parse a Pyth Hermes `/v2/updates/price/latest` response body.
+pub fn parse_hermes(body: &str, slot: u64) -> Option<OracleTick> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let price = value.get("parsed")?.as_array()?.first()?.get("price")?;
+    let raw: i64 = price.get("price")?.as_str()?.parse().ok()?;
+    let conf: u64 = price.get("conf")?.as_str()?.parse().ok()?;
+    let exponent: i32 = price.get("expo")?.as_i64()? as i32;
+    let publish_time: i64 = price.get("publish_time")?.as_i64()?;
+    Some(OracleTick {
+        slot,
+        publish_time,
+        price_q64: pyth_decimal_to_q64(raw, exponent)?,
+        confidence_bps: confidence_bps(conf, raw),
+    })
+}
+
+/// Hermes HTTP source with an injected transport (`fetch(url) -> body`), so the
+/// parser and the request URL are testable without a network.
+pub struct HermesSource<F> {
+    pub url: String,
+    pub fetch: F,
+}
+
+impl<F, E> PriceSource for HermesSource<F>
+where
+    F: Fn(&str) -> Result<String, E>,
+{
+    type Error = E;
+    fn latest(&self, slot: u64) -> Result<Option<OracleTick>, Self::Error> {
+        let body = (self.fetch)(&self.url)?;
+        Ok(parse_hermes(&body, slot))
+    }
+}
+
+/// Adaptive priority fee: scales the base fee with volatility urgency and
+/// doubles on a jump, clipped to `[floor, cap]` so a calm keeper is cheap and a
+/// stressed one cannot overpay without bound.
+pub fn adaptive_priority_fee(sigma_q64: u128, base: u64, jump: bool, floor: u64, cap: u64) -> u64 {
+    let raw = priority_fee_lamports(sigma_q64, base, jump);
+    raw.max(floor).min(cap.max(floor))
+}
+
 /// Everything needed to build a real `update_quote` transaction, resolved from
 /// the program id and vault address (PDAs are derived).
 #[derive(Clone, Debug)]
@@ -434,6 +519,7 @@ pub struct UpdateQuotePlan {
     pub config: Address,
     pub quote_state: Address,
     pub price_update: Address,
+    pub keeper_bond: Address,
     pub recent_blockhash: Hash,
     pub compute_unit_limit: u32,
 }
@@ -456,6 +542,7 @@ pub fn build_update_quote_transaction(
             AccountMeta::new_readonly(plan.config, false),
             AccountMeta::new(plan.quote_state, false),
             AccountMeta::new_readonly(plan.price_update, false),
+            AccountMeta::new_readonly(plan.keeper_bond, false),
         ],
         data,
     };
@@ -474,31 +561,48 @@ pub fn build_update_quote_transaction(
 }
 
 /// A keeper sender for a live RPC: the caller injects the transport (a closure
-/// that submits a `Transaction`), so this crate needs no RPC dependency and the
-/// signed bytes are testable offline.
-pub struct LiveSender<F, E> {
+/// that submits a `Transaction`) and a blockhash refresher, so this crate needs
+/// no RPC dependency and the signed bytes are testable offline.
+///
+/// Retries refresh the blockhash and re-sign on every attempt; a re-sent
+/// transaction with the same signature is de-duplicated by the cluster, so the
+/// retry loop cannot double-spend an update.
+pub struct LiveSender<B, S> {
     pub plan: UpdateQuotePlan,
     pub keeper: Keypair,
     pub priority_fee_micro_lamports_per_cu: u64,
-    pub submit: F,
-    pub _marker: core::marker::PhantomData<E>,
+    pub refresh_blockhash: B,
+    pub submit: S,
+    pub max_attempts: u32,
 }
 
-impl<F, E> QuoteSender for LiveSender<F, E>
+impl<B, S, E> QuoteSender for LiveSender<B, S>
 where
-    F: FnMut(Transaction) -> Result<(), E>,
+    B: FnMut() -> Result<Hash, E>,
+    S: FnMut(Transaction) -> Result<(), E>,
 {
     type Error = E;
     fn send(&mut self, quote: QuoteUpdate, priority_fee_lamports: u64) -> Result<(), E> {
-        // The blockhash inside the plan is refreshed by the caller each tick.
         let _ = priority_fee_lamports;
-        let transaction = build_update_quote_transaction(
-            &self.plan,
-            &self.keeper,
-            &quote,
-            self.priority_fee_micro_lamports_per_cu,
-        );
-        (self.submit)(transaction)
+        let attempts = self.max_attempts.max(1);
+        let mut last = None;
+        for _ in 0..attempts {
+            // Fresh blockhash each attempt; expired blockhashes are the common
+            // cause of a dropped update.
+            let blockhash = (self.refresh_blockhash)()?;
+            self.plan.recent_blockhash = blockhash;
+            let transaction = build_update_quote_transaction(
+                &self.plan,
+                &self.keeper,
+                &quote,
+                self.priority_fee_micro_lamports_per_cu,
+            );
+            match (self.submit)(transaction) {
+                Ok(()) => return Ok(()),
+                Err(error) => last = Some(error),
+            }
+        }
+        Err(last.expect("at least one attempt"))
     }
 }
 
@@ -648,6 +752,7 @@ mod tests {
             config: Address::new_from_array([3u8; 32]),
             quote_state: Address::new_from_array([4u8; 32]),
             price_update: Address::new_from_array([5u8; 32]),
+            keeper_bond: Address::new_from_array([6u8; 32]),
             recent_blockhash: Hash::default(),
             compute_unit_limit: 60_000,
         };
@@ -682,5 +787,102 @@ mod tests {
             solana_compute_budget_interface::ID
         );
         assert!(!transaction.signatures.is_empty());
+    }
+
+    #[test]
+    fn parse_hermes_extracts_the_price_and_confidence() {
+        let body = r#"{"parsed":[{"id":"feed","price":{"price":"15000000000","conf":"1","expo":-8,"publish_time":1000}}]}"#;
+        let tick = parse_hermes(body, 5).expect("parsed");
+        assert_eq!(tick.price_q64, 150 * Q64);
+        assert_eq!(tick.confidence_bps, 1);
+        assert_eq!(tick.publish_time, 1000);
+        assert_eq!(tick.slot, 5);
+        assert!(parse_hermes("not json", 1).is_none());
+        assert!(parse_hermes(r#"{"parsed":[]}"#, 1).is_none());
+    }
+
+    #[test]
+    fn pyth_decimal_conversion_matches_the_program() {
+        assert_eq!(pyth_decimal_to_q64(150, 0), Some(150 * Q64));
+        assert_eq!(pyth_decimal_to_q64(15_000_000_000, -8), Some(150 * Q64));
+        assert_eq!(pyth_decimal_to_q64(-1, 0), None);
+        assert_eq!(confidence_bps(1, 15_000_000_000), 1);
+        assert_eq!(confidence_bps(0, 15_000_000_000), 0);
+    }
+
+    #[test]
+    fn adaptive_priority_fee_is_clipped() {
+        // Calm: sigma small -> floor applies.
+        assert_eq!(
+            adaptive_priority_fee(0, 1_000, false, 5_000, 1_000_000),
+            5_000
+        );
+        // Jump doubles and can exceed the cap, so the cap applies.
+        assert_eq!(
+            adaptive_priority_fee(1 << 64, u64::MAX / 2, true, 1_000, 10_000),
+            10_000
+        );
+    }
+
+    #[test]
+    fn live_sender_retries_with_a_fresh_blockhash() {
+        use solana_signer::Signer;
+        use std::cell::Cell;
+        use std::rc::Rc;
+        let keeper = Keypair::new();
+        let attempts = Rc::new(Cell::new(0u32));
+        let refreshes = Rc::new(Cell::new(0u32));
+        let plan = UpdateQuotePlan {
+            program_id: Address::new_from_array([1u8; 32]),
+            keeper: keeper.pubkey(),
+            vault: Address::new_from_array([2u8; 32]),
+            config: Address::new_from_array([3u8; 32]),
+            quote_state: Address::new_from_array([4u8; 32]),
+            price_update: Address::new_from_array([5u8; 32]),
+            keeper_bond: Address::new_from_array([6u8; 32]),
+            recent_blockhash: Hash::default(),
+            compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
+        };
+        let quote = compute_quote(
+            OracleTick {
+                slot: 1,
+                publish_time: 1,
+                price_q64: 150 * Q64,
+                confidence_bps: 1,
+            },
+            VolatilityState::default(),
+            1_000,
+            150_000,
+            0,
+            0,
+            KeeperParams::default(),
+        )
+        .unwrap();
+
+        let counter = attempts.clone();
+        let refresher = refreshes.clone();
+        let mut sender = LiveSender {
+            plan,
+            keeper,
+            priority_fee_micro_lamports_per_cu: 1_000,
+            max_attempts: 3,
+            refresh_blockhash: move || {
+                refresher.set(refresher.get() + 1);
+                Ok(Hash::new_from_array([refresher.get() as u8; 32]))
+            },
+            submit: move |_tx| {
+                counter.set(counter.get() + 1);
+                if counter.get() < 3 {
+                    Err("rpc busy")
+                } else {
+                    Ok(())
+                }
+            },
+        };
+        sender
+            .send(quote, 1_000)
+            .expect("succeeds on the third try");
+        assert_eq!(attempts.get(), 3);
+        assert_eq!(refreshes.get(), 3, "blockhash refreshed per attempt");
     }
 }

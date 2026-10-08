@@ -30,7 +30,7 @@ jobs:
       - name: Install
         run: pip install -r research/requirements.txt
       - name: Tests
-        run: pytest research -q
+        run: pytest research analytics -q
       - name: Golden vectors are in sync with the Python reference
         run: |
           python -m research.reference.golden

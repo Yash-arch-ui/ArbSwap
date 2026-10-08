@@ -1,0 +1,8 @@
+[package]
+name = "arb-aggregator"
+version = "0.1.0"
+description = "ArbSwap aggregator adapter: Jupiter-style AMM quote/swap interface over arb-math (Build Plan T5.4)"
+edition = "2021"
+
+[dependencies]
+arb-math = { path = "../arb-math" }

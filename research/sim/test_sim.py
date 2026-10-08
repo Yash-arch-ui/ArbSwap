@@ -7,6 +7,7 @@ import pytest
 from research.reference.quote_math import QuoteParams
 from research.sim.calibrate import walk_forward_folds
 from research.sim.engine import simulate, venue_mid
+from research.sim.costs import CU_UPDATE_QUOTE
 from research.sim.flow import InformedFlow, NoiseFlow
 from research.sim.metrics import (
     hedged_pnl,
@@ -220,7 +221,7 @@ def test_keeper_costs_use_measured_cu_at_the_reference_sol_price():
     )
     assert result.quote_updates > 0
     gas_each = 5_000 / 1_000_000_000 * 100.0
-    priority_each = (12_802 * 1_000.0 / 1_000_000.0) / 1_000_000_000 * 100.0
+    priority_each = (CU_UPDATE_QUOTE * 1_000.0 / 1_000_000.0) / 1_000_000_000 * 100.0
     assert result.update_gas_quote == pytest.approx(result.quote_updates * gas_each)
     assert result.update_priority_quote == pytest.approx(result.quote_updates * priority_each)
     assert result.update_cost_quote == pytest.approx(

@@ -33,7 +33,8 @@ SPREAD_FLOOR = 1
 SPREAD_MIN = 1
 SPREAD_MAX = 50
 INVENTORY_COEFF = 5
-CONFIDENCE_COEFF = 1
+VOLATILITY_COEFF = 10_000
+CONFIDENCE_COEFF = 10_000
 CONFIDENCE_MAX_BPS = 10
 JUMP_EXTRA = 5
 JUMP_COOLDOWN = 5_000
@@ -69,11 +70,12 @@ def expected(
     reservation = price_q64 * factor // BPS
 
     # sigma = 0 for `single`, so the volatility term is zero; the confidence
-    # term rounds to zero but the confidence *throttle* does not.
+    # term and the *inventory* term both contribute (F-09 alignment).
     raw_spread = (
         SPREAD_FLOOR
+        + VOLATILITY_COEFF * 0 // BPS
+        + INVENTORY_COEFF * abs(q_bps) // BPS
         + CONFIDENCE_COEFF * CONFIDENCE_BPS // BPS
-        + 0
         + 0
     )
     spread = max(SPREAD_MIN, min(SPREAD_MAX, raw_spread))
@@ -190,3 +192,48 @@ def test_keeper_directional_addon_is_encoded():
     down = rust_quote(148 * Q64, 1_000, 150_000, previous_price_q64=previous)
     assert down["ask_extra"] == 0
     assert down["bid_extra"] > 0
+
+
+def test_keeper_pricing_matches_the_simulator_reference():
+    """Keeper anchor/reservation/depth against ``quote_math.compute_quote``.
+
+    The simulator uses float fractions; the keeper uses integer bps. The
+    *pricing core* (anchor, reservation, depth throttle) must agree within
+    rounding. The spread coefficient scales still differ (audit F-09), so the
+    spread itself is compared only structurally elsewhere.
+    """
+    from research.reference.quote_math import QuoteParams, VolatilityState, compute_quote
+
+    cases = (
+        (150 * Q64, 1_000, 150_000),
+        (150 * Q64, 1_000, 100_000),
+        (150 * Q64, 1_000, 220_000),
+        (200 * Q64, 900, 120_000),
+    )
+    conf_bps = 1
+    for price_q64, base, quote in cases:
+        price = price_q64 / Q64
+        reference = compute_quote(
+            price=price,
+            base_reserve=base,
+            quote_reserve=quote,
+            confidence=price * conf_bps / 10_000,
+            age=0.0,
+            volatility=VolatilityState(),
+            params=QuoteParams(),
+        )
+        got = rust_quote(price_q64, base, quote)
+        keeper_anchor = got["anchor"] ** 2 / (1 << 128)
+        keeper_reservation = got["reservation"] ** 2 / (1 << 128)
+        assert abs(keeper_anchor - reference.reference_price) <= 1e-6 * price
+        # The keeper quantises the inventory skew to whole bps, so the
+        # reservation agrees with the float reference to within one bps of price.
+        assert (
+            abs(keeper_reservation - reference.reservation_price)
+            <= 2e-4 * reference.reservation_price
+        )
+        assert abs(got["depth"] / 10_000 - reference.depth_mult) <= 1e-9
+        # F-09: the spread now matches the reference; the only slack is the
+        # keeper's whole-bps inventory quantum.
+        assert abs(got["spread"] / 10_000 - reference.half_spread) <= 1.5e-4
+
