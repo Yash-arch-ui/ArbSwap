@@ -13,6 +13,7 @@ from simulation.sim.experiments import report, venue_set
 from simulation.sim.flow import InformedFlow, NoiseFlow
 from simulation.sim.flow_config import NOISE_ARRIVAL_RATE, NOISE_MEAN_SIZE
 from simulation.sim.oracle import OracleModel
+from simulation.sim.bootstrap import bootstrap_ci, hedged_increments
 from simulation.sim.study import _load_slice
 from simulation.sim.windows import WINDOWS
 
@@ -33,22 +34,27 @@ def _run(points, name, venue, *, pre: bool):
 
 def pair(points, *, pre: bool):
     params = QuoteParams()
-    venues = venue_set(params, start_price=points[0].price)
+    # The "pre" side predates the init fix (b083ba5), so it uses the OLD
+    # hard-coded price-150 initialization AND the pre-fix macros.
+    start_price = 150.0 if pre else points[0].price
+    venues = venue_set(params, start_price=start_price)
     arb = report("ArbSwap", _run(points, "ArbSwap", venues["ArbSwap"], pre=pre))
     b1 = report("B1_passive", _run(points, "B1_passive", venues["B1_passive"], pre=pre))
-    return arb, b1
+    return arb, b1, _run(points, "ArbSwap", venue_set(QuoteParams(), start_price=start_price)["ArbSwap"], pre=pre), _run(points, "B1_passive", venue_set(QuoteParams(), start_price=start_price)["B1_passive"], pre=pre)
 
 
 if __name__ == "__main__":
-    print(f"{'window':6} {'pre E1':>9} {'post E1':>9} {'pre Arb':>9} {'post Arb':>9} {'pre B1':>8} {'post B1':>8}")
+    from simulation.sim.bootstrap import bootstrap_ci, hedged_increments
+    print(f"{'win':4} {'pre PnL [CI]':>26} {'post PnL [CI]':>26} {'pre B1':>9} {'post B1':>9}")
     for w in WINDOWS:
         if w.is_calibration:
             continue
         points = _load_slice(w)
-        pre_arb, pre_b1 = pair(points, pre=True)
-        post_arb, post_b1 = pair(points, pre=False)
-        e1_pre = (pre_arb.hedged_pnl - pre_b1.hedged_pnl) / abs(pre_b1.hedged_pnl) if pre_b1.hedged_pnl else 0.0
-        e1_post = (post_arb.hedged_pnl - post_b1.hedged_pnl) / abs(post_b1.hedged_pnl) if post_b1.hedged_pnl else 0.0
-        print(f"{w.label:6} {e1_pre:+9.1%} {e1_post:+9.1%} "
-              f"{pre_arb.hedged_pnl:9.1f} {post_arb.hedged_pnl:9.1f} "
-              f"{pre_b1.hedged_pnl:8.1f} {post_b1.hedged_pnl:8.1f}")
+        _pa, _pb, pre_arb, pre_b1 = pair(points, pre=True)
+        _qa, _qb, post_arb, post_b1 = pair(points, pre=False)
+        pre_ci = bootstrap_ci(hedged_increments(pre_arb.value_path, pre_arb.base_path, pre_arb.price_path))
+        post_ci = bootstrap_ci(hedged_increments(post_arb.value_path, post_arb.base_path, post_arb.price_path))
+        preb = sum(hedged_increments(pre_b1.value_path, pre_b1.base_path, pre_b1.price_path))
+        postb = sum(hedged_increments(post_b1.value_path, post_b1.base_path, post_b1.price_path))
+        print(f"{w.label:4} {pre_ci[0]:9.1f} [{pre_ci[1]:8.1f},{pre_ci[2]:8.1f}] "
+              f"{post_ci[0]:9.1f} [{post_ci[1]:8.1f},{post_ci[2]:8.1f}] {preb:9.1f} {postb:9.1f}")
