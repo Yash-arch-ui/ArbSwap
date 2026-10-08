@@ -5,3 +5,6 @@ description = "ArbSwap pure fixed-point math: ladder, spread, LVR budget, vault 
 edition = "2021"
 
 [dependencies]
+
+[dev-dependencies]
+proptest = "1"
