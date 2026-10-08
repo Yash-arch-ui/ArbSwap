@@ -15,7 +15,7 @@
   ],
   "block_seconds": 3600,
   "candidates": 81,
-  "elapsed_seconds": 594.4,
+  "elapsed_seconds": 595.3,
   "params": {
     "age_coeff": 1e-05,
     "age_grace": 2.0,
