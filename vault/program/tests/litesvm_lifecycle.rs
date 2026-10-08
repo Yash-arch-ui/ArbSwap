@@ -50,11 +50,19 @@ impl Keys {
     }
 }
 
-/// Total base capacity the test ladder offers; must fit `u_max * available`.
+/// Total base capacity the test ask ladder offers; must fit `u_max * available`.
 const TEST_LADDER_BASE_CAPACITY: u128 = 1_000;
+/// Total quote capacity the test bid ladder offers; must fit the smallest
+/// quote reserve used by the successful-quote tests (`window_flow_cap` deposits
+/// 1.5e6 quote -> 7.5e5 cap).
+const TEST_LADDER_QUOTE_CAPACITY: u128 = 500_000;
 
 fn ladder() -> [LevelUpdate; 6] {
     anchor_ladder(ANCHOR_SQRT, 5, OFFSETS, TEST_LADDER_BASE_CAPACITY)
+}
+
+fn bid_ladder() -> [LevelUpdate; 6] {
+    anchor_bid_ladder(ANCHOR_SQRT, 5, OFFSETS, TEST_LADDER_QUOTE_CAPACITY)
 }
 
 fn quote_update(update_slot: u64) -> QuoteUpdate {
@@ -71,7 +79,8 @@ fn quote_update(update_slot: u64) -> QuoteUpdate {
         depth_mult_bps: 10_000,
         offsets_bps: OFFSETS,
         weights_bps: WEIGHTS,
-        levels: ladder(),
+        ask_levels: ladder(),
+        bid_levels: bid_ladder(),
     }
 }
 
@@ -884,7 +893,7 @@ fn pyth_verification_rejects_untrusted_or_stale_updates() {
     assert_eq!(quote.expiry_slot, SLOT + EXPIRY_SLOTS);
     assert_eq!(quote.oracle_publish_time, PUBLISH_TIME);
     assert_eq!(quote.oracle_conf_bps, CONF_BPS);
-    assert_eq!(quote.levels[0].sqrt_lo, ladder()[0].sqrt_lo);
+    assert_eq!(quote.ask_levels[0].sqrt_lo, ladder()[0].sqrt_lo);
 }
 
 /// A well-formed Pyth account that is not owned by the receiver program must be
@@ -957,8 +966,8 @@ fn level_far_from_the_anchor_is_rejected() {
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
     let mut hostile = quote_update(SLOT);
     // ~9x the anchor price on the first level: shape-valid, wildly mispriced.
-    hostile.levels[0].sqrt_lo = ANCHOR_SQRT * 3;
-    hostile.levels[0].sqrt_hi = ANCHOR_SQRT * 3 + 1;
+    hostile.ask_levels[0].sqrt_lo = ANCHOR_SQRT * 3;
+    hostile.ask_levels[0].sqrt_hi = ANCHOR_SQRT * 3 + 1;
     assert_anchor_error(
         fixture.update_quote(&keys.keeper, honest, hostile),
         "LevelOutOfBounds",
@@ -2612,7 +2621,8 @@ fn a_ladder_deeper_than_the_reserves_is_rejected() {
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
     let mut deep = quote_update(SLOT);
     // 2e9 base capacity > u_max (0.5) * 1e9 available base.
-    deep.levels = anchor_ladder(ANCHOR_SQRT, 5, OFFSETS, 2_000_000_000);
+    deep.ask_levels = anchor_ladder(ANCHOR_SQRT, 5, OFFSETS, 2_000_000_000);
+    deep.bid_levels = anchor_bid_ladder(ANCHOR_SQRT, 5, OFFSETS, 1_000);
     assert_anchor_error(
         fixture.update_quote(&keys.keeper, honest, deep),
         "UtilizationExceeded",
@@ -2633,9 +2643,10 @@ fn a_ladder_deeper_than_the_reserves_is_rejected() {
         .expect("deposit");
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
     let mut deep = quote_update(SLOT);
-    // 1e8 base capacity ~ 1.5e10 quote capacity > 0.5 * 1e9 available quote,
-    // while the base capacity stays well under the huge base reserve.
-    deep.levels = anchor_ladder(ANCHOR_SQRT, 5, OFFSETS, 100_000_000);
+    // 1e9 quote capacity > 0.5 * 1e9 available quote, while the ask base
+    // capacity stays well under the huge base reserve.
+    deep.ask_levels = anchor_ladder(ANCHOR_SQRT, 5, OFFSETS, 1_000);
+    deep.bid_levels = anchor_bid_ladder(ANCHOR_SQRT, 5, OFFSETS, 1_000_000_000);
     assert_anchor_error(
         fixture.update_quote(&keys.keeper, honest, deep),
         "UtilizationExceeded",
@@ -3028,8 +3039,9 @@ fn malicious_keeper_at_max_deviation_every_slot() {
     // The loss bound uses the configured 100 bps cap, which is conservative.
     let anchor_price_q64 = PRICE_Q64 * 9_901 / 10_000;
     let anchor_sqrt = arb_math::sqrt_q64(anchor_price_q64).expect("anchor sqrt");
-    let levels = anchor_ladder(anchor_sqrt, 2, OFFSETS, ladder_base_capacity);
-    let ladder_quote_capacity: u128 = levels
+    let ask_levels = anchor_ladder(anchor_sqrt, 2, OFFSETS, ladder_base_capacity);
+    let bid_levels = anchor_bid_ladder(anchor_sqrt, 2, OFFSETS, 1_000);
+    let ladder_quote_capacity: u128 = ask_levels
         .iter()
         .map(|l| {
             arb_math::Level {
@@ -3067,7 +3079,8 @@ fn malicious_keeper_at_max_deviation_every_slot() {
             depth_mult_bps: 10_000,
             offsets_bps: OFFSETS,
             weights_bps: WEIGHTS,
-            levels,
+            ask_levels,
+            bid_levels,
         };
         fixture
             .update_quote(&keys.keeper, oracle, update)
@@ -3316,4 +3329,196 @@ fn an_old_update_slot_is_rejected() {
         fixture.update_quote(&keys.keeper, honest, quote_update(SLOT)),
         "UpdateSlotTooOld",
     );
+}
+
+// ---------------------------------------------------------------------------
+// H1: two-sided keeper ladder.
+// ---------------------------------------------------------------------------
+
+/// Build an on-chain `QuoteUpdate` from a keeper-produced two-sided quote.
+fn keeper_two_sided_update(base: u128, quote: u128) -> QuoteUpdate {
+    let tick = arbswap_keeper::OracleTick {
+        slot: SLOT,
+        publish_time: PUBLISH_TIME,
+        price_q64: PRICE_Q64,
+        confidence_bps: CONF_BPS,
+    };
+    let q = arbswap_keeper::compute_quote(
+        tick,
+        arbswap_keeper::VolatilityState::default(),
+        base,
+        quote,
+        0,
+        0,
+        arbswap_keeper::KeeperParams::default(),
+    )
+    .expect("keeper quote");
+    let to_update = |l: &arb_math::Level| LevelUpdate {
+        sqrt_lo: l.sqrt_lo,
+        sqrt_hi: l.sqrt_hi,
+        liquidity: l.liquidity,
+    };
+    let mut ask_levels = [LevelUpdate::default(); 6];
+    let mut bid_levels = [LevelUpdate::default(); 6];
+    for i in 0..6 {
+        ask_levels[i] = to_update(&q.ask_levels[i]);
+        bid_levels[i] = to_update(&q.bid_levels[i]);
+    }
+    QuoteUpdate {
+        update_slot: SLOT,
+        oracle_publish_time: PUBLISH_TIME,
+        oracle_price: q.oracle_price_q64,
+        oracle_conf_bps: q.confidence_bps,
+        anchor_sqrt_price: q.anchor_sqrt_price,
+        p_res_sqrt: q.reservation_sqrt_price,
+        half_spread_bps: q.half_spread_bps,
+        ask_extra_bps: q.ask_extra_bps,
+        bid_extra_bps: q.bid_extra_bps,
+        depth_mult_bps: q.depth_mult_bps,
+        offsets_bps: q.offsets_bps,
+        weights_bps: q.weights_bps,
+        ask_levels,
+        bid_levels,
+    }
+}
+
+/// A keeper-produced two-sided quote is accepted, then both swap directions
+/// execute at the quoted-or-better output with value conservation.
+#[test]
+fn keeper_two_sided_quote_executes_both_directions() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let update = keeper_two_sided_update(LP_BASE_DEPOSIT as u128, LP_QUOTE_DEPOSIT as u128);
+    let ask_levels: Vec<arb_math::Level> = update
+        .ask_levels
+        .iter()
+        .map(|l| arb_math::Level {
+            sqrt_lo: l.sqrt_lo,
+            sqrt_hi: l.sqrt_hi,
+            liquidity: l.liquidity,
+        })
+        .collect();
+    let bid_levels: Vec<arb_math::Level> = update
+        .bid_levels
+        .iter()
+        .map(|l| arb_math::Level {
+            sqrt_lo: l.sqrt_lo,
+            sqrt_hi: l.sqrt_hi,
+            liquidity: l.liquidity,
+        })
+        .collect();
+
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, update)
+        .expect("keeper two-sided quote accepted");
+    assert_eq!(fixture.quote_state_value().version, 1);
+
+    // --- BuyBase against the ask ladder ---
+    let buy_in: u64 = 100_000;
+    let buy_fee = arb_math::fee_amount(buy_in as u128, FEE_BPS as u128).unwrap();
+    let expected_buy =
+        arb_math::walk_ladder(&ask_levels, arb_math::Side::Ask, buy_in as u128 - buy_fee).unwrap();
+    assert_eq!(expected_buy.remaining, 0, "ask ladder must absorb the buy");
+    let trader_base_before = token_amount(&fixture.svm, fixture.trader_base);
+    fixture
+        .swap(&keys.trader, buy_in, expected_buy.out as u64, 1)
+        .expect("buy swap executes");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.trader_base) - trader_base_before,
+        expected_buy.out as u64,
+        "buy output matches the quoted ladder"
+    );
+    assert_anchor_error(
+        fixture.swap(&keys.trader, buy_in, expected_buy.out as u64, 2),
+        "VersionTooOld",
+    );
+
+    // --- SellBase against the bid ladder ---
+    let sell_in: u64 = 100;
+    let sell_fee = arb_math::fee_amount(sell_in as u128, FEE_BPS as u128).unwrap();
+    let expected_sell =
+        arb_math::walk_ladder(&bid_levels, arb_math::Side::Bid, sell_in as u128 - sell_fee)
+            .unwrap();
+    assert_eq!(
+        expected_sell.remaining, 0,
+        "bid ladder must absorb the sell"
+    );
+    let trader_quote_before = token_amount(&fixture.svm, fixture.trader_quote);
+    fixture
+        .swap_side(
+            &keys.trader,
+            arbswap::SwapSide::SellBase,
+            sell_in,
+            expected_sell.out as u64,
+            1,
+        )
+        .expect("sell swap executes");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.trader_quote) - trader_quote_before,
+        expected_sell.out as u64,
+        "sell output matches the quoted ladder"
+    );
+
+    // --- value conservation across all holders ---
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.lp_base)
+            + token_amount(&fixture.svm, fixture.trader_base)
+            + token_amount(&fixture.svm, fixture.base_reserve),
+        2 * 10_000_000_000
+    );
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.lp_quote)
+            + token_amount(&fixture.svm, fixture.trader_quote)
+            + token_amount(&fixture.svm, fixture.quote_reserve),
+        2 * 10_000_000_000
+    );
+}
+
+/// At zero inventory skew the bid ladder mirrors the ask ladder around the
+/// reservation price: `ask_lo[k] + bid_hi[k] == ask_hi[k] + bid_lo[k] == 2·p_res`.
+#[test]
+fn two_sided_ladder_is_mirrored_at_zero_skew() {
+    let base: u128 = 1_000_000_000;
+    let quote: u128 = base * 150; // zero skew: base*P == quote
+    let q = arbswap_keeper::compute_quote(
+        arbswap_keeper::OracleTick {
+            slot: SLOT,
+            publish_time: PUBLISH_TIME,
+            price_q64: PRICE_Q64,
+            confidence_bps: CONF_BPS,
+        },
+        arbswap_keeper::VolatilityState::default(),
+        base,
+        quote,
+        0,
+        0,
+        arbswap_keeper::KeeperParams::default(),
+    )
+    .expect("keeper quote");
+    assert_eq!(
+        q.reservation_sqrt_price, q.anchor_sqrt_price,
+        "zero skew must quote at the anchor"
+    );
+    let reservation = arb_math::price_from_sqrt(q.reservation_sqrt_price).unwrap();
+    let tolerance = reservation / 1_000_000; // a few-ulp round-trip slack
+    for k in 0..6 {
+        let ask_lo = arb_math::price_from_sqrt(q.ask_levels[k].sqrt_lo).unwrap();
+        let ask_hi = arb_math::price_from_sqrt(q.ask_levels[k].sqrt_hi).unwrap();
+        let bid_lo = arb_math::price_from_sqrt(q.bid_levels[k].sqrt_lo).unwrap();
+        let bid_hi = arb_math::price_from_sqrt(q.bid_levels[k].sqrt_hi).unwrap();
+        let two_res = 2 * reservation;
+        assert!(
+            (ask_lo + bid_hi).abs_diff(two_res) <= tolerance,
+            "ask_lo + bid_hi not mirrored at level {k}"
+        );
+        assert!(
+            (ask_hi + bid_lo).abs_diff(two_res) <= tolerance,
+            "ask_hi + bid_lo not mirrored at level {k}"
+        );
+    }
 }

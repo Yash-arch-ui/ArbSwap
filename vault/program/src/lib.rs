@@ -133,7 +133,8 @@ pub mod arbswap {
         ctx.accounts.quote_state.window_start_slot = 0;
         ctx.accounts.quote_state.window_base_sold = 0;
         ctx.accounts.quote_state.window_base_bought = 0;
-        ctx.accounts.quote_state.levels = [Level::default(); LEVELS];
+        ctx.accounts.quote_state.ask_levels = [Level::default(); LEVELS];
+        ctx.accounts.quote_state.bid_levels = [Level::default(); LEVELS];
         emit!(VaultInitialized {
             slot: Clock::get()?.slot,
             vault: vault.key()
@@ -551,8 +552,9 @@ pub mod arbswap {
         );
         require!(
             update
-                .levels
+                .ask_levels
                 .iter()
+                .chain(update.bid_levels.iter())
                 .all(|l| l.sqrt_lo > 0 && l.sqrt_lo < l.sqrt_hi && l.liquidity > 0),
             ErrorCode::InvalidLadder
         );
@@ -599,20 +601,13 @@ pub mod arbswap {
             .saturating_add(update.bid_extra_bps)
             .saturating_add(outer)
             .min(MAX_LEVEL_OFFSET_BPS);
-        let upper = arb_math::mul_div_ceil(
-            anchor_price,
-            (BPS_DENOM + ask_band) as u128,
-            BPS_DENOM as u128,
-        )
-        .ok_or(ErrorCode::MathOverflow)?;
-        let lower = arb_math::mul_div_floor(
-            anchor_price,
-            (BPS_DENOM - bid_band.min(BPS_DENOM - 1)) as u128,
-            BPS_DENOM as u128,
-        )
-        .ok_or(ErrorCode::MathOverflow)?;
         let reservation =
             arb_math::price_from_sqrt(update.p_res_sqrt).map_err(|_| ErrorCode::InvalidPrice)?;
+        // The reservation is itself bounded to the verified anchor band, so
+        // binding the ladder to the reservation (the ladder's true centre, per
+        // spec §5.7) still bounds every level relative to the oracle through
+        // `max_inventory_bps`. This is required for a two-sided ladder: a bid
+        // level can sit below the anchor whenever the reservation is skewed down.
         let inventory = ctx.accounts.config.max_inventory_bps.min(BPS_DENOM - 1);
         let res_upper = arb_math::mul_div_ceil(
             anchor_price,
@@ -630,33 +625,63 @@ pub mod arbswap {
             reservation <= res_upper && reservation >= res_lower,
             ErrorCode::InventoryOutOfBounds
         );
-        for level in update.levels.iter() {
+        let upper = arb_math::mul_div_ceil(
+            reservation,
+            (BPS_DENOM + ask_band) as u128,
+            BPS_DENOM as u128,
+        )
+        .ok_or(ErrorCode::MathOverflow)?;
+        let lower = arb_math::mul_div_floor(
+            reservation,
+            (BPS_DENOM - bid_band.min(BPS_DENOM - 1)) as u128,
+            BPS_DENOM as u128,
+        )
+        .ok_or(ErrorCode::MathOverflow)?;
+        // 0.01 bps of slack absorbs the `sqrt_q64`/`price_from_sqrt` round-trip
+        // (a few ulps) so an exactly-at-the-edge level is not spuriously
+        // rejected. It is far below the 1 bps parameter granularity and does not
+        // materially widen the band.
+        let band_epsilon = reservation / 1_000_000;
+        for level in update.ask_levels.iter().chain(update.bid_levels.iter()) {
             let lo =
                 arb_math::price_from_sqrt(level.sqrt_lo).map_err(|_| ErrorCode::InvalidPrice)?;
             let hi =
                 arb_math::price_from_sqrt(level.sqrt_hi).map_err(|_| ErrorCode::InvalidPrice)?;
-            require!(lo >= lower && hi <= upper, ErrorCode::LevelOutOfBounds);
+            require!(
+                lo.saturating_add(band_epsilon) >= lower
+                    && hi <= upper.saturating_add(band_epsilon),
+                ErrorCode::LevelOutOfBounds
+            );
         }
-        // p2-T3 / P2-F03: bound the quoted depth to the *available* reserves so a
-        // compromised keeper cannot publish phantom depth. Capacity uses the same
-        // floor rounding as `arb-math`; the fee buckets are liabilities and are
-        // excluded, matching the share math and the keeper's ladder sizing.
-        let mut quoted_base_capacity = 0u128;
-        let mut quoted_quote_capacity = 0u128;
-        for level in update.levels.iter() {
+        // p2-T3 / P2-F03 / h1: bound the quoted depth to the *available* reserves
+        // so a compromised keeper cannot publish phantom depth. The **ask** side
+        // pays out base, so its base capacity is bounded by the available base;
+        // the **bid** side pays out quote, so its quote capacity is bounded by
+        // the available quote. Capacity uses the same floor rounding as
+        // `arb-math`; the fee buckets are liabilities and are excluded.
+        let mut ask_base_capacity = 0u128;
+        for level in update.ask_levels.iter() {
             let math_level = MathLevel {
                 sqrt_lo: level.sqrt_lo,
                 sqrt_hi: level.sqrt_hi,
                 liquidity: level.liquidity,
             };
-            quoted_base_capacity = quoted_base_capacity
+            ask_base_capacity = ask_base_capacity
                 .checked_add(
                     math_level
                         .base_capacity()
                         .map_err(|_| error!(ErrorCode::MathOverflow))?,
                 )
                 .ok_or(ErrorCode::MathOverflow)?;
-            quoted_quote_capacity = quoted_quote_capacity
+        }
+        let mut bid_quote_capacity = 0u128;
+        for level in update.bid_levels.iter() {
+            let math_level = MathLevel {
+                sqrt_lo: level.sqrt_lo,
+                sqrt_hi: level.sqrt_hi,
+                liquidity: level.liquidity,
+            };
+            bid_quote_capacity = bid_quote_capacity
                 .checked_add(
                     math_level
                         .quote_capacity()
@@ -680,12 +705,12 @@ pub mod arbswap {
                 .saturating_sub(ctx.accounts.vault.protocol_quote) as u128;
         let utilization = ctx.accounts.config.utilization_max_bps as u128;
         require!(
-            quoted_base_capacity.saturating_mul(BPS_DENOM as u128)
+            ask_base_capacity.saturating_mul(BPS_DENOM as u128)
                 <= available_base.saturating_mul(utilization),
             ErrorCode::UtilizationExceeded
         );
         require!(
-            quoted_quote_capacity.saturating_mul(BPS_DENOM as u128)
+            bid_quote_capacity.saturating_mul(BPS_DENOM as u128)
                 <= available_quote.saturating_mul(utilization),
             ErrorCode::UtilizationExceeded
         );
@@ -709,10 +734,17 @@ pub mod arbswap {
         quote.oracle_publish_time = update.oracle_publish_time;
         quote.oracle_conf_bps = update.oracle_conf_bps;
         for i in 0..LEVELS {
-            quote.levels[i] = Level {
-                sqrt_lo: update.levels[i].sqrt_lo,
-                sqrt_hi: update.levels[i].sqrt_hi,
-                liquidity: update.levels[i].liquidity,
+            quote.ask_levels[i] = Level {
+                sqrt_lo: update.ask_levels[i].sqrt_lo,
+                sqrt_hi: update.ask_levels[i].sqrt_hi,
+                liquidity: update.ask_levels[i].liquidity,
+                offset_bps: update.offsets_bps[i],
+                weight_bps: update.weights_bps[i],
+            };
+            quote.bid_levels[i] = Level {
+                sqrt_lo: update.bid_levels[i].sqrt_lo,
+                sqrt_hi: update.bid_levels[i].sqrt_hi,
+                liquidity: update.bid_levels[i].liquidity,
                 offset_bps: update.offsets_bps[i],
                 weight_bps: update.weights_bps[i],
             };
@@ -748,10 +780,13 @@ pub mod arbswap {
         let fee = arb_math::fee_amount(amount_in as u128, ctx.accounts.config.fee_bps as u128)
             .map_err(|_| error!(ErrorCode::MathOverflow))? as u64;
         let net = amount_in.checked_sub(fee).ok_or(ErrorCode::MathOverflow)?;
-        let levels: Vec<MathLevel> = ctx
-            .accounts
-            .quote_state
-            .levels
+        // h1: the vault trades against the side-specific ladder. A trader buying
+        // base lifts the ask ladder; a trader selling base hits the bid ladder.
+        let (side_levels, math_side) = match side {
+            SwapSide::BuyBase => (&ctx.accounts.quote_state.ask_levels, MathSide::Ask),
+            SwapSide::SellBase => (&ctx.accounts.quote_state.bid_levels, MathSide::Bid),
+        };
+        let levels: Vec<MathLevel> = side_levels
             .iter()
             .map(|l| MathLevel {
                 sqrt_lo: l.sqrt_lo,
@@ -759,10 +794,6 @@ pub mod arbswap {
                 liquidity: l.liquidity,
             })
             .collect();
-        let math_side = match side {
-            SwapSide::BuyBase => MathSide::Ask,
-            SwapSide::SellBase => MathSide::Bid,
-        };
         let result = walk_ladder(&levels, math_side, net as u128)
             .map_err(|_| error!(ErrorCode::MathOverflow))?;
         require!(result.remaining == 0, ErrorCode::CapacityExceeded);
@@ -1405,7 +1436,8 @@ pub struct QuoteUpdate {
     pub depth_mult_bps: u32,
     pub offsets_bps: [u32; LEVELS],
     pub weights_bps: [u32; LEVELS],
-    pub levels: [LevelUpdate; LEVELS],
+    pub ask_levels: [LevelUpdate; LEVELS],
+    pub bid_levels: [LevelUpdate; LEVELS],
 }
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum SwapSide {
@@ -1530,7 +1562,8 @@ pub struct QuoteState {
     pub window_base_bought: u64,
     pub oracle_publish_time: i64,
     pub oracle_conf_bps: u32,
-    pub levels: [Level; LEVELS],
+    pub ask_levels: [Level; LEVELS],
+    pub bid_levels: [Level; LEVELS],
     pub bump: u8,
 }
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -1567,7 +1600,7 @@ pub struct InitializeVault<'info> {
     pub vault: Box<Account<'info, Vault>>,
     #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8 + 4)]
     pub config: Box<Account<'info, Config>>,
-    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + 1)]
+    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
     #[account(address = params.base_mint)]
     pub base_mint: Box<Account<'info, Mint>>,

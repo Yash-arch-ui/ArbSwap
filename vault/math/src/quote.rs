@@ -100,6 +100,28 @@ impl Level {
             .ok_or(MathError::DivideByZero)?;
         quotient.to_u128().ok_or(MathError::Overflow)
     }
+
+    /// Liquidity implied by a quote-side capacity on the bid side:
+    /// `L = floor(capacity * 2^128 / (hi - lo))` (inverse of `quote_capacity`).
+    pub fn liquidity_for_quote_capacity(
+        sqrt_lo: u128,
+        sqrt_hi: u128,
+        capacity: u128,
+    ) -> MathResult<u128> {
+        let level = Level {
+            sqrt_lo,
+            sqrt_hi,
+            liquidity: 1,
+        };
+        let delta = level.delta_sqrt()?;
+        U256::from_u128(capacity)
+            .shl(128)
+            .div_rem(U256::from_u128(delta))
+            .ok_or(MathError::DivideByZero)?
+            .0
+            .to_u128()
+            .ok_or(MathError::Overflow)
+    }
 }
 
 /// Ceiling division on `U256`; returns `(numerator + denominator - 1) / denom`.

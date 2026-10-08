@@ -163,14 +163,15 @@ pub struct QuoteUpdate {
     pub ask_extra_bps: u32,
     pub bid_extra_bps: u32,
     pub depth_mult_bps: u32,
-    pub levels: [Level; LEVELS],
+    pub ask_levels: [Level; LEVELS],
+    pub bid_levels: [Level; LEVELS],
     pub offsets_bps: [u32; LEVELS],
     pub weights_bps: [u32; LEVELS],
 }
 
 /// Exact Borsh payload consumed by the P2 `update_quote` instruction.
 pub fn encode_update_quote_instruction(update: &QuoteUpdate) -> Vec<u8> {
-    let mut data = Vec::with_capacity(8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 48);
+    let mut data = Vec::with_capacity(8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 96);
     let mut hash = Sha256::new();
     hash.update(b"global:update_quote");
     data.extend_from_slice(&hash.finalize()[..8]);
@@ -190,7 +191,12 @@ pub fn encode_update_quote_instruction(update: &QuoteUpdate) -> Vec<u8> {
     for weight in update.weights_bps {
         put_u32(&mut data, weight);
     }
-    for level in &update.levels {
+    for level in &update.ask_levels {
+        put_u128(&mut data, level.sqrt_lo);
+        put_u128(&mut data, level.sqrt_hi);
+        put_u128(&mut data, level.liquidity);
+    }
+    for level in &update.bid_levels {
         put_u128(&mut data, level.sqrt_lo);
         put_u128(&mut data, level.sqrt_hi);
         put_u128(&mut data, level.liquidity);
@@ -365,29 +371,56 @@ pub fn compute_quote(
 
     let reservation_sqrt = sqrt_q64(reservation_price).ok()?;
     let anchor_sqrt = sqrt_q64(tick.price_q64).ok()?;
-    let mut levels = [Level {
+    // h1: two-sided ladder. The ask side sells base (bounded by the base
+    // reserve); the bid side spends quote (bounded by the quote reserve). Both
+    // use the same utilization cap and depth throttle as the on-chain check.
+    let bid_spread = spread.saturating_add(bid_extra_bps as u128);
+    let ask_base_capacity = base
+        .saturating_mul(params.utilization_bps as u128)
+        .saturating_mul(depth)
+        / (BPS * BPS);
+    let bid_quote_capacity = quote
+        .saturating_mul(params.utilization_bps as u128)
+        .saturating_mul(depth)
+        / (BPS * BPS);
+    let mut ask_levels = [Level {
         sqrt_lo: 0,
         sqrt_hi: 0,
         liquidity: 0,
     }; LEVELS];
-    let base_capacity = base
-        .saturating_mul(params.utilization_bps as u128)
-        .saturating_mul(depth)
-        / (BPS * BPS);
     let mut previous = 0u32;
-    for (i, level) in levels.iter_mut().enumerate() {
+    for (i, level) in ask_levels.iter_mut().enumerate() {
         let lo_factor = BPS + ask_spread + previous as u128;
         let hi_factor = BPS + ask_spread + params.offsets_bps[i] as u128;
         let lo_price = mul_div(reservation_price, lo_factor, BPS)?;
         let hi_price = mul_div(reservation_price, hi_factor, BPS)?;
         let lo = sqrt_q64(lo_price).ok()?;
         let hi = sqrt_q64(hi_price).ok()?;
-        let capacity = base_capacity.saturating_mul(params.weights_bps[i] as u128) / BPS;
-        let liquidity = if hi > lo {
-            mul_div(mul_div(capacity, lo, 1)?, hi, hi - lo)?
-        } else {
-            return None;
+        let capacity = ask_base_capacity.saturating_mul(params.weights_bps[i] as u128) / BPS;
+        let liquidity = Level::liquidity_for_base_capacity(lo, hi, capacity).ok()?;
+        *level = Level {
+            sqrt_lo: lo,
+            sqrt_hi: hi,
+            liquidity,
         };
+        previous = params.offsets_bps[i];
+    }
+    let mut bid_levels = [Level {
+        sqrt_lo: 0,
+        sqrt_hi: 0,
+        liquidity: 0,
+    }; LEVELS];
+    previous = 0;
+    for (i, level) in bid_levels.iter_mut().enumerate() {
+        // Bid levels sit BELOW the reservation: `hi` is the nearer edge.
+        let hi_factor = BPS.saturating_sub(bid_spread + previous as u128);
+        let lo_factor = BPS.saturating_sub(bid_spread + params.offsets_bps[i] as u128);
+        let hi_price = mul_div(reservation_price, hi_factor, BPS)?;
+        let lo_price = mul_div(reservation_price, lo_factor, BPS)?;
+        let lo = sqrt_q64(lo_price).ok()?;
+        let hi = sqrt_q64(hi_price).ok()?;
+        let capacity = bid_quote_capacity.saturating_mul(params.weights_bps[i] as u128) / BPS;
+        let liquidity = Level::liquidity_for_quote_capacity(lo, hi, capacity).ok()?;
         *level = Level {
             sqrt_lo: lo,
             sqrt_hi: hi,
@@ -406,7 +439,8 @@ pub fn compute_quote(
         ask_extra_bps,
         bid_extra_bps,
         depth_mult_bps: depth as u32,
-        levels,
+        ask_levels,
+        bid_levels,
         offsets_bps: params.offsets_bps,
         weights_bps: params.weights_bps,
     })
@@ -719,7 +753,7 @@ mod tests {
         assert_eq!(&payload[..8], &Sha256::digest(b"global:update_quote")[..8]);
         assert_eq!(
             payload.len(),
-            8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 48
+            8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 96
         );
     }
     #[test]
@@ -952,23 +986,23 @@ mod tests {
         let quote: u128 = base * 150;
         let update = compute_quote(tick, VolatilityState::default(), base, quote, 0, 0, params)
             .expect("quote");
-        let sum_base: u128 = update
-            .levels
+        let sum_ask_base: u128 = update
+            .ask_levels
             .iter()
-            .map(|level| level.base_capacity().expect("base capacity"))
+            .map(|level| level.base_capacity().expect("ask base capacity"))
             .sum();
-        let sum_quote: u128 = update
-            .levels
+        let sum_bid_quote: u128 = update
+            .bid_levels
             .iter()
-            .map(|level| level.quote_capacity().expect("quote capacity"))
+            .map(|level| level.quote_capacity().expect("bid quote capacity"))
             .sum();
         assert!(
-            sum_base * BPS <= base * params.utilization_bps as u128,
-            "keeper base capacity {sum_base} exceeds the utilization budget"
+            sum_ask_base * BPS <= base * params.utilization_bps as u128,
+            "keeper ask base capacity {sum_ask_base} exceeds the utilization budget"
         );
         assert!(
-            sum_quote * BPS <= quote * params.utilization_bps as u128,
-            "keeper quote capacity {sum_quote} exceeds the utilization budget"
+            sum_bid_quote * BPS <= quote * params.utilization_bps as u128,
+            "keeper bid quote capacity {sum_bid_quote} exceeds the utilization budget"
         );
     }
 }

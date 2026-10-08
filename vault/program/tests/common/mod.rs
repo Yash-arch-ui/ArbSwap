@@ -61,6 +61,41 @@ pub fn anchor_ladder(
     }
     levels
 }
+/// A mirror-image **bid** ladder below the anchor, sized from a total quote
+/// capacity budget. Mirrors the keeper's bid construction (h1).
+pub fn anchor_bid_ladder(
+    anchor_sqrt: u128,
+    spread_bps: u32,
+    offsets: [u32; 6],
+    total_quote_capacity: u128,
+) -> [LevelUpdate; 6] {
+    let anchor_price = arb_math::price_from_sqrt(anchor_sqrt).expect("anchor price");
+    let mut levels = [LevelUpdate::default(); 6];
+    let mut previous = 0u32;
+    for (index, level) in levels.iter_mut().enumerate() {
+        let hi_price = arb_math::mul_div_floor(
+            anchor_price,
+            (10_000 - spread_bps - previous) as u128,
+            10_000,
+        )
+        .expect("hi price");
+        let lo_price = arb_math::mul_div_floor(
+            anchor_price,
+            (10_000 - spread_bps - offsets[index]) as u128,
+            10_000,
+        )
+        .expect("lo price");
+        level.sqrt_lo = arb_math::sqrt_q64(lo_price).expect("sqrt_lo");
+        level.sqrt_hi = arb_math::sqrt_q64(hi_price).expect("sqrt_hi");
+        let capacity = total_quote_capacity * WEIGHTS[index] as u128 / 10_000;
+        level.liquidity =
+            arb_math::Level::liquidity_for_quote_capacity(level.sqrt_lo, level.sqrt_hi, capacity)
+                .expect("liquidity");
+        previous = offsets[index];
+    }
+    levels
+}
+
 pub const FEED_ID: [u8; 32] = [7u8; 32];
 /// 150.0 with exponent -8.
 pub const PYTH_PRICE: i64 = 15_000_000_000;

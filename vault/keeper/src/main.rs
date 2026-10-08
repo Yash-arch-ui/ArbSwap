@@ -98,9 +98,15 @@ fn single_quote(
         next.bid_extra_bps,
         next.depth_mult_bps
     );
-    for (index, level) in next.levels.iter().enumerate() {
+    for (index, level) in next.ask_levels.iter().enumerate() {
         println!(
-            "level{index}={}, {}, {}",
+            "ask{index}={}, {}, {}",
+            level.sqrt_lo, level.sqrt_hi, level.liquidity
+        );
+    }
+    for (index, level) in next.bid_levels.iter().enumerate() {
+        println!(
+            "bid{index}={}, {}, {}",
             level.sqrt_lo, level.sqrt_hi, level.liquidity
         );
     }

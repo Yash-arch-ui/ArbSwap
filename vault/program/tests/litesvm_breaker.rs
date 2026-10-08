@@ -4,7 +4,9 @@ use arbswap::{Config, Level, LevelUpdate, QuoteState, QuoteUpdate, Vault};
 use litesvm::LiteSVM;
 
 mod common;
-use common::{anchor_ladder, pda, pubkey, set_token_account, to_address, ANCHOR_SQRT};
+use common::{
+    anchor_bid_ladder, anchor_ladder, pda, pubkey, set_token_account, to_address, ANCHOR_SQRT,
+};
 use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, VerificationLevel};
 use pythnet_sdk::messages::PriceFeedMessage;
 use sha2::{Digest, Sha256};
@@ -102,7 +104,14 @@ fn expired_quote_can_trip_breaker_and_live_quote_cannot() {
         window_base_bought: 0,
         oracle_publish_time: 0,
         oracle_conf_bps: 1,
-        levels: [Level {
+        ask_levels: [Level {
+            offset_bps: 1,
+            weight_bps: 10_000,
+            sqrt_lo: 1,
+            sqrt_hi: 2,
+            liquidity: 1,
+        }; 6],
+        bid_levels: [Level {
             offset_bps: 1,
             weight_bps: 10_000,
             sqrt_lo: 1,
@@ -294,7 +303,8 @@ fn update_quote_executes_only_with_full_pyth_account() {
         window_base_bought: 0,
         oracle_publish_time: 0,
         oracle_conf_bps: 0,
-        levels: [Level::default(); 6],
+        ask_levels: [Level::default(); 6],
+        bid_levels: [Level::default(); 6],
         bump: quote_bump,
     };
     svm.set_account(
@@ -368,7 +378,8 @@ fn update_quote_executes_only_with_full_pyth_account() {
         payer.pubkey(),
         1_000_000,
     );
-    let levels = anchor_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6], 1_000);
+    let ask_levels = anchor_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6], 1_000);
+    let bid_levels = anchor_bid_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6], 1_000);
     let update = QuoteUpdate {
         update_slot: 1,
         oracle_publish_time: 1_000,
@@ -382,7 +393,8 @@ fn update_quote_executes_only_with_full_pyth_account() {
         depth_mult_bps: 10_000,
         offsets_bps: [1, 2, 3, 4, 5, 6],
         weights_bps: [1_000, 1_500, 2_000, 2_000, 2_000, 1_500],
-        levels,
+        ask_levels,
+        bid_levels,
     };
     let mut hash = Sha256::new();
     hash.update(b"global:update_quote");

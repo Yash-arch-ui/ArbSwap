@@ -96,17 +96,30 @@ def expected(
     depth = min(BPS, rule, DEPTH_BUDGET)
 
     ask_spread = spread + ask_extra
-    capacity = base * UTILIZATION * depth // (BPS * BPS)
-    levels = []
+    bid_spread = spread + bid_extra
+    ask_capacity = base * UTILIZATION * depth // (BPS * BPS)
+    bid_capacity = quote * UTILIZATION * depth // (BPS * BPS)
+    ask_levels = []
     previous = 0
     for offset, weight in zip(OFFSETS, WEIGHTS):
         lo_price = reservation * (BPS + ask_spread + previous) // BPS
         hi_price = reservation * (BPS + ask_spread + offset) // BPS
         lo = math.isqrt(lo_price << 64)
         hi = math.isqrt(hi_price << 64)
-        level_capacity = capacity * weight // BPS
+        level_capacity = ask_capacity * weight // BPS
         liquidity = level_capacity * lo * hi // (hi - lo)
-        levels.append((lo, hi, liquidity))
+        ask_levels.append((lo, hi, liquidity))
+        previous = offset
+    bid_levels = []
+    previous = 0
+    for offset, weight in zip(OFFSETS, WEIGHTS):
+        hi_price = reservation * (BPS - bid_spread - previous) // BPS
+        lo_price = reservation * (BPS - bid_spread - offset) // BPS
+        lo = math.isqrt(lo_price << 64)
+        hi = math.isqrt(hi_price << 64)
+        level_capacity = bid_capacity * weight // BPS
+        liquidity = level_capacity * (1 << 128) // (hi - lo)
+        bid_levels.append((lo, hi, liquidity))
         previous = offset
     return {
         "anchor": math.isqrt(price_q64 << 64),
@@ -115,7 +128,8 @@ def expected(
         "ask_extra": ask_extra,
         "bid_extra": bid_extra,
         "depth": depth,
-        "levels": levels,
+        "ask_levels": ask_levels,
+        "bid_levels": bid_levels,
     }
 
 
@@ -137,8 +151,16 @@ def rust_quote(
     )
     lines = result.stdout.strip().splitlines()
     fields = {key: int(value) for key, value in (part.split("=") for part in lines[0].split(","))}
-    levels = [tuple(int(value.strip()) for value in line.split("=", 1)[1].split(",")) for line in lines[1:]]
-    fields["levels"] = levels
+    ask_levels, bid_levels = [], []
+    for line in lines[1:]:
+        name, values = line.split("=", 1)
+        level = tuple(int(value.strip()) for value in values.split(","))
+        if name.startswith("ask"):
+            ask_levels.append(level)
+        elif name.startswith("bid"):
+            bid_levels.append(level)
+    fields["ask_levels"] = ask_levels
+    fields["bid_levels"] = bid_levels
     return fields
 
 
@@ -237,3 +259,25 @@ def test_keeper_pricing_matches_the_simulator_reference():
         # keeper's whole-bps inventory quantum.
         assert abs(got["spread"] / 10_000 - reference.half_spread) <= 1.5e-4
 
+
+
+def test_keeper_replay_emits_a_two_sided_payload(tmp_path):
+    """The replay path encodes BOTH ladders: the payload length is the
+    two-sided layout (ask levels + bid levels), not the old single ladder."""
+    from pathlib import Path
+
+    csv = Path(tmp_path) / "replay.csv"
+    csv.write_text(
+        "slot,publish_time,price_q64,confidence_bps,base_reserve,quote_reserve\n"
+        f"1,1,{150 * Q64},1,1000000000,1000000000\n"
+        f"2,2,{150 * Q64},1,1000000000,1000000000\n"
+    )
+    result = subprocess.run(
+        ["cargo", "run", "-q", "-p", "arbswap-keeper", "--", "replay", str(csv)],
+        cwd=ROOT, check=True, text=True, capture_output=True,
+    )
+    updates = [line for line in result.stdout.splitlines() if line.startswith("update,")]
+    assert updates, result.stdout
+    payload = bytes.fromhex(updates[0].split("instruction_hex=")[1])
+    two_sided_len = 8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + 6 * 4 + 6 * 4 + 6 * 48 * 2
+    assert len(payload) == two_sided_len

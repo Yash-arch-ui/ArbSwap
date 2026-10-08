@@ -261,8 +261,21 @@ carry the remainder to the next segment. These are the concentrated-liquidity
 
 **Status:** DERIVED formulas; Python float reference and the Rust
 `arb-math::quote::walk_ladder` port are both implemented and agree bit-for-bit
-on 970 golden vectors (see §14). The on-chain `swap` executes the stored levels
+on the golden vectors (see §14). The on-chain `swap` executes the stored levels
 through the same walk.
+
+**Two-sided ladder (h1).** The keeper now emits **both** sides around the
+reservation price: ask levels above `P_res` (`lo = P_res(1+s+ask_extra+m_{k-1})`,
+`hi = P_res(1+s+ask_extra+m_k)`) and bid levels below it
+(`hi = P_res(1-s-bid_extra-m_{k-1})`, `lo = P_res(1-s-bid_extra-m_k)`). Ask
+levels are sized from a **base** capacity budget (the vault pays base) and bid
+levels from a **quote** budget (the vault pays quote), each
+`capacity_side · utilization · depth` distributed by the weights. The program
+stores `ask_levels` and `bid_levels`; `swap(BuyBase)` walks the ask side and
+`swap(SellBase)` the bid side. The F-04 band is bound to **`P_res`** (which is
+itself bounded to the anchor by `max_inventory_bps`), because a bid level may sit
+below the anchor when the reservation is skewed down. `arb-math` gains
+`Level::liquidity_for_quote_capacity` (the inverse of `quote_capacity`).
 
 ## 8. Flow Accumulator
 
