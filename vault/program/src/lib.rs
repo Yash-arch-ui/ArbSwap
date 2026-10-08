@@ -1522,7 +1522,12 @@ pub struct ClaimWithdraw<'info> {
     pub share_mint: Box<Account<'info, Mint>>,
     #[account(mut,address=vault.share_lock)]
     pub share_lock: Box<Account<'info, TokenAccount>>,
-    #[account(mut,constraint=withdraw_ticket.owner==user.key())]
+    #[account(
+        mut,
+        seeds=[b"wd", vault.key().as_ref(), user.key().as_ref()],
+        bump=withdraw_ticket.bump,
+        constraint=withdraw_ticket.owner==user.key()
+    )]
     pub withdraw_ticket: Box<Account<'info, WithdrawTicket>>,
     #[account(mut,constraint=user_base.owner==user.key(),constraint=user_base.mint==vault.base_mint)]
     pub user_base: Box<Account<'info, TokenAccount>>,

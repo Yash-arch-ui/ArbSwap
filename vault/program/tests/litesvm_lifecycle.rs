@@ -1942,3 +1942,101 @@ fn state_machine_random_actions_preserve_invariants() {
         assert!(v.total_shares > 0, "step {step}: shares vanished");
     }
 }
+
+/// T1 / P2-F01 (regression): `claim_withdraw` must bind the ticket to *this*
+/// vault. A `WithdrawTicket` whose PDA belongs to a different vault but is owned
+/// by the same user must be rejected, otherwise its `shares` could be burned out
+/// of this vault's `share_lock`, paying the caller with other queued
+/// withdrawers' shares.
+#[test]
+fn claim_withdraw_rejects_a_ticket_from_another_vault() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+
+    // LP deposits, warms up, and queues a real withdrawal so this vault's
+    // `share_lock` holds queued shares.
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    fixture.warp_to_slot(SLOT + 2);
+    let shares = token_amount(&fixture.svm, fixture.lp_shares);
+    let request = ix(
+        fixture.program_id,
+        arbswap::instruction::RequestWithdraw { shares },
+        arbswap::accounts::RequestWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            share_lock: fixture.share_lock,
+            deposit_ticket: fixture.deposit_ticket,
+            user_shares: fixture.lp_shares,
+            withdraw_ticket: fixture.withdraw_ticket,
+            token_program: token_program_id(),
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    send(&mut fixture.svm, &[&keys.lp], request).expect("request_withdraw");
+    assert_eq!(token_amount(&fixture.svm, fixture.share_lock), 1 + shares);
+
+    fixture.warp_to_slot(SLOT + 100);
+    let crank = ix(
+        fixture.program_id,
+        arbswap::instruction::CrankEpoch {},
+        arbswap::accounts::CrankEpoch {
+            vault: fixture.vault,
+            config: fixture.config,
+        },
+    );
+    send(&mut fixture.svm, &[&keys.lp], crank).expect("crank_epoch");
+
+    // A program-owned ticket whose PDA belongs to a *different* vault.
+    let foreign_base = Address::new_unique();
+    let foreign_quote = Address::new_unique();
+    let (foreign_vault, _) = pda(
+        &[b"vault", foreign_base.as_ref(), foreign_quote.as_ref()],
+        &fixture.program_id,
+    );
+    let lp_address = to_address(keys.lp.pubkey());
+    let (foreign_ticket, foreign_bump) = pda(
+        &[b"wd", foreign_vault.as_ref(), lp_address.as_ref()],
+        &fixture.program_id,
+    );
+    let ticket = arbswap::WithdrawTicket {
+        owner: keys.lp.pubkey(),
+        shares,
+        epoch: 0,
+        bump: foreign_bump,
+    };
+    fixture
+        .svm
+        .set_account(
+            foreign_ticket,
+            solana_account::Account {
+                lamports: 1_000_000_000,
+                data: account_data(&ticket),
+                owner: fixture.program_id,
+                ..solana_account::Account::default()
+            },
+        )
+        .unwrap();
+
+    let claim = ix(
+        fixture.program_id,
+        arbswap::instruction::ClaimWithdraw {},
+        arbswap::accounts::ClaimWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            base_reserve: fixture.base_reserve,
+            quote_reserve: fixture.quote_reserve,
+            share_mint: fixture.share_mint,
+            share_lock: fixture.share_lock,
+            withdraw_ticket: foreign_ticket,
+            user_base: fixture.lp_base,
+            user_quote: fixture.lp_quote,
+            token_program: token_program_id(),
+        },
+    );
+    assert_anchor_error(
+        send(&mut fixture.svm, &[&keys.lp], claim),
+        "ConstraintSeeds",
+    );
+}
