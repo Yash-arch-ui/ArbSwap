@@ -25,6 +25,7 @@ target/deploy/*.json
 !/docs/P1_RESULTS.md
 !/docs/P1_SYNTHETIC.md
 !/docs/FORMULA.md
+!/docs/LEFTOVER_TASKS.md
 
 # Generated analytics output (dashboard, event dumps)
 simulation/analytics/out/
