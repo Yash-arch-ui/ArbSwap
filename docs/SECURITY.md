@@ -10,7 +10,7 @@ funds are not gated on it).
 | Phase | Verdict | Note |
 |---|---|---|
 | P0 | PASS | assumptions/CI green |
-| P1 | **PASS** (gate) | 997 golden vectors + decimal parity; honest ≥3-regime results. Caveat: synthetic flow **not calibrated** to the paper (quality, not a gate) |
+| P1 | **PASS** (completed) | B1 calibrated to the paper (markout −0.02 / half-spread 2.41 on W1, within tolerance); router + fill/volume share; honesty tolerance tables; real-flow + measured-vol window labels + injected jumps; pre/post-fix; operating envelope. Caveat: the pre-registered stress weeks measured mid/low vol (see open findings) |
 | P2 | PASS (local) | 75 Rust tests; anchor bound to oracle; per-window flow cap; devnet gate open |
 | P3 | PASS (core) | keeper/replay + bond/slash/reward + rotation; live RPC dry-run only |
 | P4 | **PASS** (gate) | dashboard reproduces E1-E4 from indexed events; `build` writes dashboard.html |
@@ -18,7 +18,7 @@ funds are not gated on it).
 | P6 | NOT DONE | not requested |
 
 ## Verification (this pass)
-`cargo test --workspace` **76 passed**; `pytest simulation` **153 passed**;
+`cargo test --workspace` **82 passed**; `pytest simulation` **161 passed**;
 `cargo fmt --check` + `clippy -D warnings` (incl. the program) clean; golden
 regen 997; keeper parity passes. The full held-out study was re-run after the
 capacity change (F-18): W1-calibrated frozen params, resulting regimes match the
