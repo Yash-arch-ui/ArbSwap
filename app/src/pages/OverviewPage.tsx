@@ -1,11 +1,70 @@
-import React from 'react';
-import { motion } from 'motion/react';
+import React, { useRef } from 'react';
+import {
+  motion,
+  useScroll,
+  useTransform,
+  type MotionValue,
+} from 'motion/react';
 import type { NavTab } from '../components/Navbar';
 import { useProtocol } from '../context/ProtocolContext';
 
 interface OverviewPageProps {
   onNavigate: (tab: NavTab) => void;
 }
+
+export const revealRange = (index: number, total: number): [number, number] => {
+  const start = (index / total) * 0.75;
+  return [start, start + 0.15];
+};
+
+interface WordItem {
+  text: string;
+  isEm?: boolean;
+}
+
+function RevealedWord({
+  word,
+  index,
+  total,
+  progress,
+}: {
+  word: WordItem;
+  index: number;
+  total: number;
+  progress: MotionValue<number>;
+}) {
+  const opacity = useTransform(progress, revealRange(index, total), [0.15, 1]);
+  return (
+    <motion.span
+      style={{
+        opacity,
+        color: word.isEm ? 'var(--uni-accent1)' : undefined,
+        fontStyle: word.isEm ? 'italic' : undefined,
+      }}
+    >
+      {word.text}{' '}
+    </motion.span>
+  );
+}
+
+const manifestoWords: WordItem[] = [
+  { text: "A" }, { text: "passive" }, { text: "AMM" }, { text: "only" }, { text: "changes" },
+  { text: "price" }, { text: "after" }, { text: "someone" }, { text: "trades" }, { text: "against" },
+  { text: "it." }, { text: "When" }, { text: "SOL" }, { text: "moves" }, { text: "on" },
+  { text: "external" }, { text: "markets," }, { text: "fast" }, { text: "arbitrageurs" }, { text: "extract" },
+  { text: "stale" }, { text: "liquidity." }, { text: "Passive" }, { text: "LPs" }, { text: "pay" },
+  { text: "this" }, { text: "cost" }, { text: "continuously." },
+  { text: "ArbSwap", isEm: true }, { text: "moves", isEm: true }, { text: "the", isEm: true },
+  { text: "quote", isEm: true }, { text: "first.", isEm: true },
+];
+
+const mechanicsWords: WordItem[] = [
+  { text: "The" }, { text: "pricing" }, { text: "engine" }, { text: "is" }, { text: "built" },
+  { text: "from" }, { text: "three" }, { text: "mathematical" }, { text: "pillars." },
+  { text: "An", isEm: true }, { text: "anchor", isEm: true }, { text: "ladder,", isEm: true },
+  { text: "a", isEm: true }, { text: "volatility", isEm: true }, { text: "throttle,", isEm: true },
+  { text: "and", isEm: true }, { text: "cryptographic", isEm: true }, { text: "guards.", isEm: true },
+];
 
 export const problemCards = [
   {
@@ -64,42 +123,238 @@ export const mechanicsPanels = [
   },
 ];
 
+/* =========================================================================
+   MATH.MD DERIVED GRAPH & PICTORIAL VISUALS FOR PROTOCOL PRINCIPLES
+   ========================================================================= */
+
+function VisualActiveRepricing() {
+  return (
+    <div className="principle-chart-box" aria-hidden="true">
+      <div className="bench-bars-wrap">
+        <div className="bench-row">
+          <div className="bench-meta">
+            <span className="mono">ARBSWAP KEEPER</span>
+            <b className="mono text-accent">~620 CU</b>
+          </div>
+          <div className="bench-track">
+            <div className="bench-fill keeper-bar" style={{ width: '12%' }} />
+          </div>
+        </div>
+        <div className="bench-row">
+          <div className="bench-meta">
+            <span className="mono">PASSIVE AMM SWAP</span>
+            <b className="mono text-muted">16,938 CU</b>
+          </div>
+          <div className="bench-track">
+            <div className="bench-fill passive-bar" style={{ width: '88%' }} />
+          </div>
+        </div>
+      </div>
+      <div className="bench-footer mono">
+        <span className="pulse-dot" /> 27.3× CHEAPER · REPRICE BEFORE ARBITRAGE
+      </div>
+    </div>
+  );
+}
+
+function VisualDynamicSpread() {
+  return (
+    <div className="principle-chart-box" aria-hidden="true">
+      <svg className="principle-svg" viewBox="0 0 240 70" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="spreadGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--uni-accent1)" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="var(--uni-accent1)" stopOpacity="0.0" />
+          </linearGradient>
+        </defs>
+        {/* Baseline s_floor line */}
+        <line x1="10" y1="52" x2="230" y2="52" stroke="var(--uni-surface3)" strokeDasharray="3 3" />
+        <text x="12" y="62" fill="var(--uni-neutral3)" fontSize="8" fontFamily="var(--uni-mono)">s_floor (5 bps)</text>
+        {/* Dynamic Spread Wave: Calm -> Jump Spike -> Calm */}
+        <path
+          d="M 10 50 Q 50 48, 80 44 Q 110 38, 130 18 Q 145 12, 160 22 Q 180 42, 230 48 L 230 65 L 10 65 Z"
+          fill="url(#spreadGrad)"
+        />
+        <path
+          d="M 10 50 Q 50 48, 80 44 Q 110 38, 130 18 Q 145 12, 160 22 Q 180 42, 230 48"
+          fill="none"
+          stroke="var(--uni-accent1)"
+          strokeWidth="2"
+        />
+        {/* Peak Callout */}
+        <circle cx="130" cy="18" r="3.5" fill="var(--uni-accent1)" />
+        <text x="136" y="18" fill="var(--uni-accent1)" fontSize="8.5" fontFamily="var(--uni-mono)">JUMP: ±48 bps</text>
+      </svg>
+      <div className="bench-footer mono">
+        s_raw = s_floor + a₁·σ + a₂·|q| + a₅·jump
+      </div>
+    </div>
+  );
+}
+
+function VisualProRataShares() {
+  return (
+    <div className="principle-chart-box" aria-hidden="true">
+      <div className="prorata-pool-grid">
+        <div className="pool-pillar">
+          <span className="mono pool-tag">SOL (B)</span>
+          <div className="pillar-bar">
+            <div className="pillar-fill sol-fill" style={{ height: '58%' }} />
+          </div>
+          <span className="mono pillar-val">50.0%</span>
+        </div>
+        <div className="pool-center-scale">
+          <span className="mono scale-formula">q = 0.00</span>
+          <div className="scale-needle" />
+          <span className="mono scale-sub">D-05 INVARIANT</span>
+        </div>
+        <div className="pool-pillar">
+          <span className="mono pool-tag">USDC (Q)</span>
+          <div className="pillar-bar">
+            <div className="pillar-fill usdc-fill" style={{ height: '58%' }} />
+          </div>
+          <span className="mono pillar-val">50.0%</span>
+        </div>
+      </div>
+      <div className="bench-footer mono">
+        NO ORACLE FOR DEPOSITS · ZERO ARBITRAGE SURFACE
+      </div>
+    </div>
+  );
+}
+
+function VisualEpochQueues() {
+  return (
+    <div className="principle-chart-box" aria-hidden="true">
+      <div className="epoch-track-wrap">
+        <div className="epoch-step done">
+          <span className="mono step-slot">Slot T</span>
+          <span className="step-node">●</span>
+          <span className="step-label mono">Deposit</span>
+        </div>
+        <div className="epoch-connecting-bar">
+          <span className="shield-tag mono">🛡️ 150 SLOTS WARMUP</span>
+        </div>
+        <div className="epoch-step active">
+          <span className="mono step-slot">Slot T+150</span>
+          <span className="step-node active-node">●</span>
+          <span className="step-label mono">Active LP</span>
+        </div>
+      </div>
+      <div className="bench-footer mono">
+        BLOCKS JUST-IN-TIME (JIT) SANDWICH FLOW
+      </div>
+    </div>
+  );
+}
+
+function VisualBoundedKeepers() {
+  return (
+    <div className="principle-chart-box" aria-hidden="true">
+      <svg className="principle-svg" viewBox="0 0 240 70" preserveAspectRatio="none">
+        {/* Corridor Upper Bound */}
+        <line x1="10" y1="16" x2="230" y2="16" stroke="var(--uni-critical)" strokeDasharray="3 3" strokeWidth="1.2" />
+        <text x="12" y="12" fill="var(--uni-critical)" fontSize="7.5" fontFamily="var(--uni-mono)">s_max = 100 bps (REVERT BOUND)</text>
+        {/* Corridor Lower Bound */}
+        <line x1="10" y1="56" x2="230" y2="56" stroke="var(--uni-accent1)" strokeDasharray="3 3" strokeWidth="1.2" />
+        <text x="12" y="65" fill="var(--uni-neutral3)" fontSize="7.5" fontFamily="var(--uni-mono)">s_min = 2 bps (MIN SPREAD)</text>
+        {/* Keeper safe trajectory */}
+        <path
+          d="M 15 42 L 55 42 L 55 34 L 105 34 L 105 26 L 155 26 L 155 38 L 205 38 L 225 38"
+          fill="none"
+          stroke="var(--uni-accent1)"
+          strokeWidth="2"
+        />
+        <circle cx="225" cy="38" r="3" fill="var(--uni-accent1)" />
+      </svg>
+      <div className="bench-footer mono">
+        ON-CHAIN BOUNDED · CLAMP(s, s_min, s_max)
+      </div>
+    </div>
+  );
+}
+
+function VisualMeasuredMarkouts() {
+  return (
+    <div className="principle-chart-box" aria-hidden="true">
+      <svg className="principle-svg" viewBox="0 0 240 70" preserveAspectRatio="none">
+        {/* Zero Markout Line */}
+        <line x1="10" y1="36" x2="230" y2="36" stroke="var(--uni-surface3)" strokeWidth="1" />
+        <text x="12" y="34" fill="var(--uni-neutral3)" fontSize="7.5" fontFamily="var(--uni-mono)">0.0 bps</text>
+        {/* ArbSwap (+0.38 bps at +2s) Climbing Line */}
+        <path
+          d="M 20 36 Q 70 36, 110 24 T 220 18"
+          fill="none"
+          stroke="var(--uni-accent1)"
+          strokeWidth="2.2"
+        />
+        <circle cx="220" cy="18" r="3" fill="var(--uni-accent1)" />
+        <text x="145" y="15" fill="var(--uni-accent1)" fontSize="8" fontFamily="var(--uni-mono)">+0.38 bps (ArbSwap)</text>
+        {/* Passive Pool (-0.23 bps) Declining Line */}
+        <path
+          d="M 20 36 Q 70 36, 110 48 T 220 54"
+          fill="none"
+          stroke="var(--uni-critical)"
+          strokeWidth="1.8"
+          strokeDasharray="4 2"
+        />
+        <text x="155" y="62" fill="var(--uni-critical)" fontSize="8" fontFamily="var(--uni-mono)">-0.23 bps (Passive)</text>
+      </svg>
+      <div className="bench-footer mono">
+        6-WEEK EMPIRICAL REPLAY · LVR REDUCED 86%
+      </div>
+    </div>
+  );
+}
+
 export const principles = [
   {
-    number: '01 · Active repricing',
+    number: '01 · ACTIVE REPRICING',
     title: 'Reprice without a trade.',
     line: 'A keeper writes small parameters on-chain for ~620 CU versus 16,938+ for a swap, keeping prices fresh before arbitrageurs strike.',
-    badge: '620 CU WRITE',
+    badge: 'MATH §2 · 620 CU WRITE',
+    formula: 'write_quote(P_res, s, q)',
+    visual: <VisualActiveRepricing />,
   },
   {
-    number: '02 · Dynamic spread',
+    number: '02 · DYNAMIC SPREAD',
     title: 'Spread widens with uncertainty.',
     line: 'Half-spreads scale with short-term volatility, inventory imbalance, and oracle confidence intervals, defending the book.',
-    badge: 'EWMA VOL ESTIMATOR',
+    badge: 'MATH §4 · EWMA VOL ESTIMATOR',
+    formula: 's_raw = s_floor + a₁·σ + a₂·|q|',
+    visual: <VisualDynamicSpread />,
   },
   {
-    number: '03 · Pro-rata shares',
+    number: '03 · PRO-RATA SHARES',
     title: 'Oracle-free accounting.',
     line: 'Deposits and withdrawals are proportional in both tokens (v2-style), eliminating first-depositor and oracle-arbitrage manipulation surfaces.',
-    badge: 'DECISION D-05',
+    badge: 'MATH §2 · DECISION D-05',
+    formula: 'shares = min(dx·S/B, dy·S/Q)',
+    visual: <VisualProRataShares />,
   },
   {
-    number: '04 · Epoch queues',
+    number: '04 · EPOCH QUEUES',
     title: 'Block phantom liquidity.',
     line: '150-slot deposit warm-up and epoch withdrawal queues prevent just-in-time liquidity and frontrunning volatility jumps.',
-    badge: '150-SLOT WARMUP',
+    badge: 'MATH §7 · 150-SLOT WARMUP',
+    formula: 'warmup_delay = 150 slots',
+    visual: <VisualEpochQueues />,
   },
   {
-    number: '05 · Bounded keepers',
+    number: '05 · BOUNDED KEEPERS',
     title: 'Rule-bound execution.',
     line: 'The on-chain program validates bounds, staleness, and step caps. The keeper provides timeliness, but cannot set prices outside config.',
-    badge: 'BONDED KEEPER',
+    badge: 'MATH §4 · BONDED KEEPER',
+    formula: 'clamp(s_raw, s_min, s_max)',
+    visual: <VisualBoundedKeepers />,
   },
   {
-    number: '06 · Measured markouts',
+    number: '06 · MEASURED MARKOUTS',
     title: 'Empirical verification.',
     line: 'Pre-registered evaluation on 6 weeks of 1-second price paths confirms positive 2-second markouts (+0.38 bps) and 86% LVR reduction.',
-    badge: 'P1 REPLAY PROVEN',
+    badge: 'MATH §6 · P1 REPLAY PROVEN',
+    formula: 'Markout(t+2s) = +0.38 bps',
+    visual: <VisualMeasuredMarkouts />,
   },
 ];
 
@@ -112,6 +367,19 @@ const inView = {
 
 export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
   const { quoteState, vaultState } = useProtocol();
+
+  // Scroll targets for word-by-word reveal animations
+  const manifestoRef = useRef<HTMLParagraphElement>(null);
+  const { scrollYProgress: manifestoProgress } = useScroll({
+    target: manifestoRef,
+    offset: ["start 85%", "end 50%"],
+  });
+
+  const mechanicsRef = useRef<HTMLHeadingElement>(null);
+  const { scrollYProgress: mechanicsProgress } = useScroll({
+    target: mechanicsRef,
+    offset: ["start 85%", "end 50%"],
+  });
 
   return (
     <div className="overview-container">
@@ -151,11 +419,50 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
               Explore Vault →
             </button>
           </div>
+
+          <div className="scroll-cue" aria-hidden="true">
+            <span>scroll</span>
+            <i />
+          </div>
         </div>
       </section>
 
+      {/* 2. INFINITE SCROLLING TICKER / MARQUEE */}
+      <div className="protocol-ticker-wrap" aria-hidden="true">
+        <div className="protocol-ticker-track">
+          <span>ARBSWAP ON-CHAIN PROPAMM</span>
+          <span className="ticker-bullet">·</span>
+          <span>~620 COMPUTE UNITS PER UPDATE</span>
+          <span className="ticker-bullet">·</span>
+          <span>0.00 BPS QUOTE-VERSUS-FILL GAP</span>
+          <span className="ticker-bullet">·</span>
+          <span>LVR DEPTH THROTTLED BY σ²</span>
+          <span className="ticker-bullet">·</span>
+          <span>PYTH HIGH-PRECISION ORACLE</span>
+          <span className="ticker-bullet">·</span>
+          <span>150-SLOT LIQUIDITY WARM-UP</span>
+          <span className="ticker-bullet">·</span>
+          <span>+0.38 BPS EMPIRICAL MARKOUT</span>
+          <span className="ticker-bullet">·</span>
+          {/* Loop duplicate */}
+          <span>ARBSWAP ON-CHAIN PROPAMM</span>
+          <span className="ticker-bullet">·</span>
+          <span>~620 COMPUTE UNITS PER UPDATE</span>
+          <span className="ticker-bullet">·</span>
+          <span>0.00 BPS QUOTE-VERSUS-FILL GAP</span>
+          <span className="ticker-bullet">·</span>
+          <span>LVR DEPTH THROTTLED BY σ²</span>
+          <span className="ticker-bullet">·</span>
+          <span>PYTH HIGH-PRECISION ORACLE</span>
+          <span className="ticker-bullet">·</span>
+          <span>150-SLOT LIQUIDITY WARM-UP</span>
+          <span className="ticker-bullet">·</span>
+          <span>+0.38 BPS EMPIRICAL MARKOUT</span>
+          <span className="ticker-bullet">·</span>
+        </div>
+      </div>
 
-      {/* 2. LIVE METRICS RIBBON */}
+      {/* 3. LIVE METRICS RIBBON */}
       <section className="metrics-ribbon">
         <div className="metrics-ribbon-grid">
           <div className="ribbon-card">
@@ -181,15 +488,23 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* 3. MANIFESTO STATEMENT */}
-      <section className="manifesto-section">
+      {/* 4. MANIFESTO / THESIS WITH WORD-BY-WORD SCROLL REVEAL */}
+      <section className="manifesto-section" aria-labelledby="thesis-title">
         <p className="section-index">/ 01 · The Thesis</p>
-        <p className="manifesto-statement">
-          "A passive AMM only changes price after someone trades against it. When SOL moves on Binance, fast arbitrageurs buy cheap tokens from the pool and sell elsewhere. The people who deposited funds pay for this. <em>ArbSwap moves the quote first.</em>"
+        <p ref={manifestoRef} id="thesis-title" className="manifesto-statement">
+          {manifestoWords.map((word, index) => (
+            <RevealedWord
+              key={`${word.text}-${index}`}
+              word={word}
+              index={index}
+              total={manifestoWords.length}
+              progress={manifestoProgress}
+            />
+          ))}
         </p>
       </section>
 
-      {/* 4. THE PROBLEM COMPARISON */}
+      {/* 5. THE PROBLEM COMPARISON */}
       <section className="problem-section" id="problem">
         <div className="problem-heading">
           <p className="section-index">/ 02 · The Problem</p>
@@ -219,13 +534,21 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* 5. MECHANICS SECTION */}
+      {/* 6. MECHANICS SECTION WITH SCROLL-REVEALED STATEMENT */}
       <section className="geometry-section" id="mechanics">
         <div className="geometry-heading">
           <p className="section-index">/ 03 · Mechanics & Core Math</p>
           <div className="geometry-statement">
-            <h2>
-              The pricing engine is built from three established models. <em>An anchor ladder, an LVR throttle, and cryptographic guards.</em>
+            <h2 ref={mechanicsRef} id="mechanics-title">
+              {mechanicsWords.map((word, index) => (
+                <RevealedWord
+                  key={`${word.text}-${index}`}
+                  word={word}
+                  index={index}
+                  total={mechanicsWords.length}
+                  progress={mechanicsProgress}
+                />
+              ))}
             </h2>
           </div>
         </div>
@@ -263,11 +586,17 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           {principles.map((pr, i) => (
             <motion.article className="principle-card" key={i} {...inView}>
               <div className="principle-visual-box">
-                <span className="badge badge-neutral mono">{pr.badge}</span>
+                {pr.visual}
               </div>
-              <p className="card-number">{pr.number}</p>
+              <div className="principle-meta-row">
+                <span className="card-number">{pr.number}</span>
+                <span className="principle-badge mono">{pr.badge}</span>
+              </div>
               <h3>{pr.title}</h3>
-              <p>{pr.line}</p>
+              <p className="principle-line">{pr.line}</p>
+              <div className="principle-formula-pill mono">
+                <code>{pr.formula}</code>
+              </div>
             </motion.article>
           ))}
         </div>
@@ -348,54 +677,106 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         .overview-container {
           display: flex;
           flex-direction: column;
-          gap: 120px;
-          padding-bottom: 60px;
+          gap: 130px;
+          padding-bottom: 80px;
+        }
+
+        .section-index {
+          font: 500 10.5px var(--uni-mono);
+          letter-spacing: 0.28em;
+          text-transform: uppercase;
+          color: var(--uni-neutral3);
+          display: block;
+          margin-bottom: 26px;
         }
 
         /* Hero */
         .hero {
           position: relative;
           display: grid;
-          min-height: 85svh;
+          min-height: 90svh;
           place-items: center;
           text-align: center;
-          padding: 80px 20px 40px;
+          padding: 100px 24px 60px;
           overflow: hidden;
         }
         .hero-content {
           position: relative;
           z-index: 2;
-          max-width: 960px;
+          max-width: 1080px;
           margin: 0 auto;
         }
+        .eyebrow {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          margin-bottom: 28px;
+          font: 500 10.5px var(--uni-mono);
+          letter-spacing: 0.28em;
+          text-transform: uppercase;
+          color: var(--uni-neutral3);
+        }
+        .eyebrow b {
+          width: 6px;
+          height: 6px;
+          border-radius: 99px;
+          background: var(--uni-accent1);
+          box-shadow: 0 0 10px var(--uni-accent1);
+        }
+        .eyebrow span {
+          opacity: 0.45;
+        }
         .hero-title {
-          font-size: clamp(3.2rem, 7vw, 6.4rem);
+          font-size: clamp(4rem, 8.5vw, 8.6rem);
           font-weight: 500;
-          letter-spacing: -0.04em;
-          line-height: 0.95;
-          margin: 0 auto 24px;
-          max-width: 14ch;
+          letter-spacing: -0.08em;
+          line-height: 0.89;
+          margin: 0 auto 30px;
+          max-width: 13ch;
         }
         .hero-lead {
-          max-width: 62ch;
-          margin: 0 auto 28px;
+          max-width: 54ch;
+          margin: 0 auto 32px;
           color: var(--uni-neutral2);
-          font-size: clamp(16px, 1.6vw, 19px);
+          font-size: clamp(16px, 1.6vw, 20px);
           line-height: 1.65;
         }
         .hero-live {
           color: var(--uni-neutral3);
-          font: 12px var(--uni-mono);
-          letter-spacing: 0.08em;
+          font: 11px var(--uni-mono);
+          letter-spacing: 0.12em;
           text-transform: uppercase;
-          margin-bottom: 34px;
+          margin-bottom: 38px;
         }
         .hero-actions {
           display: flex;
           justify-content: center;
           align-items: center;
-          gap: 16px;
+          gap: 20px;
           flex-wrap: wrap;
+        }
+
+        .scroll-cue {
+          margin: 50px auto 0;
+          display: inline-grid;
+          justify-items: center;
+          gap: 10px;
+          color: var(--uni-neutral3);
+          font: 10px var(--uni-mono);
+          letter-spacing: 0.28em;
+          text-transform: uppercase;
+          pointer-events: none;
+        }
+        .scroll-cue i {
+          width: 1px;
+          height: 38px;
+          background: linear-gradient(var(--uni-neutral3), transparent);
+          animation: cue-pulse 2s ease-in-out infinite;
+        }
+        @keyframes cue-pulse {
+          0%, 100% { opacity: 0.3; transform: scaleY(0.7); }
+          50% { opacity: 1; transform: scaleY(1); }
         }
 
         /* Primary CTA — solid filled */
@@ -403,13 +784,15 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          padding: 14px 28px;
-          border-radius: 100px;
-          font-size: 15px;
-          font-weight: 600;
-          transition: background 0.15s, transform 0.12s, box-shadow 0.15s;
+          padding: 15px 30px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.19em;
+          text-transform: uppercase;
+          transition: background 0.25s, color 0.25s, transform 0.25s, box-shadow 0.25s;
           cursor: pointer;
-          border: none;
+          border: 1px solid var(--uni-accent1);
         }
         .button-solid {
           background: var(--uni-accent1);
@@ -418,8 +801,8 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         }
         .button-solid:hover {
           background: var(--uni-accent1-hover);
-          box-shadow: 0 0 32px rgba(0, 229, 176, 0.4);
-          transform: translateY(-1px);
+          box-shadow: 0 0 36px rgba(0, 229, 176, 0.45);
+          transform: translateY(-2px);
         }
         .button-solid:active {
           transform: translateY(0);
@@ -430,20 +813,52 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          padding: 14px 20px;
-          border-radius: 100px;
-          font-size: 15px;
-          font-weight: 500;
+          padding-bottom: 7px;
+          border-bottom: 1px solid var(--uni-neutral3);
+          font: 500 11px var(--uni-mono);
+          letter-spacing: 0.17em;
+          text-transform: uppercase;
           color: var(--uni-neutral2);
-          border: 1px solid var(--uni-surface3);
           background: transparent;
-          transition: color 0.15s, border-color 0.15s, background 0.15s;
+          transition: color 0.2s, border-color 0.2s;
           cursor: pointer;
         }
         .underlink:hover {
           color: var(--uni-neutral1);
-          border-color: rgba(255, 255, 255, 0.25);
-          background: var(--uni-surface2);
+          border-bottom-color: var(--uni-neutral1);
+        }
+
+        /* Continuous Infinite Ticker Marquee */
+        .protocol-ticker-wrap {
+          width: 100vw;
+          margin-left: calc(-50vw + 50%);
+          margin-right: calc(-50vw + 50%);
+          overflow: hidden;
+          border-top: 1px dashed var(--uni-surface3);
+          border-bottom: 1px dashed var(--uni-surface3);
+          background: color-mix(in srgb, var(--uni-neutral1) 1.5%, transparent);
+          padding: 14px 0;
+          white-space: nowrap;
+          user-select: none;
+        }
+        .protocol-ticker-track {
+          display: inline-flex;
+          align-items: center;
+          gap: 28px;
+          animation: ticker-slide 34s linear infinite;
+          font-family: var(--uni-mono);
+          font-size: 11px;
+          letter-spacing: 0.22em;
+          text-transform: uppercase;
+          color: var(--uni-neutral2);
+        }
+        .ticker-bullet {
+          color: var(--uni-accent1);
+          opacity: 0.7;
+        }
+        @keyframes ticker-slide {
+          from { transform: translateX(0); }
+          to { transform: translateX(-50%); }
         }
 
         /* Metrics Ribbon */
@@ -456,47 +871,48 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           gap: 16px;
         }
         .ribbon-card {
-          padding: 24px;
+          padding: 28px;
           border: 1px solid var(--uni-surface3);
-          border-radius: 20px;
+          border-radius: 24px;
           background: var(--uni-surface1);
           display: flex;
           flex-direction: column;
           gap: 6px;
+          transition: border-color 0.2s;
+        }
+        .ribbon-card:hover {
+          border-color: rgba(255, 255, 255, 0.22);
         }
         .ribbon-label {
-          font-size: 11px;
+          font-size: 10.5px;
           font-family: var(--uni-mono);
           text-transform: uppercase;
-          color: var(--uni-neutral2);
-          letter-spacing: 0.1em;
+          color: var(--uni-neutral3);
+          letter-spacing: 0.15em;
         }
         .ribbon-val {
-          font-size: 28px;
+          font-size: 32px;
           font-weight: 600;
+          letter-spacing: -0.03em;
         }
         .ribbon-sub {
-          font-size: 12px;
+          font-size: 12.5px;
           color: var(--uni-neutral2);
         }
 
-        /* Manifesto */
+        /* Manifesto Statement with Word-by-Word Reveal */
         .manifesto-section {
-          padding: 60px 0;
+          padding: clamp(70px, 9vw, 130px) 0;
           border-top: 1px solid var(--uni-surface3);
           border-bottom: 1px solid var(--uni-surface3);
         }
         .manifesto-statement {
-          max-width: 48ch;
-          font-size: clamp(24px, 3.2vw, 38px);
-          font-weight: 400;
-          line-height: 1.25;
-          letter-spacing: -0.025em;
+          max-width: 34ch;
+          font-size: clamp(2.6rem, 5vw, 5.2rem);
+          font-weight: 500;
+          line-height: 1.05;
+          letter-spacing: -0.05em;
           color: var(--uni-neutral1);
-        }
-        .manifesto-statement em {
-          color: var(--uni-accent1);
-          font-style: normal;
         }
 
         /* Problem Section */
@@ -504,25 +920,27 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           padding: 40px 0 0;
         }
         .problem-heading {
-          max-width: 840px;
-          margin-bottom: 48px;
+          max-width: 1120px;
+          margin-bottom: 64px;
         }
         .problem-heading h2 {
-          font-size: clamp(32px, 5vw, 56px);
+          font-size: clamp(3.4rem, 6.4vw, 7.2rem);
           font-weight: 500;
-          letter-spacing: -0.03em;
-          line-height: 1.05;
-          margin-bottom: 16px;
+          letter-spacing: -0.08em;
+          line-height: 0.9;
+          margin-bottom: 24px;
+          max-width: 15ch;
         }
         .problem-heading h2 em {
           color: var(--uni-neutral2);
-          font-style: normal;
+          font-style: italic;
+          font-weight: 500;
         }
         .problem-heading p {
           color: var(--uni-neutral2);
-          font-size: 16px;
-          line-height: 1.6;
-          max-width: 58ch;
+          font-size: clamp(15px, 1.5vw, 18px);
+          line-height: 1.65;
+          max-width: 56ch;
         }
         .problem-grid, .geometry-grid {
           display: grid;
@@ -532,120 +950,423 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         .problem-card, .geometry-panel {
           display: flex;
           flex-direction: column;
-          min-height: 480px;
-          padding: 32px;
+          min-height: 560px;
+          padding: 34px;
           border: 1px solid var(--uni-surface3);
-          border-radius: 20px;
-          background: var(--uni-surface1);
-          transition: border-color 0.2s, background 0.2s;
+          border-radius: 26px;
+          background: color-mix(in srgb, var(--uni-neutral1) 3%, transparent);
+          transition: border-color 0.25s, background 0.25s, transform 0.25s;
         }
         .problem-card:hover, .geometry-panel:hover {
-          border-color: rgba(255, 255, 255, 0.2);
-          background: var(--uni-surface1-hover);
+          border-color: rgba(255, 255, 255, 0.24);
+          background: color-mix(in srgb, var(--uni-neutral1) 4.8%, transparent);
+          transform: translateY(-3px);
+        }
+        .card-rule {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          margin: -34px -34px 38px;
+          padding: 20px 34px;
+          border-bottom: 1px dashed var(--uni-surface3);
+          font: 10px var(--uni-mono);
+          letter-spacing: 0.17em;
+          text-transform: uppercase;
+          color: var(--uni-neutral3);
         }
         .problem-card h3, .geometry-panel h3 {
-          font-size: clamp(24px, 2.5vw, 32px);
+          font-size: clamp(2.6rem, 4vw, 4.2rem);
           font-weight: 500;
-          letter-spacing: -0.025em;
+          letter-spacing: -0.07em;
+          line-height: 0.95;
+          margin-bottom: 26px;
+        }
+        .equation {
+          display: grid;
+          min-height: 90px;
+          margin: 0 0 32px;
+          padding: 20px;
+          place-items: center;
+          border: 1px dashed var(--uni-surface3);
+          border-radius: 14px;
+          font-size: clamp(1.6rem, 2.3vw, 2.5rem);
+          text-align: center;
+        }
+        .problem-lead {
+          font-size: clamp(18px, 1.7vw, 23px);
+          letter-spacing: -0.035em;
+          line-height: 1.25;
+          color: var(--uni-neutral1);
           margin-bottom: 24px;
         }
         .card-footer-note {
           margin-top: auto;
-          padding-top: 20px;
+          padding-top: 22px;
           border-top: 1px dashed var(--uni-surface3);
-          font-size: 12px;
+          font-size: 12.5px;
           color: var(--uni-neutral2);
         }
 
         /* Geometry mechanics */
+        .geometry-statement {
+          max-width: 1120px;
+          margin: 0 0 54px;
+        }
         .geometry-statement h2 {
-          font-size: clamp(26px, 3.8vw, 46px);
+          font-size: clamp(3.2rem, 6vw, 6.8rem);
           font-weight: 500;
-          letter-spacing: -0.025em;
-          line-height: 1.15;
-          margin: 16px 0 48px;
+          letter-spacing: -0.075em;
+          line-height: 0.94;
+          max-width: 19ch;
+          color: var(--uni-neutral1);
         }
 
         /* Protocol 6-card grid */
+        .protocol-section h2 {
+          font-size: clamp(3.4rem, 6.4vw, 7.2rem);
+          font-weight: 500;
+          letter-spacing: -0.08em;
+          line-height: 0.9;
+          margin-bottom: 24px;
+        }
+        .protocol-section h2 em {
+          color: var(--uni-neutral2);
+          font-style: italic;
+          font-weight: 500;
+        }
         .principle-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
+          gap: 20px;
         }
         .principle-card {
           display: flex;
           flex-direction: column;
-          padding: 28px;
+          padding: 30px;
           border: 1px solid var(--uni-surface3);
-          border-radius: 20px;
-          background: var(--uni-surface1);
-          min-height: 300px;
+          border-radius: 26px;
+          background: color-mix(in srgb, var(--uni-neutral1) 3%, transparent);
+          min-height: 480px;
+          transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+          overflow: hidden;
         }
+        .principle-card:hover {
+          transform: translateY(-4px);
+          border-color: rgba(255, 255, 255, 0.25);
+          box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Top Pictorial & Graph Visual Box */
         .principle-visual-box {
-          height: 44px;
+          height: 145px;
+          margin: -30px -30px 22px;
+          padding: 16px 20px;
+          border-bottom: 1px dashed var(--uni-surface3);
+          background: color-mix(in srgb, var(--uni-neutral1) 1.5%, transparent);
           display: flex;
           align-items: center;
-          margin-bottom: 16px;
+          justify-content: center;
+          position: relative;
+          overflow: hidden;
         }
-        .card-number {
-          font: 11px var(--uni-mono);
+        .principle-chart-box {
+          width: 100%;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+        }
+        .principle-svg {
+          width: 100%;
+          height: 78px;
+          overflow: visible;
+        }
+
+        /* Benchmark Bars (Card 1) */
+        .bench-bars-wrap {
+          display: flex;
+          flex-direction: column;
+          gap: 9px;
+          margin-top: 4px;
+        }
+        .bench-row {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+        }
+        .bench-meta {
+          display: flex;
+          justify-content: space-between;
+          font-size: 9.5px;
+          letter-spacing: 0.1em;
+          color: var(--uni-neutral3);
+        }
+        .bench-track {
+          height: 10px;
+          background: var(--uni-surface2);
+          border-radius: 5px;
+          overflow: hidden;
+          border: 1px solid var(--uni-surface3);
+        }
+        .bench-fill {
+          height: 100%;
+          border-radius: 5px;
+          transition: width 0.4s ease;
+        }
+        .keeper-bar {
+          background: var(--uni-accent1);
+          box-shadow: 0 0 10px var(--uni-accent1);
+        }
+        .passive-bar {
+          background: var(--uni-critical);
+          opacity: 0.8;
+        }
+        .bench-footer {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          font-size: 9px;
+          letter-spacing: 0.12em;
           color: var(--uni-neutral3);
           text-transform: uppercase;
+          border-top: 1px dashed rgba(255, 255, 255, 0.08);
+          padding-top: 6px;
+        }
+        .pulse-dot {
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: var(--uni-accent1);
+          box-shadow: 0 0 8px var(--uni-accent1);
+          animation: cue-pulse 1.8s infinite;
+        }
+
+        /* Pro-rata Twin Pool Pillar (Card 3) */
+        .prorata-pool-grid {
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          align-items: center;
+          gap: 12px;
+          height: 80px;
+        }
+        .pool-pillar {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+        }
+        .pool-tag {
+          font-size: 9px;
+          color: var(--uni-neutral3);
           letter-spacing: 0.1em;
-          margin-bottom: 8px;
+        }
+        .pillar-bar {
+          width: 32px;
+          height: 48px;
+          background: var(--uni-surface2);
+          border: 1px solid var(--uni-surface3);
+          border-radius: 6px;
+          display: flex;
+          align-items: flex-end;
+          overflow: hidden;
+        }
+        .pillar-fill {
+          width: 100%;
+          border-radius: 4px 4px 0 0;
+        }
+        .sol-fill {
+          background: linear-gradient(to top, #9945FF, #14F195);
+        }
+        .usdc-fill {
+          background: linear-gradient(to top, #2775CA, #5495E6);
+        }
+        .pillar-val {
+          font-size: 9.5px;
+          color: var(--uni-neutral2);
+        }
+        .pool-center-scale {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 3px;
+        }
+        .scale-formula {
+          font-size: 11px;
+          color: var(--uni-accent1);
+          font-weight: 600;
+        }
+        .scale-needle {
+          width: 24px;
+          height: 2px;
+          background: var(--uni-accent1);
+          box-shadow: 0 0 6px var(--uni-accent1);
+        }
+        .scale-sub {
+          font-size: 8px;
+          color: var(--uni-neutral3);
+          letter-spacing: 0.08em;
+        }
+
+        /* Epoch Timeline (Card 4) */
+        .epoch-track-wrap {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px 4px;
+          height: 80px;
+        }
+        .epoch-step {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 3px;
+        }
+        .step-slot {
+          font-size: 8.5px;
+          color: var(--uni-neutral3);
+          letter-spacing: 0.08em;
+        }
+        .step-node {
+          font-size: 12px;
+          color: var(--uni-neutral3);
+        }
+        .active-node {
+          color: var(--uni-accent1);
+          text-shadow: 0 0 8px var(--uni-accent1);
+        }
+        .step-label {
+          font-size: 9.5px;
+          color: var(--uni-neutral2);
+        }
+        .epoch-connecting-bar {
+          flex: 1;
+          margin: 0 8px;
+          height: 22px;
+          border: 1px dashed var(--uni-surface3);
+          background: color-mix(in srgb, var(--uni-neutral1) 2%, transparent);
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .shield-tag {
+          font-size: 8px;
+          letter-spacing: 0.1em;
+          color: var(--uni-accent1);
+        }
+
+        /* Principle Metadata & Typography */
+        .principle-meta-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+        .card-number {
+          font: 500 10.5px var(--uni-mono);
+          color: var(--uni-neutral3);
+          text-transform: uppercase;
+          letter-spacing: 0.16em;
+          margin: 0;
+        }
+        .principle-badge {
+          font-size: 9px;
+          letter-spacing: 0.12em;
+          color: var(--uni-accent1);
+          background: var(--uni-accent2);
+          border: 1px solid rgba(0, 229, 176, 0.25);
+          padding: 3px 8px;
+          border-radius: 100px;
         }
         .principle-card h3 {
-          font-size: 20px;
+          font-size: clamp(1.8rem, 2.5vw, 2.5rem);
           font-weight: 500;
-          margin-bottom: 10px;
+          letter-spacing: -0.055em;
+          line-height: 1.02;
+          margin-bottom: 14px;
+          color: var(--uni-neutral1);
         }
-        .principle-card p:last-child {
+        .principle-line {
           font-size: 14px;
-          line-height: 1.6;
+          line-height: 1.62;
           color: var(--uni-neutral2);
+          margin-bottom: 20px;
+          flex: 1;
+        }
+        .principle-formula-pill {
+          margin-top: auto;
+          padding: 8px 14px;
+          border-radius: 10px;
+          background: var(--uni-surface2);
+          border: 1px dashed var(--uni-surface3);
+          font-size: 11px;
+          color: var(--uni-accent1);
+          letter-spacing: 0.05em;
+          width: fit-content;
+        }
+        .principle-formula-pill code {
+          font-family: var(--uni-mono);
         }
 
         /* Modules */
+        .modules-section h2 {
+          font-size: clamp(3.4rem, 6.4vw, 7.2rem);
+          font-weight: 500;
+          letter-spacing: -0.08em;
+          line-height: 0.9;
+          margin-bottom: 24px;
+        }
+        .modules-section h2 em {
+          color: var(--uni-neutral2);
+          font-style: italic;
+          font-weight: 500;
+        }
         .modules-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          gap: 16px;
+          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          gap: 18px;
         }
         .module-box {
-          padding: 28px;
+          padding: 34px;
           border: 1px solid var(--uni-surface3);
-          border-radius: 20px;
-          background: var(--uni-surface1);
+          border-radius: 26px;
+          background: color-mix(in srgb, var(--uni-neutral1) 3%, transparent);
           cursor: pointer;
           display: flex;
           flex-direction: column;
-          transition: all 0.2s ease;
+          transition: all 0.25s ease;
         }
         .module-box:hover {
           border-color: var(--uni-accent1);
-          transform: translateY(-2px);
-          background: var(--uni-surface1-hover);
+          transform: translateY(-4px);
+          background: color-mix(in srgb, var(--uni-accent1) 6%, transparent);
         }
         .module-tag {
           font-size: 11px;
           color: var(--uni-accent1);
-          margin-bottom: 8px;
+          letter-spacing: 0.14em;
+          margin-bottom: 12px;
         }
         .module-box h3 {
-          font-size: 20px;
+          font-size: clamp(1.8rem, 2.4vw, 2.6rem);
           font-weight: 500;
-          margin-bottom: 8px;
+          letter-spacing: -0.05em;
+          line-height: 1;
+          margin-bottom: 12px;
         }
         .module-box p {
-          font-size: 13.5px;
-          line-height: 1.6;
+          font-size: 14px;
+          line-height: 1.62;
           color: var(--uni-neutral2);
-          margin-bottom: 20px;
+          margin-bottom: 24px;
         }
         .module-link {
           margin-top: auto;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 600;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
           color: var(--uni-accent1);
         }
 
@@ -653,11 +1374,11 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         .gateway-section {
           position: relative;
           display: grid;
-          min-height: 60svh;
+          min-height: 70svh;
           place-items: center;
           text-align: center;
           overflow: hidden;
-          padding: 80px 20px;
+          padding: 110px 24px;
           border-top: 1px solid var(--uni-surface3);
         }
         .gateway-bg-text {
@@ -665,44 +1386,50 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           top: 50%;
           left: 50%;
           transform: translate(-50%, -50%);
-          font-size: clamp(6rem, 18vw, 20rem);
-          font-weight: 700;
+          font-size: clamp(8rem, 20vw, 24rem);
+          font-weight: 600;
           color: transparent;
           -webkit-text-stroke: 1px rgba(255, 255, 255, 0.04);
           pointer-events: none;
-          letter-spacing: -0.05em;
+          letter-spacing: -0.1em;
+          white-space: nowrap;
+          user-select: none;
         }
         .gateway-content {
           position: relative;
           z-index: 2;
-          max-width: 640px;
+          max-width: 820px;
         }
         .gateway-content h2 {
-          font-size: clamp(34px, 5vw, 56px);
+          font-size: clamp(3.2rem, 6.2vw, 6.6rem);
           font-weight: 500;
-          letter-spacing: -0.03em;
-          margin: 12px 0 16px;
+          letter-spacing: -0.07em;
+          line-height: 0.94;
+          margin: 14px 0 20px;
         }
         .gateway-content h2 em {
           color: var(--uni-neutral2);
-          font-style: normal;
+          font-style: italic;
+          font-weight: 500;
         }
         .gateway-content p {
           color: var(--uni-neutral2);
-          font-size: 16px;
-          line-height: 1.6;
-          margin-bottom: 32px;
+          font-size: clamp(16px, 1.6vw, 19px);
+          line-height: 1.65;
+          margin-bottom: 38px;
         }
 
         /* Footer */
         .site-footer {
           border-top: 1px solid var(--uni-surface3);
-          padding-top: 28px;
+          padding-top: 32px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          color: var(--uni-neutral2);
-          font-size: 13px;
+          color: var(--uni-neutral3);
+          font: 11px var(--uni-mono);
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
         }
 
         @media (max-width: 900px) {
@@ -714,7 +1441,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           }
           .site-footer {
             flex-direction: column;
-            gap: 12px;
+            gap: 14px;
             text-align: center;
           }
         }
