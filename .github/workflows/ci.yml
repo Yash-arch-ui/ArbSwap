@@ -28,13 +28,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install -r research/requirements.txt
+        run: pip install -r simulation/requirements.txt
       - name: Tests
-        run: pytest research analytics -q
+        run: pytest simulation -q
       - name: Golden vectors are in sync with the Python reference
         run: |
-          python -m research.reference.golden
-          git diff --exit-code -- crates/arb-math/tests/golden_vectors.txt
+          python -m simulation.reference.golden
+          git diff --exit-code -- vault/math/tests/golden_vectors.txt
 
   anchor:
     runs-on: ubuntu-latest

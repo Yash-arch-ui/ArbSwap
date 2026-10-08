@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOURCE="${1:-$ROOT/research/data/raw/binance_SOLUSDT_1s.csv}"
+SOURCE="${1:-$ROOT/simulation/data/raw/binance_SOLUSDT_1s.csv}"
 
 cd "$ROOT"
 # Rust consumes the P1 Binance-style timestamp/price CSV directly. Python

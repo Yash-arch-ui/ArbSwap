@@ -1,0 +1,256 @@
+"""P1 synthetic + ad-hoc results generator (T1.5 + T1.6 + E5/E6/E9).
+
+Calibrates the heuristic coefficients walk-forward, freezes them, then evaluates
+B1/B2/B3/B4 and the full ArbSwap vault on the held-out segment and writes
+``docs/P1_SYNTHETIC.md``. Results are reported honestly: losing regimes, the
+synthetic-data limitation, and the honest-execution fill-rate cost are stated in
+the output.
+
+This is the *synthetic / exploratory* generator. The canonical held-out result
+is produced by ``simulation.sim.study`` (the pre-registered protocol) and written
+to ``docs/P1_RESULTS.md``; the two deliberately use different output paths so
+one cannot overwrite the other.
+
+Run::
+
+    python -m simulation.sim.report                      # synthetic regimes
+    python -m simulation.sim.report --real PATH.csv      # add a real-data section
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+from simulation.reference.quote_math import QuoteParams
+from simulation.sim.calibrate import objective, walk_forward_folds
+from simulation.sim.experiments import (
+    VENUE_ORDER,
+    VenueReport,
+    e1_lvr_reduction,
+    run_venues,
+)
+from simulation.sim.flow import InformedFlow, NoiseFlow
+from simulation.sim.metrics import realized_volatility_per_sqrt_second
+from simulation.sim.price_source import (
+    REGIME_ANNUAL_VOL,
+    Regime,
+    load_price_csv,
+    split_windows,
+    synthetic_series,
+)
+
+REGIMES: tuple[Regime, ...] = ("calm", "trend", "crash")
+
+
+def _calibrate(points, *, folds: int = 2) -> QuoteParams:
+    """Small walk-forward grid search; freeze the parameters chosen on train."""
+    base = QuoteParams()
+    folds_data = walk_forward_folds(points, folds=folds)
+    chosen = base
+    noise = NoiseFlow(seed=20261006)
+    informed = InformedFlow()
+    for fold in folds_data:
+        candidates: list[QuoteParams] = []
+        for floor in (0.00005, 0.0001, 0.0002):
+            for inv in (0.0002, 0.0005, 0.001):
+                for vol in (0.5, 1.0, 2.0):
+                    for sigma_target in (0.00005, 0.0001, 0.0002):
+                        candidates.append(
+                            replace(
+                                base,
+                                spread_floor=floor,
+                                spread_min=min(base.spread_min, floor),
+                                inventory_coeff=inv,
+                                volatility_coeff=vol,
+                                sigma_target=sigma_target,
+                            )
+                        )
+        scored = [
+            (params, objective(params, fold.train, noise=noise, informed=informed))
+            for params in candidates
+        ]
+        chosen = max(scored, key=lambda pair: pair[1])[0]
+    return chosen
+
+
+def _evaluate(points, params: QuoteParams, *, seed: int,
+              passive_fee: float = 0.0001) -> dict[str, VenueReport]:
+    return run_venues(points, params=params, seed=seed, passive_fee=passive_fee)
+
+
+def _regime_table(lines: list[str], title: str, reports: dict[str, VenueReport],
+                  params: QuoteParams, sigma: float) -> None:
+    lines.append(f"## {title} (realised sigma = {sigma:.3e} per sqrt-second)\n")
+    lines.append("| Venue | Hedged PnL | Markout 2s (bps) | Quiet half-spread (bps) "
+                 "| Quote-fill gap (bps) | Trades | Rejected |")
+    lines.append("|---|---|---|---|---|---|---|")
+    for name in VENUE_ORDER:
+        row = reports[name]
+        lines.append(
+            f"| {row.name} | {row.hedged_pnl:,.1f} | {row.markout_2s_bps:+.3f} | "
+            f"{row.quiet_half_spread_bps:.3f} | {row.gap_bps:+.4f} | {row.trades} | "
+            f"{row.rejects} |"
+        )
+    by_name = reports
+    e1 = e1_lvr_reduction(by_name)
+    lines.append("")
+    lines.append(f"- **E1 (hedged PnL, ArbSwap vs B1):** {e1:+.2%}")
+    lines.append(
+        f"- **E2 (2s markout):** ArbSwap {by_name['ArbSwap'].markout_2s_bps:+.3f} bps vs "
+        f"B1 {by_name['B1_passive'].markout_2s_bps:+.3f} bps"
+    )
+    lines.append(
+        f"- **E3 (hedged PnL):** ArbSwap {by_name['ArbSwap'].hedged_pnl:,.1f} vs "
+        f"B2 {by_name['B2_fixed_spread'].hedged_pnl:,.1f}"
+    )
+    lines.append(
+        f"- **E4 (quiet half-spread):** ArbSwap {by_name['ArbSwap'].quiet_half_spread_bps:.3f} bps vs "
+        f"B1 {by_name['B1_passive'].quiet_half_spread_bps:.3f} bps"
+    )
+    e5 = by_name["ArbSwap"].hedged_pnl - by_name["B3_no_throttle"].hedged_pnl
+    lines.append(f"- **E5 (throttle ablation, ArbSwap - B3):** {e5:+,.2f}")
+    lines.append(
+        f"- **E6 (honesty):** ArbSwap fills {by_name['ArbSwap'].trades} "
+        f"(rejected {by_name['ArbSwap'].rejects}) with gap {by_name['ArbSwap'].gap_bps:+.4f} bps; "
+        f"B4 fills {by_name['B4_no_honesty'].trades} with gap "
+        f"{by_name['B4_no_honesty'].gap_bps:+.4f} bps"
+    )
+    lines.append(f"- Frozen params: {params}")
+    lines.append("")
+
+
+def render_synthetic(results: dict[str, tuple[QuoteParams, dict[str, VenueReport], float]]) -> str:
+    lines: list[str] = []
+    lines.append("# P1 results: math core + simulator (T1.5, T1.6)")
+    lines.append("")
+    lines.append(
+        "Generated by `python -m simulation.sim.report`. **Synthetic price paths** "
+        "(GBM per regime, annualised vol: "
+        + ", ".join(f"{r}={REGIME_ANNUAL_VOL[r]}" for r in REGIMES)
+        + "). Calibration is walk-forward: parameters are chosen on the earlier "
+        "fold, frozen, then evaluated on the held-out later fold. B1 (passive) "
+        "runs at a 1 bps fee, the low end of major SOL/USDC pools. These are "
+        "**synthetic results**; the real-data section follows and neither may be "
+        "headlined before the on-chain/keeper pipeline exists.\n"
+    )
+    for regime, (params, reports, sigma) in results.items():
+        _regime_table(lines, f"Regime: {regime}", reports, params, sigma)
+    return "\n".join(lines)
+
+
+def render_real(title: str, results: dict[str, tuple[QuoteParams, dict[str, VenueReport], float]],
+                source: str) -> str:
+    lines: list[str] = []
+    lines.append(f"# P1 real-data replay: {title}")
+    lines.append("")
+    lines.append(
+        f"Reference: {source}. Windows are contiguous and labelled by realised "
+        "volatility after the fact (calm/trend/crash are descriptive, not chosen "
+        "in advance). Calibration is walk-forward on the same real path; the "
+        "held-out tail is scored with frozen parameters. Costs: B1 at a 1 bps "
+        "fee, the vault at the Build Plan fee (1 bps).\n"
+    )
+    for label, (params, reports, sigma) in results.items():
+        _regime_table(lines, f"Window: {label}", reports, params, sigma)
+    return "\n".join(lines)
+
+
+def _sensitivity(base_points, params: QuoteParams, *, seed: int) -> str:
+    lines: list[str] = []
+    lines.append("## E9 sensitivity (calm synthetic, 1,800s, frozen params)")
+    lines.append("")
+    lines.append("Hedged PnL of the full ArbSwap vault versus the passive pool B1.")
+    lines.append("")
+    lines.append("| Scenario | ArbSwap PnL | B1 PnL | E1 |")
+    lines.append("|---|---|---|---|")
+
+    def run(points, p=params, passive_fee=0.0001, label=""):
+        reports = run_venues(points, params=p, seed=seed, passive_fee=passive_fee)
+        return reports
+
+    calm = synthetic_series(regime="calm", length=1_800, seed=seed)
+    scenarios: list[tuple[str, list, QuoteParams, float]] = []
+    for fee in (0.0001, 0.0003, 0.001):
+        scenarios.append((f"B1 fee {fee * 10_000:.0f} bps", calm, params, fee))
+    for regime in ("calm", "trend", "crash"):
+        scenarios.append((f"regime {regime}", synthetic_series(regime=regime, length=1_800, seed=seed),
+                          params, 0.0001))
+    scenarios.append(("no inventory skew", calm, replace(params, inventory_coeff=0.0), 0.0001))
+    scenarios.append(("no volatility term", calm, replace(params, volatility_coeff=0.0), 0.0001))
+    scenarios.append(("wide spread floor", calm, replace(params, spread_floor=0.0005,
+                                                         spread_min=0.0005), 0.0001))
+
+    for label, points, p, fee in scenarios:
+        reports = run(points, p=p, passive_fee=fee)
+        e1 = e1_lvr_reduction(reports)
+        lines.append(
+            f"| {label} | {reports['ArbSwap'].hedged_pnl:,.1f} | "
+            f"{reports['B1_passive'].hedged_pnl:,.1f} | {e1:+.2%} |"
+        )
+    return "\n".join(lines)
+
+
+def _limitations() -> str:
+    return (
+        "## Honest limitations\n\n"
+        "- **Synthetic regimes are a model, not measured order flow.** The "
+        "informed/noise mix is assumed; only the real-data section uses observed "
+        "prices.\n"
+        "- **Coefficients are heuristics**, calibrated walk-forward on one fold; "
+        "they may overfit. E9 reports sensitivity, not optimality.\n"
+        "- **Honest execution has a fill-rate cost.** Enforcing versioned quotes "
+        "rejects fills that would execute worse than the trader's last read; the "
+        "B4 ablation keeps those fills and shows the resulting quote-versus-fill "
+        "gap. The full vault's gap is near zero by construction.\n"
+        "- **The discrete 1-second replay** approximates the ~400 ms slot clock; "
+        "CU costs, priority-fee auctions and within-slot ordering are P2/P3/P5 "
+        "measurements (E10, E8).\n"
+        "- **Losing regimes are reported as-is.** No number here is a product "
+        "claim; the P1 gate asks whether ArbSwap beats B1/B2 in at least two "
+        "regimes, and the answer is stated, not assumed.\n"
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--real", type=Path, default=None,
+                        help="optional CSV of real 1s reference prices")
+    parser.add_argument("--real-source", default="Binance SOLUSDC 1s direct quote")
+    parser.add_argument("--length", type=int, default=2_400)
+    parser.add_argument("--seed", type=int, default=20261006)
+    parser.add_argument("--out", type=Path, default=Path("docs/P1_SYNTHETIC.md"))
+    args = parser.parse_args()
+
+    synthetic: dict[str, tuple[QuoteParams, dict[str, VenueReport], float]] = {}
+    for regime in REGIMES:
+        points = synthetic_series(regime=regime, length=args.length, seed=args.seed)
+        chosen = _calibrate(points)
+        test = walk_forward_folds(points, folds=2)[-1].test
+        sigma = realized_volatility_per_sqrt_second([p.price for p in test])
+        synthetic[regime] = (chosen, _evaluate(test, chosen, seed=args.seed), sigma)
+
+    text = render_synthetic(synthetic)
+    text += "\n" + _sensitivity(None, synthetic["calm"][0], seed=args.seed)
+    text += "\n" + _limitations()
+
+    if args.real is not None and args.real.exists():
+        real_points = load_price_csv(args.real)
+        real_results: dict[str, tuple[QuoteParams, dict[str, VenueReport], float]] = {}
+        windows = split_windows(real_points, 3)
+        ordered = sorted(windows, key=lambda w: realized_volatility_per_sqrt_second([p.price for p in w]))
+        for label, window in zip(("calm", "trend", "crash"), ordered):
+            chosen = _calibrate(window)
+            test = walk_forward_folds(window, folds=2)[-1].test
+            sigma = realized_volatility_per_sqrt_second([p.price for p in test])
+            real_results[label] = (chosen, _evaluate(test, chosen, seed=args.seed), sigma)
+        text += "\n\n" + render_real("direct USDC reference", real_results, args.real_source)
+
+    args.out.write_text(text.rstrip() + "\n")
+    print(text)
+    print(f"\nwrote {args.out}")
+
+
+if __name__ == "__main__":
+    main()

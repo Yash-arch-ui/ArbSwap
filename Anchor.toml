@@ -16,3 +16,6 @@ wallet = "~/.config/solana/id.json"
 test = "cargo test"
 
 [hooks]
+
+[workspace]
+members = ["vault/program"]
