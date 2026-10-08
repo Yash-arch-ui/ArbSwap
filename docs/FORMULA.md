@@ -3,7 +3,7 @@
 This document is the mathematical source map for P1. It explains what each
 quantity means, where the formula comes from, whether it is a theorem or a
 project heuristic, and whether it is implemented. The Python reference in
-`research/reference/` is the executable source of truth for research math. The
+`simulation/reference/` is the executable source of truth for research math. The
 Rust crate must not silently introduce a different formula.
 
 ## Status Labels
@@ -53,7 +53,7 @@ sqrt_q64(v) = floor(sqrt(v / 2^64) * 2^64)
 
 The radicand is up to 192 bits. The shortcut `isqrt(v) << 32` is forbidden:
 
-Implemented in `research/reference/fixed.py`; Rust widening arithmetic is
+Implemented in `simulation/reference/fixed.py`; Rust widening arithmetic is
 still required before this primitive can be ported on-chain.
 
 ### 1.2 Basic fixed-point operations
@@ -82,11 +82,9 @@ base. The denominator must be positive; the result is bounded by [-1, 1].
 
 **Status:** SPEC. This is the normalized form used by ArbSwap.
 
-**Known defect (audit F-03):** the keeper computes `q` from **raw token atoms**,
-mixing SOL (9 decimals) with USDC (6 decimals). For real mainnet reserves that
-saturates the skew near its bound. A correct implementation normalises base to
-quote units (or uses a decimals-aware price) and needs a mixed-decimal parity
-vector before devnet. The Python simulator is unit-free and unaffected.
+**Status (F-03 FIXED, p2 pass):** the keeper is now decimals-aware
+(`KeeperParams::base_atom_scale`); a balanced SOL(9)/USDC(6) vault quotes at the
+anchor. Mixed-decimal parity is covered by `test_keeper_parity.py`.
 
 ### 2.2 Reservation price
 
@@ -124,7 +122,7 @@ ArbSwap maintains a fast estimate (`lambda ~= 0.94`) and a slow estimate
 The simulator must calibrate them walk-forward and freeze them before testing.
 
 **Status:** SPEC + HEURISTIC parameters. Implemented in the independent float
-reference `research/reference/quote_math.py` (log returns, per-second decay
+reference `simulation/reference/quote_math.py` (log returns, per-second decay
 `lambda^dt`, innovation `r^2/dt`, so the estimate is clock-invariant). The Rust
 keeper has a `VolatilityState` but it uses simple `|dP|/P` returns with
 per-sample lambdas and **no time normalisation**, so it does not yet match the
@@ -169,7 +167,7 @@ The keeper (`keeper/src/lib.rs`) implements this formula with the same unit
 convention as the reference: each coefficient is `reference_coeff × 10_000`, so
 a bps term is `coefficient_bps × signal(as a fraction)`. The volatility,
 inventory, confidence and age terms and the `[spread_min, spread_max]` clamp are
-all present; `research/sim/test_keeper_parity.py` checks the spread against
+all present; `simulation/sim/test_keeper_parity.py` checks the spread against
 `quote_math.compute_quote` within the bps quantum (audit **F-09 fixed**).
 
 ## 5. Directional Add-On
@@ -186,9 +184,9 @@ drift and toxic flow; the coefficient `e` is still a calibrated heuristic.
 
 **Status:** DERIVED motivation, SPEC formula, HEURISTIC coefficient.
 
-**Known gap (audit F-09):** the keeper's `encode_update_quote_instruction`
-writes `ask_extra_bps = bid_extra_bps = 0`, so the directional add-on never
-reaches the on-chain ladder. Implementing it (and testing it) is a P3 item.
+**Status (F-09 FIXED, p2 pass):** the keeper computes the directional add-on and
+encodes `ask_extra_bps`/`bid_extra_bps` into the `update_quote` payload; the
+program stores and applies them to the anchor band.
 
 ## 6. Ladder Construction
 
@@ -376,8 +374,8 @@ fixed shares. `fee_bps` changes only through timelocked parameters.
 **Status:** SPEC; integer rounding implemented in `fixed.py` and
 `arb-math::quote::fee_amount`, and used by the on-chain `swap`. Note the program
 tracks only the three liability buckets (insurance/keeper/protocol) and excludes
-them from share value; there is no separate LP bucket (audit D5). There is no
-timelocked `set_params` yet (audit F-17).
+them from share value; there is no separate LP bucket (audit D5). `set_params`
+is timelocked and admin-only (F-17 fixed).
 
 ## 12. Vault Shares
 
@@ -403,14 +401,12 @@ out_Q = floor(shares*Q/S)
 The first liquidity amount is permanently burned. This follows the Uniswap v2
 minimum-liquidity mechanism; no oracle price is used in share math, per D-05.
 
-**Status:** SPEC; Python integer reference implemented; the program implements
-first-deposit/later-deposit/withdraw inline (`programs/arbswap/src/lib.rs`).
-Two known gaps: a deposit transfers **both** requested token amounts and donates
-the imbalanced leg (the excess is not refunded), and deposit/withdraw tickets are
-`init`-keyed so a user cannot top up without claiming first (audit F-10).
-
-There is no virtual-share offset yet, so the classic share-inflation/donation
-attack is unproven (audit F-11; THREAT_MODEL.md).
+**Status:** SPEC; implemented in `vault/program/src/lib.rs`. F-10 fixed: a
+deposit pulls only what the minted shares are worth and tickets are reusable
+(`init_if_needed`). F-11 mitigated and tested: the `MIN_LIQUIDITY` burn plus a
+zero-share mint guard; `first_depositor_inflation_loses_at_most_rounding` shows a
+donation-inflation attacker cannot steal from a later depositor beyond rounding.
+No ERC-4626 virtual-share offset (recorded as a mitigation, not a proof).
 
 ## 13. Research Metrics
 
@@ -476,16 +472,16 @@ observation is Base/Flashblocks and must not be presented as a Solana result.
 | Fees | `fixed.py` | `quote::fee_amount` | n/a | n/a | implemented |
 | Golden vectors | generator `golden.py` | consumer `golden.rs` | n/a | n/a | — |
 
-**Golden vectors now exist and run:** `crates/arb-math/tests/golden.rs` checks
+**Golden vectors now exist and run:** `vault/math/tests/golden.rs` checks
 970 vectors (`golden_vectors.txt`) bit-for-bit; it no longer skips.
 
 **Independence caveat (audit F-07):** the golden generator imports
-`research/reference/{fixed,ladder}.py`, and `ladder.py` states it *"mirrors
-`crates/arb-math/src/quote.rs` bit-for-bit"*. The golden test is therefore a
+`simulation/reference/{fixed,ladder}.py`, and `ladder.py` states it *"mirrors
+`vault/math/src/quote.rs` bit-for-bit"*. The golden test is therefore a
 strong cross-language differential regression check, **not** an independent
 proof that the algorithm is correct. The independent float implementation
-(`research/reference/quote_math.py`) is exercised separately by
-`research/reference/test_quote_math.py`. Do not describe the vectors as an
+(`simulation/reference/quote_math.py`) is exercised separately by
+`simulation/reference/test_quote_math.py`. Do not describe the vectors as an
 independent oracle.
 
 ## 15. Open Mathematical Decisions
@@ -502,11 +498,11 @@ independent oracle.
    the anchor/oracle (audit F-04), so a compromised keeper can quote arbitrary
    prices. This is the top devnet blocker.
 3. Port the exact 192-bit square-root and widened multiplication to Rust without
-   relaxing floor/ceil. **Done:** `crates/arb-math` matches 970 golden vectors.
+   relaxing floor/ceil. **Done:** `vault/math` matches 970 golden vectors.
 4. Calibrate heuristic coefficients walk-forward and report losing regimes.
-   **Done for P1:** the pre-registered W1–W6 study (`python -m research.sim.study`,
+   **Done for P1:** the pre-registered W1–W6 study (`python -m simulation.sim.study`,
    `docs/P1_RESULTS.md`) freezes W1 params and reports all five held-out windows.
-   The synthetic/exploratory generator is `research/sim/report.py`
+   The synthetic/exploratory generator is `simulation/sim/report.py`
    (`docs/P1_SYNTHETIC.md`). Coefficients remain heuristics, not optima.
 5. Complete the full read of Amini and Feinstein before demo claims involving
    oracle-contraction or sandwich resistance.

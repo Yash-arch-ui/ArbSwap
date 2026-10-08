@@ -265,7 +265,7 @@ Remaining divergence (documented in FORMULA.md and the keeper docstring): the
 EWMA is not time-normalised and the keeper emits ask-side levels only; the F-04
 binding of executed levels to the anchor is a separate programme task.
 
-Security tests added (`programs/arbswap/tests/litesvm_lifecycle.rs`):
+Security tests added (`vault/program/tests/litesvm_lifecycle.rs`):
 - `pyth_account_owner_must_be_the_receiver_program` (Anchor owner check),
 - `oracle_confidence_must_match_the_payload` (decoded > 1 bps but within
   `max_conf_bps`, so only the equality check fires),

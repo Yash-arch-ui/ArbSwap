@@ -29,6 +29,7 @@ target/deploy/*.json
 !/docs/SECURITY_CHECKLIST.md
 !/docs/ASSUMPTIONS.md
 !/docs/THREAT_MODEL.md
+!/docs/ARCHITECTURE.md
 !/TARGETIDEATASKS.md
 !/TARGETIDEATASKS_P2.md
 !/MasterPlan.md

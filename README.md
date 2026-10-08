@@ -18,23 +18,32 @@ Formerly "TruQuote" (working name); all spec documents use the old name.
 | P5 | Attacker bots, fuzzing, aggregator adapter | ✅ PASS (gate: every E7 attack contained/documented). Roadmap: cargo-fuzz, E8 real-pool data |
 | P6 | Reproducibility, demo, docs | ⬜ not started |
 
-## What we claim and what we do not
+## Claims register (only what a test proves)
 
-We claim (with evidence in `docs/`):
+Security posture: **no known issues in self-review, independent audit pending.**
+This is a same-agent self-review, not an audit.
+
+We claim (each backed by a named LiteSVM test in `vault/program/tests/`):
 - Verified on-chain Pyth guards, PDA custody, pro-rata accounting, honest
-  execution (`min_out`/`min_version`) and quote expiry, tested on a local validator.
-- Keeper/client math parity (Rust ↔ Python) and 997 bit-exact golden vectors.
-- Keeper-compromise bounds: anchor-vs-oracle cap, per-swap size cap, and a
+  execution (`min_out`/`min_version`) and quote expiry.
+- Bounded keeper: anchor↔oracle band, level↔anchor band, min/max spread, ladder
+  capacity ≤ `utilization_max × available reserves`, `update_slot` age cap, and a
   per-window cumulative one-sided flow cap.
+- Every account is bound to its vault (PDA seeds / address / mint-owner);
+  cross-vault substitution is rejected (`docs/SECURITY_CHECKLIST.md`).
+- Circuit breaker is permissionless but **state-only** (not griefable with a
+  stale foreign oracle account); `reset_breaker` is admin-only.
+- Two-phase keeper `unbond_keeper` with cooldown; slash during the cooldown.
+- Keeper math parity (Rust ↔ Python) and 997 bit-exact golden vectors.
 
 We do **not** claim:
-- Calibrated profitability. The simulator's passive pool is ~50× the paper's
-  adverse selection; headline E1 magnitudes are **model outputs, not results**
-  (no price-elastic routing or real-flow layer yet).
+- Calibrated profitability. The simulator's passive pool is not yet calibrated to
+  the paper's adverse selection; headline E1 magnitudes are **model outputs, not
+  results**.
 - Live execution quality. No devnet deployment, no live RPC keeper.
-- An independent audit. The security review is a **same-agent self-review**;
-  external review is required before real funds.
-- Parity with Uniswap. No formal verification and no independent audit.
+- An independent audit. Same-agent self-review only; external review is required
+  before real funds.
+- "Exploit-free", "audited", or "as complete as Uniswap".
 
 Program ID (localnet/devnet): `E8ptkpV626P2neR8v4Q9UCFHoD6AMAH2aTRsEQiNDN3U`
 
@@ -81,8 +90,8 @@ pytest simulation -q
 # P1 -> P3 -> P2-compatible replay handoff
 ./scripts/p1_to_p3_replay.sh simulation/data/raw/binance_SOLUSDT_1s.csv
 
-# Dashboard deps
-cd app && yarn install
+# Dashboard deps (frontend app skeleton; no source yet)
+cd frontend && yarn install
 ```
 
 ## Reproducing the P1 held-out study
@@ -125,11 +134,12 @@ speed; never claim an unmeasured result; report losing regimes.
 
 ## Documents
 
-- `docs/ARCHITECTURE.md` — component map, data model, instruction surface, trust boundaries.
-- `docs/ANALYTICS.md` — P4 indexer, metrics (with paper sources), and dashboard.
+- `docs/ARCHITECTURE.md` — component map, data flow, instruction surface, trust boundaries.
+- `simulation/analytics/README.md` — P4 indexer, metrics, and dashboard.
 - `docs/BUILD_PLAN.md` — the full specification (imported, verbatim).
 - `docs/ASSUMPTIONS.md` — what is verified vs assumed (read before coding).
 - `docs/FORMULA.md` — the math source map and open decisions.
 - `docs/AUDIT_FULL.md` — full evidence-based audit (phases 0-5 + addenda) and findings.
 - `docs/SECURITY.md` — tracked headline audit summary and known gaps.
 - `docs/THREAT_MODEL.md` — threats, mitigations, tests.
+- `docs/SECURITY_CHECKLIST.md` — account-binding table, per-instruction checks, CU table.

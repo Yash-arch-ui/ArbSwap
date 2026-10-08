@@ -6,6 +6,12 @@
 independent audit**; external review is required before **real funds** (test
 funds are not gated on it).
 
+**Claims register.** After the p2 pass, the allowed claims are exactly those
+backed by a named test in `vault/program/tests/` (see README §"Claims register"
+and `docs/SECURITY_CHECKLIST.md`). Operative wording: **no known issues in
+self-review, independent audit pending.** Do not write "exploit-free",
+"audited", or "as complete as Uniswap".
+
 ## Gate summary (Phase 0-5)
 | Phase | Verdict | Note |
 |---|---|---|

@@ -6,9 +6,9 @@ code; semi-trusted = keepers (bounded on-chain, bonded when configured);
 untrusted = traders, LPs, other programs, RPC nodes. Admin = timelocked params +
 pause-only kill switch (no fund seizure).
 
-Tests named "on-chain" are LiteSVM tests in `programs/arbswap/tests`;
+Tests named "on-chain" are LiteSVM tests in `vault/program/tests`;
 "E7" scenarios are `attackers/` driver over the verified simulator (T5.1).
-`docs/P5_REPORT.md` records the run.
+The E7 driver is `simulation/attackers/e7.py`.
 
 | Threat | How it hurts | Mitigation | Test |
 |---|---|---|---|

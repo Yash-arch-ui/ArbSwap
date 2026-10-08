@@ -97,7 +97,7 @@ if __name__ == "__main__":
     for key, value in e10_cost_summary().items():
         print(f"  {key} = {value}")
     print("\nE8 is blocked offline (needs real Solana-pool quote data); "
-          "see docs/AGGREGATOR.md and docs/P5_REPORT.md.")
+          "see docs/ARCHITECTURE.md and docs/SECURITY_CHECKLIST.md.")
 
 def envelope(*, length: int = 600, seed: int = 20261006) -> list[dict]:
     """Item 3e: where ArbSwap wins, ties, or loses vs B1.

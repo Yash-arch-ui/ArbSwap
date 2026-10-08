@@ -11,7 +11,7 @@
 //! checks). The on-chain ``quote``/``swap`` CPI surface Jupiter calls and its
 //! discriminator/account layout are deployment-dependent and were *not*
 //! verified against the live Jupiter AMM interface in this offline session —
-//! see ``docs/AGGREGATOR.md`` for the deployment contract and its verification
+//! see ``docs/ARCHITECTURE.md`` for the deployment contract and its verification
 //! status.
 //!
 //! Per Build Plan §6.4, a swap is honest by construction: the executed output is
