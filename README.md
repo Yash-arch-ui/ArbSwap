@@ -6,17 +6,35 @@ are quoted is the price you get.**
 
 Formerly "TruQuote" (working name); all spec documents use the old name.
 
-## Status: P1-P3 implementation pass
+## Status
 
 | Phase | Scope | Status |
 |---|---|---|
 | P0 | Repo, toolchain, assumptions | ✅ |
-| P1 | Independent Python reference, vectors, simulator, replay/report pipeline | ✅ |
-| P2 | Anchor accounts, custody, verified Pyth guards, swaps, withdrawals, breakers | ✅ build/test; lifecycle/devnet gate open |
-| P3 | Rust keeper core, direct price replay, update gating, P2 payload encoder | ✅ dry-run; live RPC gate open |
-| P4 | Analytics, fees, dashboard | ✅ indexer + metrics + static dashboard (`simulation/analytics/`); Vite/React UI in `frontend/` |
-| P5 | Attacker bots, fuzzing, aggregator adapter | ⬜ |
-| P6 | Reproducibility, demo, docs | ⬜ |
+| P1 | Python reference, vectors, simulator, replay/report pipeline | ⚠️ PARTIAL — vectors/parity green; **synthetic flow is not calibrated to the paper** (see SECURITY.md / AUDIT_FULL.md) |
+| P2 | Anchor accounts, custody, Pyth guards, swaps, withdrawals, breakers | ✅ local (73 Rust tests); devnet gate open |
+| P3 | Rust keeper core, replay, update gating, payload encoder | ✅ dry-run; live RPC gate open |
+| P4 | Analytics, fees, dashboard | ⚠️ PARTIAL — indexer/metrics/dashboard tooling + tests; no live demo; Vite/React UI in `frontend/` |
+| P5 | Attacker bots, fuzzing, aggregator adapter | ⚠️ PARTIAL — E7 bots + property fuzz + aggregator price engine; **no cargo-fuzz; E8 NOT DONE** |
+| P6 | Reproducibility, demo, docs | ⬜ not started |
+
+## What we claim and what we do not
+
+We claim (with evidence in `docs/`):
+- Verified on-chain Pyth guards, PDA custody, pro-rata accounting, honest
+  execution (`min_out`/`min_version`) and quote expiry, tested on a local validator.
+- Keeper/client math parity (Rust ↔ Python) and 997 bit-exact golden vectors.
+- Keeper-compromise bounds: anchor-vs-oracle cap, per-swap size cap, and a
+  per-window cumulative one-sided flow cap.
+
+We do **not** claim:
+- Calibrated profitability. The simulator's passive pool is ~50× the paper's
+  adverse selection; headline E1 magnitudes are **model outputs, not results**
+  (no price-elastic routing or real-flow layer yet).
+- Live execution quality. No devnet deployment, no live RPC keeper.
+- An independent audit. The security review is a **same-agent self-review**;
+  external review is required before real funds.
+- Parity with Uniswap. No formal verification and no independent audit.
 
 Program ID (localnet/devnet): `E8ptkpV626P2neR8v4Q9UCFHoD6AMAH2aTRsEQiNDN3U`
 
