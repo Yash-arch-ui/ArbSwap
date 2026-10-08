@@ -20,7 +20,9 @@ funds are not gated on it).
 ## Verification (this pass)
 `cargo test --workspace` **76 passed**; `pytest simulation` **153 passed**;
 `cargo fmt --check` + `clippy -D warnings` (incl. the program) clean; golden
-regen 997; keeper parity passes.
+regen 997; keeper parity passes. The full held-out study was re-run after the
+capacity change (F-18): W1-calibrated frozen params, resulting regimes match the
+pre-registration (crash=W3, trend=W4, calm=W6), `docs/P1_RESULTS.md` regenerated.
 
 ## Keeper-compromise loss bound (Items 1a-1c)
 - **Per-window cumulative one-sided flow cap** on `QuoteState` (window + cap in
@@ -56,10 +58,15 @@ regen 997; keeper parity passes.
 - No secrets in repo or git history.
 
 ## Known gaps (self-review; not exploits)
-- Uncalibrated synthetic flow (F-08, model is trend/idealized-arb dominated;
-  needs real flow, F-11); no routing/fill-share (F-10); no cargo-fuzz (F-14,
-  state-machine test added); no per-window study re-run after the capacity change
-  (F-18); E8 and devnet NOT DONE. `InformedFlow.fee_bps` wired (F-15 fixed).
+- **Calibration (F-08):** with real aggTrades flow and depth scaling the passive
+  pool's 2s markout / quiet half-spread converge to ≈ −7.9 / 13 bps, not the
+  paper's −0.2 / 2.6 bps. A measured research gap (needs the paper's venue/flow
+  definitions), not a parameter we can set.
+- **E8** (real Solana-pool quote gap) needs a Solana DEX/indexer data source;
+  **devnet deployment** is excluded by instruction.
+- Closed since the earlier audit: router/fill-share (F-10), real-flow layer
+  (F-11), proptest harness (F-14), `InformedFlow.fee_bps` (F-15), and the
+  post-capacity-change study re-run (F-18).
 
 ## Limits
 The "no exploit" statement is an **internal self-review**. Do not move real funds
