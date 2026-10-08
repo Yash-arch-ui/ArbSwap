@@ -20,9 +20,9 @@ from simulation.sim.venues import PassivePool
 
 TARGET_MARKOUT = -0.2
 TARGET_HALF_SPREAD = 2.6
-DEPTH_MULTS = (1, 4, 8, 16, 32)
-MEAN_SIZES = (25.0, 50.0, 100.0, 200.0)
-INFORMED_FEES = (0.5, 1.0, 2.0)
+DEPTH_MULTS = (1, 4, 16)
+MEAN_SIZES = (5.0, 20.0, 50.0, 100.0)
+INFORMED_FEES = (0.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0)
 
 
 def _b1_metrics(prices, depth_mult, mean_size, informed_fee, seed=20261006):
@@ -61,7 +61,7 @@ def calibrate(prices, seed: int = 20261006) -> dict:
 if __name__ == "__main__":
     from simulation.sim.study import _load_slice
     from simulation.sim.windows import TEST_WINDOWS
-    res = calibrate(_load_slice(TEST_WINDOWS[2]))
+    res = calibrate(_load_slice(TEST_WINDOWS[2])[:1800])
     print("targets: markout", res["target_markout"], "half-spread", res["target_half_spread"])
     print("best:", res["best"])
     mx = max(r["sse"] for r in res["rows"]) or 1.0

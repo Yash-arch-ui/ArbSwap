@@ -88,7 +88,7 @@ def main() -> None:
     build_parser.add_argument("--scenario", default="calm", choices=("calm", "trend", "crash"))
     build_parser.add_argument("--length", type=int, default=3_600)
     build_parser.add_argument("--seed", type=int, default=20261006)
-    build_parser.add_argument("--out", type=Path, default=Path("analytics/out"))
+    build_parser.add_argument("--out", type=Path, default=Path("simulation/analytics/out"))
     args = parser.parse_args()
 
     if args.command == "build":
