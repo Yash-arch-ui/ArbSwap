@@ -1,0 +1,18 @@
+# DATA_MANIFEST
+
+Raw data is gitignored; SHA-256 recorded here for reproducibility.
+
+| file | sha256 | bytes |
+|---|---|---|
+| binance_SOLUSDT_1s_6w.csv | e31890292713bd8ffa0eb0927b3c96b2fc27554a081bab7083c5ec319d258e52 | 108298449 |
+| binance_USDCUSDT_1s_6w.csv | 11512c9fcfedb6c37ccb0a3f0f53571ad772b0cf0483257b8d8e0b0af03b38ea | 101606420 |
+| binance_SOLUSDT_1s.csv | a92033b3ff245b80f4f215956a6d9f2ae3df5307b018be87a82b7567a75c0193 | 51860 |
+| binance_SOLUSDC_1s.csv | 540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3 | 51860 |
+| binance_SOLUSDT_aggtrades_100ms_2026-09-10.csv | 49100720c5a38ec0ffa246d11c6eeea7983b744cf1e74f33c79786306e30e6d0 | 25614404 |
+| binance_SOLUSDT_aggtrades_100ms_2026-09-17.csv | 44af193cc4d1f79a4a717feb383f70877d7cb0bc36793f86c1da53252a37757c | 25600677 |
+| binance_SOLUSDT_aggtrades_100ms_2026-10-01.csv | e4f4639879d04bc097c86c26acdb7c71e7be652ccf6a4fc8015c5e4f5f662606 | 25918610 |
+| SOLUSDT-aggTrades-2026-09-10.csv | 11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924 | 11861154 |
+| binance_SOLUSDT_1s_SA.csv | 6cdf748edbd1e66a8fc02693a6ee94c298d3e5652cef3e0e96538ec1148eb867 | 17539220 |
+| binance_USDCUSDT_1s_SA.csv | e2102887cd7a95e4885b38d08e07e14df6c9b2f01f890ffd151f066fef65f67d | 16934420 |
+| binance_SOLUSDT_1s_SB.csv | e18abe7c93917a5d1e537aa79a290890a916a8efbba5537c608adcdfb4ca1317 | 17539220 |
+| binance_USDCUSDT_1s_SB.csv | 8dbad68d40499f903103f764fd1f710b4701d92e22446e3f0259ef000c886e03 | 16934420 |
