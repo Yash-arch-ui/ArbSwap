@@ -101,13 +101,13 @@ class VenueReport:
 
 
 def venue_set(params: QuoteParams, *, passive_fee: float = 0.0001,
-              vault_fee_bps: float = 1.0) -> dict[str, object]:
+              vault_fee_bps: float = 1.0, start_price: float | None = None) -> dict[str, object]:
     """Instantiate B1-B4 and the full ArbSwap vault with equal starting capital.
 
     The passive pool fee defaults to 1 bps (typical of a major SOL/USDC pool);
     E9 sweeps it. The vault fee defaults to the Build Plan §5.16 ``fee_bps``.
     """
-    kwargs = pool_kwargs()
+    kwargs = pool_kwargs(start_price)
     return {
         "B1_passive": PassivePool(fee=passive_fee, **kwargs),
         "B2_fixed_spread": VaultVenue(params=params, engine_enabled=False,
@@ -193,7 +193,8 @@ def run_venues(points: list[PricePoint], *, params: QuoteParams,
     oracle_template = oracle
     reports: dict[str, VenueReport] = {}
     for name, venue in venue_set(params, passive_fee=passive_fee,
-                                 vault_fee_bps=vault_fee_bps).items():
+                                 vault_fee_bps=vault_fee_bps,
+                                 start_price=points[0].price).items():
         venue_oracle = (OracleModel() if oracle_template is None
                         else replace(oracle_template))
         result = simulate(

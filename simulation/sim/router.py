@@ -1,101 +1,184 @@
-"""Item F-10: a price-elastic multi-venue router.
+"""T2: price-elastic multi-venue router.
 
-Each real order is routed to the venue with the best executed price for the
-trader among ArbSwap, the passive pool B1, and a competing tight propAMM-like
-venue (a 0.3-1 bp half-spread around the reference). We report the volume
-(notional) fill share per venue and the average executed half-spread.
+A single order stream is routed across three venues: ArbSwap, the passive pool
+B1 (a fee tier), and a competing propAMM-like venue (half-spread 0.3-1.0 bp,
+oracle-latency-limited repricing). Noise orders go to the best executed price
+(with a configurable share of price-insensitive flow and a user slippage
+tolerance); the informed arbitrageur hits whichever venue is most stale, sized to
+maximise its profit. We report per-venue volume share, fill share, 2s markout,
+quiet half-spread, rejection rate and quote-vs-fill gap.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import random
+from dataclasses import dataclass, field
 
 from simulation.reference.quote_math import QuoteParams
+from simulation.sim.flow import InformedFlow, NoiseFlow
+from simulation.sim.flow_config import NOISE_ARRIVAL_RATE, NOISE_MEAN_SIZE, pool_kwargs
+from simulation.sim.metrics import (
+    TradeRecord,
+    notional_weighted_gap,
+    notional_weighted_markout,
+    retail_half_spread_bps,
+)
 from simulation.sim.oracle import OracleModel
-from simulation.sim.real_flow import load_day, RAW
 from simulation.sim.venues import PassivePool, VaultVenue
 
 
 @dataclass
-class PropAmm:
-    """A tight propAMM-like venue: exec at reference +/- `half_spread_bps`."""
+class Venue:
+    name: str
+    kind: str  # "vault" | "pool" | "prop"
+    fee_bps: float = 1.0
+    prop_half_spread_bps: float = 0.5
+    latency_steps: int = 1
+    venue: object = None
+    trades: list = field(default_factory=list)
+    orders: int = 0
+    notional: float = 0.0
+    fills: int = 0
+    rejects: int = 0
 
-    half_spread_bps: float = 0.5
-    def price(self, side: str, reference: float) -> float:
-        edge = self.half_spread_bps / 10_000.0
-        return reference * (1.0 + edge) if side == "buy" else reference * (1.0 - edge)
+
+def _build(kind, *, params, b1_fee, prop_hs, latency_steps, start_price):
+    kw = pool_kwargs(start_price)
+    if kind == "vault":
+        return Venue("ArbSwap", "vault", venue=VaultVenue(params=params, **kw))
+    if kind == "pool":
+        return Venue("B1_passive", "pool", fee_bps=b1_fee,
+                     venue=PassivePool(fee=b1_fee / 10_000.0, **kw))
+    return Venue("PropAMM", "prop", prop_half_spread_bps=prop_hs,
+                 latency_steps=latency_steps)
 
 
-def route(prices, flow, *, prop_half_spread_bps: float = 0.5, depth_mult: float = 1.0):
-    base0 = prices[0].price
-    base = 1_000.0 * depth_mult
-    arb = VaultVenue(params=QuoteParams(), base=base, quote=base0 * base)
-    b1 = PassivePool(base=base, quote=base0 * base, fee=0.0001)
-    prop = PropAmm(half_spread_bps=prop_half_spread_bps)
+def _prop_price(venue: Venue, side: str, ref: float) -> float:
+    edge = venue.prop_half_spread_bps / 10_000.0
+    return ref * (1.0 + edge) if side == "buy" else ref * (1.0 - edge)
+
+
+def _exec_price(venue: Venue, side: str, amount_in: float, ref: float, prop_ref: float):
+    """Average executed price for the trader, or None if it cannot fill."""
+    if venue.kind == "prop":
+        return _prop_price(venue, side, prop_ref)
+    try:
+        return venue.venue.preview(side, amount_in)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s=1.0,
+                 insensitive_share=0.2, slippage_bps=1.0, seed=20261006,
+                 informed_max_notional=5_000.0):
+    params = params or QuoteParams()
+    venues = [
+        _build("vault", params=params, b1_fee=b1_fee, prop_hs=prop_hs, latency_steps=1, start_price=prices[0].price),
+        _build("pool", params=params, b1_fee=b1_fee, prop_hs=prop_hs, latency_steps=1, start_price=prices[0].price),
+        _build("prop", params=params, b1_fee=b1_fee, prop_hs=prop_hs,
+               latency_steps=max(1, round(prop_latency_s / 0.4)), start_price=prices[0].price),
+    ]
+    rng = random.Random(seed)
+    noise = NoiseFlow(seed=seed, arrival_rate=NOISE_ARRIVAL_RATE, mean_size=NOISE_MEAN_SIZE)
+    informed = InformedFlow()
+    ref_by_step = {p.second: p.price for p in prices}
+    prop_ref = prices[0].price
     prev = None
 
-    shares = {"ArbSwap": 0.0, "B1_passive": 0.0, "PropAMM": 0.0}
-    counts = {"ArbSwap": 0, "B1_passive": 0, "PropAMM": 0}
-    half_sum = {"ArbSwap": 0.0, "B1_passive": 0.0, "PropAMM": 0.0}
-
-    orders_by_second: dict[int, list[tuple[str, float]]] = {}
-    for sec, side, notional in flow.orders:
-        orders_by_second.setdefault(sec, []).append((side, notional))
+    orders_by_step: dict[int, list[tuple[str, float]]] = {}
+    for step, side, size in noise.arrivals(len(prices), step_seconds=1.0):
+        orders_by_step.setdefault(step, []).append((side, size))
 
     for point in prices:
-        sec, ref = point.second, point.price
-        arb.refresh(price=ref, confidence=0.0, age=0.0, previous_price=prev)
+        step, ref = point.second, point.price
+        # PropAMM reprices on a delayed oracle.
+        prop_ref = ref_by_step.get(max(0, step - venues[2].latency_steps), prop_ref)
+        venues[0].venue.refresh(price=ref, confidence=0.0, age=0.0, previous_price=prev)
         prev = ref
-        for side, notional in orders_by_second.get(sec, []):
-            if side == "buy":
-                amount_in = notional              # quote in (buy base)
-            else:
-                amount_in = notional / ref        # base in (sell base)
-            if amount_in <= 0:
-                continue
-            # Candidate executed prices (average) for the trader.
-            prices_by_venue = {}
-            try:
-                prices_by_venue["ArbSwap"] = arb.preview(side, amount_in)
-            except (ValueError, ZeroDivisionError):
-                pass
-            try:
-                prices_by_venue["B1_passive"] = b1.preview(side, amount_in)
-            except (ValueError, ZeroDivisionError):
-                pass
-            prices_by_venue["PropAMM"] = prop.price(side, ref)
-            # Best for the trader: lowest for a buy, highest for a sell.
-            key = min if side == "buy" else max
-            choice = key(prices_by_venue, key=prices_by_venue.get)
-            shares[choice] += notional
-            counts[choice] += 1
-            half_sum[choice] += abs(prices_by_venue[choice] - ref) / ref * 10_000.0
-            # Execute on the chosen real venue.
-            try:
-                if choice == "ArbSwap":
-                    arb.fill(side, amount_in)
-                elif choice == "B1_passive":
-                    b1.fill(side, amount_in)
-            except (ValueError, ZeroDivisionError):
-                pass
 
-    total = sum(shares.values()) or 1.0
+        def record(v, side, amount_in, exec_price):
+            notional = amount_in if side == "buy" else amount_in * ref
+            base_amt = notional / exec_price if exec_price else 0.0
+            v.trades.append((step, side, exec_price, ref, notional, base_amt))
+
+        # --- informed: hit the most stale venue, sized to a notional cap ---
+        edges = []
+        for v in venues:
+            p = _exec_price(v, "buy", informed_max_notional, ref, prop_ref)
+            if p is not None and p < ref:
+                edges.append((10_000.0 * (ref - p) / p, v, "buy"))
+            p = _exec_price(v, "sell", informed_max_notional, ref, prop_ref)
+            if p is not None and p > ref:
+                edges.append((10_000.0 * (p - ref) / ref, v, "sell"))
+        if edges:
+            _edge, v, side = max(edges, key=lambda e: e[0])
+            amount_in = informed_max_notional if side == "buy" else informed_max_notional / ref
+            _apply(v, side, amount_in, ref, prop_ref, record)
+
+        # --- noise: price-insensitive share, else best exec within tolerance ---
+        for side, size in orders_by_step.get(step, []):
+            amount_in = size if side == "buy" else size / ref
+            if rng.random() < insensitive_share:
+                target = venues[1]  # price-insensitive -> B1
+            else:
+                quotes = {v.name: _exec_price(v, side, amount_in, ref, prop_ref) for v in venues}
+                quotes = {k: q for k, q in quotes.items() if q is not None}
+                if not quotes:
+                    continue
+                best = min(quotes.values()) if side == "buy" else max(quotes.values())
+                tol = best * (1 + slippage_bps / 10_000.0) if side == "buy" else best * (1 - slippage_bps / 10_000.0)
+                eligible = [v for v in venues
+                            if quotes.get(v.name) is not None
+                            and ((side == "buy" and quotes[v.name] <= tol)
+                                 or (side == "sell" and quotes[v.name] >= tol))]
+                target = min(eligible, key=lambda v: quotes[v.name]) if side == "buy" else max(eligible, key=lambda v: quotes[v.name])
+            _apply(target, side, amount_in, ref, prop_ref, record)
+
+    total_notional = sum(v.notional for v in venues) or 1.0
+    total_fills = sum(v.fills for v in venues) or 1
     rows = []
-    for name in shares:
+    for v in venues:
+        trades = [TradeRecord(second=s, trader_side=sd, base_amount=ba, quote_amount=nt,
+                              exec_price=ep, mid_at_fill=m)
+                  for (s, sd, ep, m, nt, ba) in v.trades]
+        lookup = ref_by_step.get
         rows.append({
-            "venue": name,
-            "orders": counts[name],
-            "notional_share": shares[name] / total,
-            "avg_exec_half_spread_bps": (half_sum[name] / counts[name]) if counts[name] else 0.0,
+            "venue": v.name,
+            "orders": v.orders,
+            "volume_share": v.notional / total_notional,
+            "fill_share": v.fills / total_fills,
+            "markout_2s_bps": notional_weighted_markout(trades, 2, lookup),
+            "quiet_half_spread_bps": retail_half_spread_bps(trades, lookup, step_seconds=1.0),
+            "gap_bps": notional_weighted_gap(trades),
+            "rejection_rate": (v.rejects / v.orders) if v.orders else 0.0,
         })
     return rows
 
 
+def _apply(v: Venue, side: str, amount_in: float, ref: float, prop_ref: float, record):
+    v.orders += 1
+    notional = amount_in if side == "buy" else amount_in * ref
+    v.notional += notional
+    price = _exec_price(v, side, amount_in, ref, prop_ref)
+    if price is None:
+        v.rejects += 1
+        return
+    if v.kind != "prop":
+        try:
+            v.venue.fill(side, amount_in)
+        except (ValueError, ZeroDivisionError):
+            v.rejects += 1
+            return
+    v.fills += 1
+    record(v, side, amount_in, price)
+
+
 if __name__ == "__main__":
-    prices, flow = load_day(RAW / "SOLUSDT-aggTrades-2026-09-10.csv", max_seconds=3_600)
-    for prop_hs in (0.3, 0.5, 1.0):
-        print(f"== propAMM half-spread {prop_hs} bp, ArbSwap/B1 depth x100 ==")
-        for row in route(prices, flow, prop_half_spread_bps=prop_hs, depth_mult=100.0):
-            print(f"  {row['venue']:10} orders={row['orders']:5} "
-                  f"notional_share={row['notional_share']:6.1%} "
-                  f"half_spread={row['avg_exec_half_spread_bps']:.3f}bps")
+    from simulation.sim.study import _load_slice
+    from simulation.sim.windows import WINDOWS
+    for w in WINDOWS:
+        prices = _load_slice(w)
+        print(f"== {w.label} {w.dates} ==")
+        for row in route_window(prices):
+            print(f"  {row['venue']:10} vol={row['volume_share']:6.1%} fill={row['fill_share']:6.1%} "
+                  f"mkt={row['markout_2s_bps']:+7.3f} hs={row['quiet_half_spread_bps']:6.3f} rej={row['rejection_rate']:.1%}")

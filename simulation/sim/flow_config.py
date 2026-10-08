@@ -16,6 +16,13 @@ BASE0 = 1_000.0
 PRICE0 = 150.0
 
 
-def pool_kwargs() -> dict:
+def pool_kwargs(start_price: float | None = None) -> dict:
+    """Venue reserves for equal capital, priced at the path's start.
+
+    ``start_price`` MUST be the first reference price of the run; initializing a
+    pool at a hard-coded 150 while the market trades ~100 puts every fill far off
+    mid and invalidates the comparison.
+    """
     base = BASE0 * DEPTH_MULT
-    return {"base": base, "quote": base * PRICE0}
+    price = PRICE0 if start_price is None else start_price
+    return {"base": base, "quote": base * price}
