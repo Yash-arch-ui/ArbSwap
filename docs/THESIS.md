@@ -60,3 +60,18 @@ ArbSwap volume share 27.9%; better markout than B1: True
 ## Decision
 
 **Option 1 not shown**
+
+## C2.4 — held-out, stress and injected jumps
+
+- **Injected-jump sensitivity (synthetic `jump` regime):** E9 over 27 cells
+  (passive fee × vault fee × latency) → **0 negative-E1 cells**; worst +0.21,
+  best +1.22. (Specific 50/100/300 bps step injections are **NOT RUN**.)
+- **Two genuinely high-volatility real windows (σ ≥ 2× existing):** **NOT RUN** —
+  requires downloading new real archives; the pre-registered stress weeks S-A/S-B
+  measured mid/low vol, not ≥ 2×. Marked **EXTERNAL (data)**.
+- **E5/E7/E9/E10 re-run on the current engine:** E9 (calm/trend/crash) and E10 are
+  current (see `docs/RESULTS.md`); E7 unchanged (containment); E5 ablation is in
+  `docs/P1_RESULTS.md`. The held-out PnL tables are from the last full study and
+  will be regenerated on the next full run (see `docs/PROGRESS.md`).
+
+Status: **PARTIAL** (jump sensitivity done; real high-vol windows EXTERNAL).
