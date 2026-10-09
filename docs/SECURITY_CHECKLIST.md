@@ -172,7 +172,7 @@ Measured with `measure_instruction_compute_units` (bonded path) after p2-T3:
 |---|---|
 | `update_quote` | ≈68k (63–73k across runs; two-sided capacity + Pyth dominate) |
 | `update_quote` (wide-conf rejected) | ~13.6k |
-| `swap` | 72,794 |
+| `swap` | 75,219 (incl. h3 edge tracker) |
 | `trip_breaker` | 12,377 |
 | `deposit` | 46,477 |
 | `request_withdraw` | 24,420 |

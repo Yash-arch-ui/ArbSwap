@@ -121,6 +121,8 @@ pub mod arbswap {
         config.min_bond = params.min_bond;
         config.unbond_cooldown_slots = params.unbond_cooldown_slots;
         config.max_update_slot_age = params.max_update_slot_age;
+        config.edge_window_slots = params.edge_window_slots;
+        config.max_edge_loss_bps = params.max_edge_loss_bps;
         config.max_anchor_dev_bps = params.max_anchor_dev_bps;
         config.flow_window_slots = params.flow_window_slots;
         config.max_window_flow_bps = params.max_window_flow_bps;
@@ -733,6 +735,10 @@ pub mod arbswap {
         quote.depth_mult_bps = update.depth_mult_bps.min(10_000);
         quote.oracle_publish_time = update.oracle_publish_time;
         quote.oracle_conf_bps = update.oracle_conf_bps;
+        // h3: store the verified oracle for the swap-time edge measurement. The
+        // realized-edge window is rolled by the slot clock at swap time, NOT on
+        // every re-quote (so re-quoting cannot reset the loss tracker).
+        quote.oracle_price = update.oracle_price;
         for i in 0..LEVELS {
             quote.ask_levels[i] = Level {
                 sqrt_lo: update.ask_levels[i].sqrt_lo,
@@ -929,6 +935,63 @@ pub mod arbswap {
                     .ok_or(ErrorCode::MathOverflow)?;
             }
         }
+        // h3: realized execution edge vs the stored verified oracle. Positive
+        // means the vault traded better than the oracle mid; the running sum is
+        // checked against a fraction of the available value each swap.
+        let oracle = ctx.accounts.quote_state.oracle_price;
+        let edge: i128 = match side {
+            SwapSide::BuyBase => {
+                let out_value = ((out as u128).saturating_mul(oracle) >> 64) as i128;
+                (amount_in as i128).saturating_sub(out_value)
+            }
+            SwapSide::SellBase => {
+                let in_value = ((amount_in as u128).saturating_mul(oracle) >> 64) as i128;
+                in_value.saturating_sub(out as i128)
+            }
+        };
+        let edge_window = ctx.accounts.config.edge_window_slots;
+        if ctx.accounts.quote_state.edge_window_start_slot == 0 {
+            // First swap after initialization starts the window.
+            ctx.accounts.quote_state.edge_window_start_slot = clock.slot;
+        } else if edge_window > 0
+            && clock.slot
+                >= ctx
+                    .accounts
+                    .quote_state
+                    .edge_window_start_slot
+                    .saturating_add(edge_window)
+        {
+            ctx.accounts.quote_state.edge_window_start_slot = clock.slot;
+            ctx.accounts.quote_state.realized_edge = 0;
+        }
+        ctx.accounts.quote_state.realized_edge =
+            ctx.accounts.quote_state.realized_edge.saturating_add(edge);
+        let avail_base = ctx
+            .accounts
+            .base_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_base)
+            .saturating_sub(ctx.accounts.vault.keeper_base)
+            .saturating_sub(ctx.accounts.vault.protocol_base) as u128;
+        let avail_quote = ctx
+            .accounts
+            .quote_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_quote)
+            .saturating_sub(ctx.accounts.vault.keeper_quote)
+            .saturating_sub(ctx.accounts.vault.protocol_quote) as u128;
+        let available_value =
+            ((avail_base.saturating_mul(oracle)) >> 64).saturating_add(avail_quote);
+        let loss_bound =
+            available_value.saturating_mul(ctx.accounts.config.max_edge_loss_bps as u128) / 10_000;
+        if ctx.accounts.quote_state.realized_edge < -(loss_bound as i128) {
+            ctx.accounts.vault.status = PAUSED;
+            emit!(EdgeBreakerTripped {
+                slot: clock.slot,
+                realized_edge: ctx.accounts.quote_state.realized_edge,
+                bound: loss_bound
+            });
+        }
         emit!(SwapEvent {
             slot: clock.slot,
             version: quote_version,
@@ -1053,6 +1116,8 @@ pub mod arbswap {
         config.min_bond = update.min_bond;
         config.unbond_cooldown_slots = update.unbond_cooldown_slots;
         config.max_update_slot_age = update.max_update_slot_age;
+        config.edge_window_slots = update.edge_window_slots;
+        config.max_edge_loss_bps = update.max_edge_loss_bps;
         config.max_anchor_dev_bps = update.max_anchor_dev_bps;
         config.flow_window_slots = update.flow_window_slots;
         config.max_window_flow_bps = update.max_window_flow_bps;
@@ -1371,6 +1436,9 @@ pub struct ParamsUpdate {
     pub unbond_cooldown_slots: u64,
     /// p2-T8: max age (slots) of the stored `update_slot` at update time.
     pub max_update_slot_age: u32,
+    /// h3: realized-edge loss window (slots) and threshold (bps of available value).
+    pub edge_window_slots: u64,
+    pub max_edge_loss_bps: u32,
     /// Max |anchor - oracle| / oracle in bps (Item 2).
     pub max_anchor_dev_bps: u32,
     /// Item 1a: cumulative one-sided flow window, in slots.
@@ -1410,6 +1478,9 @@ pub struct InitParams {
     pub unbond_cooldown_slots: u64,
     /// p2-T8: max age (slots) of the stored `update_slot` at update time.
     pub max_update_slot_age: u32,
+    /// h3: realized-edge loss window (slots) and threshold (bps of available value).
+    pub edge_window_slots: u64,
+    pub max_edge_loss_bps: u32,
     pub max_anchor_dev_bps: u32,
     pub flow_window_slots: u64,
     pub max_window_flow_bps: u32,
@@ -1502,6 +1573,9 @@ pub struct Config {
     pub unbond_cooldown_slots: u64,
     /// p2-T8: max age (slots) of the stored `update_slot` at update time.
     pub max_update_slot_age: u32,
+    /// h3: realized-edge loss window (slots) and threshold (bps of available value).
+    pub edge_window_slots: u64,
+    pub max_edge_loss_bps: u32,
     pub max_anchor_dev_bps: u32,
     /// Item 1a: flow window length (slots) and one-sided cap (bps of base reserve).
     pub flow_window_slots: u64,
@@ -1562,6 +1636,12 @@ pub struct QuoteState {
     pub window_base_bought: u64,
     pub oracle_publish_time: i64,
     pub oracle_conf_bps: u32,
+    /// h3: the verified oracle price (Q64) stored at `update_quote`; the swap
+    /// measures the vault's realized execution edge against it.
+    pub oracle_price: u128,
+    /// h3: rolling realized-edge tracker (quote atoms; positive = vault gained).
+    pub edge_window_start_slot: u64,
+    pub realized_edge: i128,
     pub ask_levels: [Level; LEVELS],
     pub bid_levels: [Level; LEVELS],
     pub bump: u8,
@@ -1598,9 +1678,9 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8 + 4)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8 + 4 + 8 + 4)]
     pub config: Box<Account<'info, Config>>,
-    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + (4+4+16+16+16)*LEVELS + (4+4+16+16+16)*LEVELS + 1)]
+    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + 16 + 8 + 16 + (4+4+16+16+16)*LEVELS + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
     #[account(address = params.base_mint)]
     pub base_mint: Box<Account<'info, Mint>>,
@@ -1918,7 +1998,7 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+117+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=admin, space=8+32+8+129+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }
@@ -2047,6 +2127,14 @@ pub struct SwapEvent {
 #[event]
 pub struct BreakerTripped {
     pub slot: u64,
+}
+
+/// h3: the realized-edge breaker paused the vault.
+#[event]
+pub struct EdgeBreakerTripped {
+    pub slot: u64,
+    pub realized_edge: i128,
+    pub bound: u128,
 }
 #[event]
 pub struct BreakerReset {

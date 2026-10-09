@@ -66,6 +66,41 @@ bound only constrains a misbehaving keeper. (No production default constant is
 changed here; `max_anchor_dev_bps` is client-supplied and recorded in
 `docs/ASSUMPTIONS.md` A-19.)
 
+## H3 — Automatic realized-loss (edge) breaker
+
+Every `swap` measures the vault's realized execution edge against the **stored,
+verified** oracle price from the latest `update_quote`:
+
+```text
+edge = amount_in − out·oracle      (BuyBase: the vault sells base)
+edge = amount_in·oracle − out      (SellBase: the vault buys base)
+```
+
+in quote atoms (positive = the vault traded better than the oracle mid). The
+signed edge accumulates in `QuoteState.realized_edge` over a **clock-rolled**
+window of `edge_window_slots`. If
+`realized_edge < −max_edge_loss_bps · available_value / 1e4`, the vault is
+auto-paused (same state as the manual breaker; admin reset only). Re-quoting does
+**not** reset the tracker (the window rolls on the slot clock), and
+deposits/withdrawals never touch it.
+
+**Bound with the breaker:** realized adverse selection is capped at
+`max_edge_loss_bps` of the available value **per window**, on top of the T6
+per-update bound — i.e. per-hour worst case ≈ `(3600·4 / edge_window_slots) ·
+max_edge_loss_bps` of value. Both parameters are config-bounded and timelocked.
+
+**Evidence:** `honest_flow_does_not_trip_the_edge_breaker` (20 honest slots, no
+trip); `malicious_keeper_edge_loss_trips_within_the_window` (keeper at max
+deviation trips at slot index 3; `realized_edge = −168,531` vs bound `150,000`);
+`deposits_and_withdrawals_do_not_move_the_edge_tracker`.
+
+**Open / provisional:** the window-level honest trip-rate table on the P1
+calm/trend/crash/stress replays is **not** produced — the simulator does not yet
+model the on-chain edge tracker, so the default `max_edge_loss_bps` is
+provisional (set to a loose 500 bps / 5% in tests). A legitimate loss to informed
+flow also reduces the edge, so this default must be set from the window replay
+before it is tightened.
+
 Solana-specific checklist (Build Plan §11): signer checks on every authority;
 owner/address checks on every account incl. the Pyth account (correct program +
 feed id); canonical PDA bumps; token accounts verified for mint/owner/program;

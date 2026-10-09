@@ -256,6 +256,8 @@ impl Fixture {
             min_bond,
             unbond_cooldown_slots: 100,
             max_update_slot_age: 25,
+            edge_window_slots: 100,
+            max_edge_loss_bps: 500,
             max_anchor_dev_bps: 100,
             flow_window_slots,
             max_window_flow_bps,
@@ -3521,4 +3523,195 @@ fn two_sided_ladder_is_mirrored_at_zero_skew() {
             "ask_hi + bid_lo not mirrored at level {k}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// H3: automatic realized-loss (edge) breaker.
+// ---------------------------------------------------------------------------
+
+/// Rewrite the vault Config in place (test-only knob setting).
+fn rewrite_config(fixture: &mut Fixture, mutate: impl FnOnce(&mut Config)) {
+    let mut config: Config = read_state(&fixture.svm, fixture.config);
+    mutate(&mut config);
+    fixture
+        .svm
+        .set_account(
+            fixture.config,
+            solana_account::Account {
+                lamports: 1_000_000_000,
+                data: account_data(&config),
+                owner: fixture.program_id,
+                ..solana_account::Account::default()
+            },
+        )
+        .unwrap();
+}
+
+/// An honest keeper quoting at the oracle accumulates a non-negative edge and
+/// never trips the breaker.
+#[test]
+fn honest_flow_does_not_trip_the_edge_breaker() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    for i in 0..20u64 {
+        fixture.warp_to_slot(SLOT + i);
+        let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+        fixture
+            .update_quote(&keys.keeper, honest, quote_update(SLOT + i))
+            .expect("quote");
+        let side = if i % 2 == 0 {
+            arbswap::SwapSide::BuyBase
+        } else {
+            arbswap::SwapSide::SellBase
+        };
+        let _ = fixture.swap_side(&keys.trader, side, 1_000, 0, 1);
+    }
+    assert_eq!(
+        fixture.vault_state().status,
+        0,
+        "honest flow must not trip the edge breaker"
+    );
+    assert!(
+        fixture.quote_state_value().realized_edge >= 0,
+        "honest quoting should not lose to the oracle"
+    );
+}
+
+/// A keeper at the maximum allowed deviation loses edge every slot; the tracker
+/// pauses the vault within the window.
+#[test]
+fn malicious_keeper_edge_loss_trips_within_the_window() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    rewrite_config(&mut fixture, |c| {
+        c.max_anchor_dev_bps = 100;
+        c.utilization_max_bps = 5_000;
+        c.fee_bps = 1;
+        c.max_quote_size = 100_000_000;
+        c.edge_window_slots = 1_000;
+        c.max_edge_loss_bps = 5; // 0.05% of available value
+    });
+    fixture
+        .deposit(&keys.lp, 1_000_000, 150_000_000, 1)
+        .expect("deposit");
+
+    let anchor_price_q64 = PRICE_Q64 * 9_901 / 10_000;
+    let anchor_sqrt = arb_math::sqrt_q64(anchor_price_q64).expect("anchor sqrt");
+    let ask_levels = anchor_ladder(anchor_sqrt, 2, OFFSETS, 50_000);
+    let bid_levels = anchor_bid_ladder(anchor_sqrt, 2, OFFSETS, 1_000);
+    let input: u64 = ask_levels
+        .iter()
+        .map(|l| {
+            arb_math::Level {
+                sqrt_lo: l.sqrt_lo,
+                sqrt_hi: l.sqrt_hi,
+                liquidity: l.liquidity,
+            }
+            .quote_capacity()
+            .expect("quote capacity")
+        })
+        .sum::<u128>()
+        .min(100_000_000) as u64;
+
+    let mut tripped_at = None;
+    for i in 0..20u64 {
+        fixture.warp_to_slot(SLOT + i);
+        if fixture.vault_state().status != 0 {
+            tripped_at = Some(i);
+            break;
+        }
+        let oracle = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+        let update = QuoteUpdate {
+            update_slot: SLOT + i,
+            oracle_publish_time: PUBLISH_TIME,
+            oracle_price: PRICE_Q64,
+            oracle_conf_bps: CONF_BPS,
+            anchor_sqrt_price: anchor_sqrt,
+            p_res_sqrt: anchor_sqrt,
+            half_spread_bps: 2,
+            ask_extra_bps: 0,
+            bid_extra_bps: 0,
+            depth_mult_bps: 10_000,
+            offsets_bps: OFFSETS,
+            weights_bps: WEIGHTS,
+            ask_levels,
+            bid_levels,
+        };
+        fixture
+            .update_quote(&keys.keeper, oracle, update)
+            .expect("malicious quote");
+        let _ = fixture.swap(&keys.trader, input, 0, 1);
+    }
+    assert_eq!(
+        fixture.vault_state().status,
+        1,
+        "the edge breaker must pause a persistently losing vault"
+    );
+    assert!(tripped_at.is_some() || fixture.vault_state().status == 1);
+    println!(
+        "h3_tripped_at_slot_index={:?} realized_edge={}",
+        tripped_at,
+        fixture.quote_state_value().realized_edge
+    );
+}
+
+/// Deposits and withdrawals must not move the realized-edge tracker.
+#[test]
+fn deposits_and_withdrawals_do_not_move_the_edge_tracker() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    fixture
+        .swap(&keys.trader, AMOUNT_IN, 0, 1)
+        .expect("swap sets the edge");
+    let edge_after_swap = fixture.quote_state_value().realized_edge;
+
+    fixture
+        .deposit_as(
+            &keys.trader,
+            fixture.trader_base,
+            fixture.trader_quote,
+            fixture.trader_shares,
+            LP_BASE_DEPOSIT,
+            LP_QUOTE_DEPOSIT,
+            0,
+        )
+        .expect("second deposit");
+    assert_eq!(
+        fixture.quote_state_value().realized_edge,
+        edge_after_swap,
+        "a deposit must not change the edge tracker"
+    );
+
+    fixture.warp_to_slot(SLOT + 2);
+    let shares = token_amount(&fixture.svm, fixture.lp_shares);
+    let request = ix(
+        fixture.program_id,
+        arbswap::instruction::RequestWithdraw { shares },
+        arbswap::accounts::RequestWithdraw {
+            user: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            share_lock: fixture.share_lock,
+            deposit_ticket: fixture.deposit_ticket,
+            user_shares: fixture.lp_shares,
+            withdraw_ticket: fixture.withdraw_ticket,
+            token_program: token_program_id(),
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    send(&mut fixture.svm, &[&keys.lp], request).expect("request_withdraw");
+    assert_eq!(
+        fixture.quote_state_value().realized_edge,
+        edge_after_swap,
+        "a withdrawal request must not change the edge tracker"
+    );
 }
