@@ -388,6 +388,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "arb-math",
+ "arbswap-keeper",
  "litesvm",
  "pyth-solana-receiver-sdk",
  "pythnet-sdk",

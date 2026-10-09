@@ -170,8 +170,8 @@ Measured with `measure_instruction_compute_units` (bonded path) after p2-T3:
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | 63,185 (capacity maths dominates; was ~18–29k) |
-| `update_quote` (wide-conf rejected) | 15,048 |
+| `update_quote` | ≈68k (63–73k across runs; two-sided capacity + Pyth dominate) |
+| `update_quote` (wide-conf rejected) | ~13.6k |
 | `swap` | 72,794 |
 | `trip_breaker` | 12,377 |
 | `deposit` | 46,477 |
@@ -181,6 +181,43 @@ Measured with `measure_instruction_compute_units` (bonded path) after p2-T3:
 | `bond_keeper` / `slash_keeper` / `claim_keeper_reward` | 26,409 / 15,507 / 13,967 |
 | `unbond_keeper` (queue / release) | 16,242 / 18,379 |
 
-`update_quote` now exceeds the keeper's former 60k limit, so
-`MAX_UPDATE_COMPUTE_UNITS` was raised to 80,000. All instructions remain inside
-the 200,000 CU transaction default.
+`update_quote` exceeds the keeper's former 60k limit, so
+`MAX_UPDATE_COMPUTE_UNITS` is 80,000. All instructions remain inside the
+200,000 CU transaction default. We do **not** claim a "cheap" update.
+
+### h2 — update_quote profile and the <=40k target
+
+Profiled by ablation (LiteSVM, two-sided ladder, 12 levels):
+
+| Section | CU | How measured |
+|---|---|---|
+| account validation + Pyth verification + store + misc | ≈30k | full minus the capacity loops |
+| **ask `base_capacity` (6 U256 divisions)** | **≈23k** | remove the ask capacity loop |
+| bid `quote_capacity` (6 U256 mul+shift) | ≈8k | remove the bid capacity loop |
+| level band binding (24 `price_from_sqrt`) | ≈0 | remove the binding loop |
+| keeper-bond PDA check | ≈2k | bonded vs unbonded |
+
+**Target <=40k is NOT met** (measured ≈68k). The dominant cost is the ask-side
+`base_capacity` (`floor(L·Δ/(lo·hi))`, a 256-bit division per level), on top of
+the fixed account-validation + Pyth verification (~30k) that the program cannot
+remove without dropping the on-chain oracle check.
+
+**Proposed design change (WAITING for approval; semantics change).** Validate
+capacity **coarsely** at update time and enforce the **exact** consumption cap at
+swap time:
+- update time: require the *cheap* per-side `quote_capacity` sums
+  (`Σ L·Δ/2¹²⁸`, no 256-bit division) ≤ `utilization × value` of the reserve, so
+  an over-deep ladder is still rejected;
+- swap time: the existing `walk_ladder` `remaining != 0` check plus the token
+  transfer already hard-cap the actual outflow to the reserve, so no swap can
+  pay out more than the vault holds.
+This removes the 6 ask divisions (~23k) and would land `update_quote` near the
+30k stretch target. It changes the *update-time* guarantee from exact base
+capacity to exact value capacity, so it needs sign-off.
+
+**Separate finding (not fixed here):** a variant that replaced the two u128
+divisors of `base_capacity` with a single U256-divisor `div_rem` silently
+returned wrong (small) values for large ladders and the capacity guard stopped
+firing (`a_ladder_deeper_than_the_reserves_is_rejected` passed instead of
+failing). It was reverted. This suggests `arb_math::wide::U256::div_rem` may be
+wrong for divisors wider than two limbs — worth a dedicated fuzz case.
