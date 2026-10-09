@@ -6,16 +6,19 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-arbswap = "E8ptkpV626P2neR8v4Q9UCFHoD6AMAH2aTRsEQiNDN3U"
+arbswap = "CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx"
+
+[programs.devnet]
+arbswap = "CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx"
 
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
+[workspace]
+members = ["vault/program"]
+
 [scripts]
 test = "cargo test"
 
 [hooks]
-
-[workspace]
-members = ["vault/program"]

@@ -14,7 +14,7 @@ Created: ~/solana/arbswap (per human instruction "create ArbSwap in cd solana").
 Verified live during setup (not assumed):
 - toolchain versions above (all commands run)
 - anchor 1.x program conventions from the local vault example
-- program keypair generated: E8ptkpV626P2neR8v4Q9UCFHoD6AMAH2aTRsEQiNDN3U
+- program keypair generated: CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx
 - Next.js latest = 16.3.8 (npm view)
 
 Downloaded/installed this session:

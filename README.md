@@ -49,7 +49,7 @@ We do **not** claim:
   before real funds.
 - "Exploit-free", "audited", or "as complete as Uniswap".
 
-Program ID (localnet/devnet): `E8ptkpV626P2neR8v4Q9UCFHoD6AMAH2aTRsEQiNDN3U`
+Program ID (localnet/devnet): `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`
 
 ## Layout
 
