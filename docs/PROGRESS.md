@@ -49,3 +49,21 @@ guard + fuzz/state-machine), S5 (Phase-1 value proof), S6 (frontend), S7
   main only", so no branch was created and nothing is pushed to main.
 - Banned wording must not appear anywhere; use "no known issues in self-review,
   independent audit pending".
+
+## P2 (on-chain program) status — full audit vs the idea document
+
+| Task (BuilderPlan §12 P2) | Status |
+|---|---|
+| T2.1 Anchor accounts/config/errors/events | DONE |
+| T2.2 deposit / request_withdraw / claim_withdraw / crank_epoch (warm-up + queue) | DONE (LiteSVM) |
+| T2.3 update_quote with all guards | DONE (LiteSVM; Pyth verified) |
+| T2.4 swap via arb-math; fee split | DONE (LiteSVM) |
+| T2.5 breakers / pause / timelocked set_params | DONE (LiteSVM) |
+| T2.6 local validator + invariant tests | DONE (132 Rust tests) |
+| T2.6 devnet deploy | DONE (CCR33..., admin claimed) |
+| **P2 gate: full deposit->update->swap->withdraw loop ON DEVNET** | **PARTIAL — blocked on the Pyth receiver post** |
+
+Blocker: `update_quote` requires a real `PriceUpdateV2` account. The modern Pyth
+receiver (SDK 2.0.0, devnet `rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ`) uses
+**Merkle** price updates + a posted VAA account; Hermes now needs an API key.
+A client for this is required to run the on-device loop.
