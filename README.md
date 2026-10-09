@@ -12,11 +12,38 @@ Formerly "TruQuote" (working name); all spec documents use the old name.
 |---|---|---|
 | P0 | Repo, toolchain, assumptions | ✅ |
 | P1 | Python reference, vectors, simulator, replay/report pipeline | ⚠️ **PARTIAL** — contamination fixed + B1 calibrated (markout −0.02 / half-spread 2.41); stress windows not yet ≥2×; all pre-fix numbers superseded |
-| P2 | Anchor accounts, custody, Pyth guards, swaps, withdrawals, breakers | ✅ local (73 Rust tests); devnet gate open |
-| P3 | Rust keeper core, replay, update gating, payload encoder | ✅ dry-run; live RPC gate open |
+| P2 | Anchor accounts, custody, Pyth guards, swaps, withdrawals, breakers | ✅ PASS — full deposit→update→swap→withdraw lifecycle on devnet (`docs/DEVNET.md`) |
+| P3 | Rust keeper core, replay, update gating, payload encoder | ✅ PASS — live keeper on devnet, 600 s / 29 updates / 0 failures (`docs/P3_AUDIT.md` §6) |
 | P4 | Analytics, fees, dashboard | ✅ PASS (SQLite indexer + live poller; metrics/attribution; interactive offline demo mode) |
 | P5 | Attacker bots, fuzzing, aggregator adapter | ✅ PASS (gate: every E7 attack contained/documented; aggregator parity; docs/P5_REPORT.md). Roadmap: cargo-fuzz, E8 fill data |
-| P6 | Reproducibility, demo, docs | ⬜ not started |
+| P6 | Reproducibility, demo, docs | ✅ PASS (gate: `./scripts/headline.sh` reproduces the headline chart from this README with no data/keys; demo backup MP4 + deck PDF in `docs/`) |
+
+## Reproduce the headline chart (one command)
+
+```bash
+./scripts/headline.sh
+```
+
+Writes `docs/headline_chart.svg` (the routed-venue comparison: volume share,
+fill share, 2s markout over the pre-registered W1–W6 slices) and
+`simulation/data/results/headline.json`. It uses the gitignored raw archives
+when present and a deterministic synthetic price path otherwise, so it runs with
+**no data and no API keys**. Flow is synthetic, so every number is a **model
+output**, not a product result — see `docs/HEADLINE.md` and `docs/RESULTS.md`.
+
+## Submission artifacts (P6)
+
+| Artifact | Path | Render |
+|---|---|---|
+| Headline chart | `docs/headline_chart.svg` | `./scripts/headline.sh` |
+| Results with limits | `docs/RESULTS.md` | — |
+| Methodology | `docs/METHODOLOGY.md` | — |
+| Demo (interactive) | `simulation/analytics/out/demo.html` | `python -m simulation.analytics demo` |
+| Demo backup (auto-play) | `docs/demo_backup.html` | `./scripts/record_demo.sh` |
+| Demo backup (video) | `docs/demo_backup.mp4` | `./scripts/record_demo.sh` (needs a browser + ffmpeg) |
+| Demo script | `docs/DEMO_SCRIPT.md` | — |
+| Pitch deck (source) | `docs/PITCH_DECK.md` | — |
+| Pitch deck (HTML/PDF) | `docs/pitch_deck.html`, `docs/pitch_deck.pdf` | `./scripts/render_deck.sh` |
 
 ## Claims register (only what a test proves)
 
@@ -148,3 +175,8 @@ speed; never claim an unmeasured result; report losing regimes.
 - `docs/THREAT_MODEL.md` — threats, mitigations, tests.
 - `docs/SECURITY_CHECKLIST.md` — account-binding table, per-instruction checks, CU table.
 - `docs/CLAIMS.md` — claims ledger (status, evidence, limits).
+- `docs/RESULTS.md` — results with limits (model output vs on-chain SUPPORTED).
+- `docs/HEADLINE.md` — the single claim the evidence supports.
+- `docs/DEMO_SCRIPT.md` — 3-minute demo script, live-demo script, backup plan.
+- `docs/PITCH_DECK.md` — pitch deck source (rendered to HTML/PDF).
+- `docs/P5_REPORT.md`, `docs/P6_AUDIT.md` — phase evidence and gate verdicts.

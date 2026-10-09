@@ -95,6 +95,12 @@ def main() -> None:
     demo_parser.add_argument(
         "--out", type=Path, default=Path("simulation/analytics/out/demo.html")
     )
+    backup_parser = sub.add_parser(
+        "backup", help="render the auto-playing backup recording + scene pages"
+    )
+    backup_parser.add_argument("--length", type=int, default=1_800)
+    backup_parser.add_argument("--seed", type=int, default=20261006)
+    backup_parser.add_argument("--out", type=Path, default=Path("simulation/analytics/out"))
     args = parser.parse_args()
 
     if args.command == "build":
@@ -105,6 +111,11 @@ def main() -> None:
 
         demo.build_demo(args.out, length=args.length, seed=args.seed)
         print(f"wrote {args.out}")
+    elif args.command == "backup":
+        from simulation.analytics import backup
+
+        result = backup.build(args.out, length=args.length, seed=args.seed)
+        print(f"wrote {args.out}/demo_backup.html and {len(result['scenes'])} scene pages")
 
 
 if __name__ == "__main__":

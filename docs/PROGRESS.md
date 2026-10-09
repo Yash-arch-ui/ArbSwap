@@ -67,3 +67,21 @@ Resolved: `scripts/devnet/post_pyth.ts` uses the official
 `@pythnetwork/hermes-client` + `@pythnetwork/pyth-solana-receiver` to post a
 fully verified SOL/USD update; `arbswap-e2e loop` consumes the `PriceUpdateV2`
 and runs the whole lifecycle. Gate PASSED.
+
+## P6 (Story and submission) — DONE
+
+Gate PASSED: `./scripts/headline.sh` reproduces the headline chart from the
+README with no data and no API keys.
+
+- T6.1 `simulation/sim/headline.py` + `scripts/headline.sh` +
+  `simulation/sim/test_headline.py` → `docs/headline_chart.svg`
+  (ArbSwap vol 0.0%/fill 1.6%/mkt +1.99; B1 fill 16.9%; PropAMM vol 99.6%).
+- T6.2 `docs/RESULTS.md` (results with limits); `docs/METHODOLOGY.md` E8 → PARTIAL.
+- T6.3 `docs/DEMO_SCRIPT.md`; `docs/demo_backup.html` (auto-play) +
+  `docs/demo_backup.mp4` (36 s, 1280×720, h264); `simulation/analytics/backup.py`
+  + `test_backup.py`; `scripts/record_demo.sh`.
+- T6.4 `docs/PITCH_DECK.md` → `docs/pitch_deck.html` + `docs/pitch_deck.pdf`;
+  `scripts/render_deck.sh`.
+- Reconciled stale claims: `docs/CLAIMS.md` (devnet + live keeper + demo now
+  SUPPORTED), README P2/P3 rows, `docs/DEVNET.md` superseding note.
+- Gate: 133 Rust / 183 Python tests, fmt + clippy clean, `anchor build` OK.

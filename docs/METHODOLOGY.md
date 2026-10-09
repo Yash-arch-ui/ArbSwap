@@ -42,13 +42,16 @@ post-rejection), fill/rejection rate, volume/fill share, CU per instruction.
   (`docs/ASSUMPTIONS.md` A-15); absolute PnL carries that uncertainty.
 - **Losing / zero-share regimes are reported as prominently as wins** (see the
   routed table: ArbSwap ~0% volume share).
-- **E8 (real Solana pool quote/fill data) is NOT DONE** — no data source was
-  available; there is no measured claim about competitors.
+- **E8 (real Solana pool quote/fill data) is PARTIAL** — a real Jupiter-routed
+  SOL/USDC quote via the live propAMM BisonFi is recorded (`docs/P5_REPORT.md`);
+  the full quote-versus-fill gap needs execution data and is not measured, so
+  there is no measured claim about competitors.
 - Never headline raw LP PnL or impermanent loss; use hedged PnL.
 
 ## Reproduce
 
 ```bash
+./scripts/headline.sh                   # headline chart (no data/keys needed)
 cargo test --workspace && .venv/bin/pytest simulation -q
 python -m simulation.sim.study calibrate && python -m simulation.sim.study evaluate
 python -m simulation.sim.study studies && python -m simulation.sim.study render

@@ -34,6 +34,11 @@ Verify with `solana program show CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx --
 
 ## What did NOT work / remains
 
+> **Superseded (see below):** the money-path e2e and the live keeper were both
+> completed on devnet — see "P2 GATE — FULL LIFECYCLE PASSED ON DEVNET" and
+> `docs/P3_AUDIT.md` §6. This section records the state right after the initial
+> deploy.
+
 - **IDL metadata write** fails with "Failed to initialize IDL" (the metadata
   account `HMuUkDPKqouLg5hrH14QRkGXf7WaxMqgLFW9RA1tk7ui` exists but Anchor's
   write/upgrade errors). This is a client-convenience issue only; the program

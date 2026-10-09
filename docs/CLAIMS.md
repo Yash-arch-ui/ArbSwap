@@ -25,14 +25,17 @@ APY or return projection.
 | 8 | Update/swap compute units (honest) | **SUPPORTED (measurement)** | `measure_instruction_compute_units`; `docs/SECURITY_CHECKLIST.md` §3 | `update_quote` ≈68k, `swap` ≈75k. **Not cheap.** The ≤40k target is not met (h2, `f1fbb8a`, waiting for approval) |
 | 9 | Minimum half-spread = 2 bps | **SUPPORTED** | `a_zero_spread_quote_is_rejected` (`30e3b27`) | **by design not competitive with sub-bp propAMMs**; ArbSwap does not claim to win on raw price |
 | 10 | LVR reduction / positive markout (the P1 value claim) | **SIMULATION ONLY — UNPROVEN; headline is Option 2** | `docs/P1_RESULTS.md` (model output; calibration gap F-08); routed world (`python -m simulation.sim.router`) gives ArbSwap ~0% volume share vs a propAMM; `docs/HEADLINE.md` | not a product result; not to be headlined; Option 1 not shown, Option 3 never claimed |
-| 11 | Devnet deployment / live keeper | **NOT CLAIMED** | — | no devnet deploy, no live RPC transport (P3 live is NOT DONE) |
-| 12 | Independent audit | **NOT CLAIMED** | same-agent self-review | external audit required before real funds |
-| 13 | Frontend dashboard / demo mode | **NOT CLAIMED** | — | not built |
+| 11 | Devnet deployment + full money path | **SUPPORTED (devnet only)** | deploy + full lifecycle signatures in `docs/DEVNET.md` (deposit→update_quote→swap both sides→request/crank/claim); `docs/P4_P5_AUDIT.md` | devnet only, not mainnet; no real funds; IDL metadata write failed (client-convenience only) |
+| 12 | Live keeper on devnet | **SUPPORTED (devnet only)** | `docs/P3_AUDIT.md` §6 — live keeper ran 600 s, 29 `update_quote`, 0 failures; `docs/DEVNET.md` | low cadence, single allowlisted keeper; not a mainnet run |
+| 13 | Independent audit | **NOT CLAIMED** | same-agent self-review | external audit required before real funds |
+| 14 | Interactive demo mode / dashboard | **SUPPORTED (offline model output)** | `simulation/analytics/demo.py` + `test_phase4.py`; backup `docs/demo_backup.html` + `test_backup.py` | fixed-seed simulator replay, not live data; the separate `frontend/` dApp is NOT built |
+| 15 | Headline chart reproducible from README | **SUPPORTED** | `simulation/sim/test_headline.py`; `./scripts/headline.sh` → `docs/headline_chart.svg` | model output; synthetic price-path fallback when raw data is absent |
 
 ## Commands
 
 ```bash
-cargo test --workspace        # 125 Rust tests
-.venv/bin/pytest simulation -q # 164 Python tests
+cargo test --workspace        # 133 Rust tests
+.venv/bin/pytest simulation -q # 177 Python tests
 anchor build                  # SBF program
+./scripts/headline.sh         # headline chart (no data/keys)
 ```
