@@ -41,6 +41,7 @@ fn main() {
             args.next(),
         ),
         Some("live") => live(args.collect()),
+        Some("init-program") => init_program(args.collect()),
         _ => {
             println!("arbswap-keeper replay <csv>");
             println!(
@@ -188,6 +189,48 @@ fn replay(path: String) {
         "replay complete: {} quote updates",
         keeper.sender.sent.len()
     );
+}
+
+/// Claim the one-time program admin (`initialize_program`) so `initialize_vault`
+/// cannot be front-run. Minimal client: builds the Anchor instruction by hand.
+fn init_program(args: Vec<String>) {
+    use sha2::{Digest, Sha256};
+    use solana_instruction::{AccountMeta, Instruction};
+    use solana_message::Message;
+    use solana_transaction::Transaction;
+
+    let get = |i: usize, n: &str| -> String {
+        args.get(i)
+            .unwrap_or_else(|| panic!("init-program requires {n}"))
+            .clone()
+    };
+    let rpc_url = get(0, "rpc_url");
+    let program_id: Address = get(1, "program_id").parse().expect("program_id");
+    let admin = read_keypair(&get(2, "admin_keypair"));
+    // `find_program_address` is on-chain-only in this crate, so the caller
+    // supplies the `[b"program"]` PDA (deterministic from the program id).
+    let program_config: Address = get(3, "program_config").parse().expect("program_config");
+    let data = Sha256::digest(b"global:initialize_program")[..8].to_vec();
+    let system_program: Address = "11111111111111111111111111111111".parse().unwrap();
+    let instruction = Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(admin.pubkey(), true),
+            AccountMeta::new(program_config, false),
+            AccountMeta::new_readonly(system_program, false),
+        ],
+        data,
+    };
+    let blockhash = rpc_blockhash(&rpc_url).expect("blockhash");
+    let transaction = Transaction::new(
+        &[&admin],
+        Message::new(&[instruction], Some(&admin.pubkey())),
+        blockhash,
+    );
+    match rpc_send_transaction(&rpc_url, &transaction) {
+        Some(()) => println!("initialize_program sent; program_config={program_config}"),
+        None => eprintln!("sendTransaction failed (already initialized?)"),
+    }
 }
 
 fn decimal_to_q64(value: &str) -> Option<u128> {
