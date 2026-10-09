@@ -33,6 +33,16 @@ Baseline commit: `cc41f53` (tag `p2-claim-align-v1`). Baseline gate: fmt + clipp
 | S7 devnet | TODO (conditional) | | | |
 | S8 submission | TODO | | | |
 
+## STOPPED AT S2 (context nearly full)
+
+Resumed state: S0 DONE, S1 DONE (no bug), S2 PARTIAL. Gate green: 128 Rust /
+169 Python, anchor build OK, secrets clean, on `main` (3 commits ahead of
+origin/main, not pushed).
+
+Remaining: S3 (breaker trip-rate + keeper offline gaps), S4 (mutation of every
+guard + fuzz/state-machine), S5 (Phase-1 value proof), S6 (frontend), S7
+(devnet, conditional on `ARBSWAP_DEVNET_KEYPAIR`), S8 (submission package).
+
 ## Notes / deviations
 
 - Rule 2 said "create branch dev"; the final instruction said "do everything on
