@@ -20,6 +20,10 @@ Formerly "TruQuote" (working name); all spec documents use the old name.
 
 ## Claims register (only what a test proves)
 
+The full ledger is `docs/CLAIMS.md` (claim → status → test/commit → limits).
+Banned wording everywhere: "exploit-free", "audited", "safe", "cheap", "beats
+propAMMs", "as complete as Uniswap", any APY/return projection.
+
 Security posture: **no known issues in self-review, independent audit pending.**
 This is a same-agent self-review, not an audit.
 
@@ -143,3 +147,4 @@ speed; never claim an unmeasured result; report losing regimes.
 - `docs/SECURITY.md` — tracked headline audit summary and known gaps.
 - `docs/THREAT_MODEL.md` — threats, mitigations, tests.
 - `docs/SECURITY_CHECKLIST.md` — account-binding table, per-instruction checks, CU table.
+- `docs/CLAIMS.md` — claims ledger (status, evidence, limits).
