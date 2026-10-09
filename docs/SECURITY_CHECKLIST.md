@@ -189,6 +189,51 @@ Note: the first attempt at the bucket mutation relaxed `available_base`, but
 re-targeting `available_quote` was caught. This is a mutation-targeting lesson,
 not a test weakness.
 
+### S4.1 — extended mutation coverage (every guard)
+
+All guards relaxed, rebuilt, mapped test run; every one **caught**. Two weak
+tests were strengthened with new tests (`per_swap_size_cap_is_enforced`,
+`effective_bond_below_min_is_rejected`). No mutated code committed (tree clean).
+
+| Guard | Mutation | Test | Result |
+|---|---|---|---|
+| Pyth freshness | `max_staleness` → `u64::MAX` | `pyth_verification_rejects_untrusted_or_stale_updates` | caught |
+| Pyth price==oracle | equality → `true` | `pyth_verification_rejects_untrusted_or_stale_updates` | caught |
+| Pyth confidence | conf require → `true` | `rejected_wide_confidence_leaves_the_old_quote_to_expire` | caught |
+| Ask capacity | drop require | `a_ladder_deeper_than_the_reserves_is_rejected` | caught |
+| Bid capacity | drop require | `a_ladder_deeper_than_the_reserves_is_rejected` | caught |
+| Bucket exclusion | gross `available_quote` | `buckets_are_excluded_from_available_reserves` | caught |
+| Level↔anchor binding | drop require | `level_far_from_the_anchor_is_rejected` | caught |
+| Reservation band | drop require | `reservation_outside_the_inventory_band_is_rejected` | caught |
+| Anchor↔oracle | drop require | `anchor_far_from_the_oracle_is_rejected` | caught |
+| Min spread | drop `>= min` | `a_zero_spread_quote_is_rejected` | caught |
+| Expiry | `slot < expiry` → `true` | `expired_quote_always_rejects_swap` | caught |
+| Slippage | drop `out >= min_out` | `swap_enforces_slippage_version_and_size` | caught |
+| Per-swap size cap | drop `<= max_quote_size` | `per_swap_size_cap_is_enforced` (new) | caught |
+| Flow cap | drop require | `window_flow_cap_stops_one_sided_flow` | caught |
+| Edge breaker | `realized_edge < -bound` → `false` | `malicious_keeper_edge_loss_trips_within_the_window` | caught |
+| Withdraw-ticket seeds | drop seeds | `claim_withdraw_rejects_a_ticket_from_another_vault` | caught |
+| Deposit-ticket seeds | drop seeds | `request_withdraw_rejects_a_deposit_ticket_from_another_vault` | caught |
+| Reserve address | drop `address=` | `swap_rejects_a_reserve_from_another_vault` | caught |
+| Share-mint binding | drop `address=` | `claim_withdraw_rejects_a_foreign_share_mint` | caught |
+| Share-lock binding | drop `address=` | `claim_withdraw_rejects_a_foreign_share_lock` | caught |
+| Config seeds | drop seeds | `swap_rejects_a_config_from_another_vault` | caught |
+| Keeper-bond binding | drop seeds | `slash_keeper_rejects_a_bond_from_another_vault` | caught |
+| Bond-vault binding | drop seeds | `slash_keeper_rejects_a_bond_vault_from_another_vault` | caught |
+| Treasury binding | both owner constraints → `true` | `execute_fee_claim_rejects_a_non_treasury_destination` | caught |
+| MIN_LIQUIDITY burn | burn amount → 0 | `first_depositor_inflation_loses_at_most_rounding` | caught |
+| Unbond cooldown | drop timelock | `unbond_keeper_cooldown_and_release` | caught |
+| Keeper allowlist | drop `keeper == config.keeper` | `keeper_can_be_rotated_via_the_timelock` | caught |
+| min_bond gate | drop effective-bond require | `effective_bond_below_min_is_rejected` (new) | caught |
+| Admin-only | drop `admin == vault.admin` | `admin_only_controls_reject_non_admins` | caught |
+| Timelock delay | drop `slot >= activate_slot` | `params_change_is_timelocked` | caught |
+| Account space | halve `quote_state` space | `account_spaces_match_serialized_sizes` | caught |
+
+**Not mutated (covered by type system, not a runtime guard):** Token-2022
+rejection is the `Program<Token>` type (`token_2022_accounts_are_rejected`);
+the inverse-sqrt verification was not implemented (S2 reciprocal redesign
+deferred).
+
 ## 3. Compute units (LiteSVM, program instruction only)
 
 Measured on this branch; re-measured in `measure_instruction_compute_units`

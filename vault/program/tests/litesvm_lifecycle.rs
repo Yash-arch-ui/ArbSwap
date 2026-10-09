@@ -3844,3 +3844,103 @@ fn honest_keeper_passes_at_tight_anchor_dev() {
             .expect("honest keeper (anchor == oracle) must pass at a tight bound");
     }
 }
+
+/// S4: the per-swap size cap is enforced independently of ladder capacity
+/// (a small cap rejects a swap the ladder could otherwise absorb).
+#[test]
+fn per_swap_size_cap_is_enforced() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    rewrite_config(&mut fixture, |c| c.max_quote_size = 1_000);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    // 1,001 quote is well within the ladder depth but above the 1,000 cap.
+    assert_anchor_error(fixture.swap(&keys.trader, 1_001, 0, 1), "CapacityExceeded");
+}
+
+/// S4: a bonded keeper whose bond is below `min_bond` is rejected by the
+/// effective-bond check (not by the PDA check, which passes).
+#[test]
+fn effective_bond_below_min_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    fixture.bond_keeper(&keys.keeper, 500).expect("under-bond");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, quote_update(SLOT)),
+        "NotBonded",
+    );
+}
+
+/// S4.2: a deterministic state machine over the FULL action set
+/// (deposit, update_quote, buy/sell swap, trip, reset, unbond), asserting the
+/// money invariants after every action.
+#[test]
+fn state_machine_full_action_set_preserves_invariants() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let mut state: u64 = 0xDEAD_BEEF_1234_5678;
+    let mut next = move || {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        state >> 33
+    };
+    let mut slot = SLOT;
+    for _ in 0..120u64 {
+        slot += 1;
+        fixture.warp_to_slot(slot);
+        match next() % 6 {
+            0 => {
+                let h = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+                let _ = fixture.update_quote(&keys.keeper, h, quote_update(slot));
+            }
+            1 => {
+                let _ = fixture.swap(&keys.trader, 1_000 + (next() % 40_000), 0, 1);
+            }
+            2 => {
+                let _ = fixture.swap_side(
+                    &keys.trader,
+                    arbswap::SwapSide::SellBase,
+                    1 + (next() % 50),
+                    0,
+                    1,
+                );
+            }
+            3 => {
+                let _ = fixture.trip_breaker(&keys.lp);
+            }
+            4 => {
+                let _ = fixture.reset_breaker(&keys.admin);
+            }
+            _ => {
+                let _ = fixture.unbond_keeper(&keys.keeper, 100);
+            }
+        }
+        let v = fixture.vault_state();
+        let base = token_amount(&fixture.svm, fixture.base_reserve);
+        let quote = token_amount(&fixture.svm, fixture.quote_reserve);
+        assert!(
+            base >= v.insurance_base + v.keeper_base + v.protocol_base,
+            "base reserve below liabilities"
+        );
+        assert!(
+            quote >= v.insurance_quote + v.keeper_quote + v.protocol_quote,
+            "quote reserve below liabilities"
+        );
+        assert!(v.total_shares > 0, "shares vanished");
+    }
+}

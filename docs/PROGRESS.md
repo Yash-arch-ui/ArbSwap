@@ -27,7 +27,7 @@ Baseline commit: `cc41f53` (tag `p2-claim-align-v1`). Baseline gate: fmt + clipp
 | S1 math correctness | DONE (no bug found) | (this commit) | 125 Rust / 169 Py | suspected div_rem bug NOT reproduced; 1M/op differential green |
 | S2 CU reduction | PARTIAL | (this commit) | 125 Rust / 169 Py | update_quote 48,296 (<50k, target 40k not met); swap 61,482 (<=70k). Reciprocal-verify redesign deferred (payload change). |
 | S3 breaker + keeper gaps | DONE | (this commit) | 129 Rust / 173 Py | simulator edge tracker; 0 honest trips (W2-W6, jumps, latency); defaults max_edge_loss_bps=50, max_anchor_dev_bps=25 |
-| S4 guard coverage | TODO | | | |
+| S4 guard coverage | DONE | (this commit) | 132 Rust / 172 Py | 31-guard mutation table (all caught); full-action state machine; proptest present |
 | S5 phase-1 proof | TODO | | | |
 | S6 frontend | TODO | | | |
 | S7 devnet | TODO (conditional) | | | |
