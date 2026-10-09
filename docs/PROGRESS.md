@@ -61,9 +61,9 @@ guard + fuzz/state-machine), S5 (Phase-1 value proof), S6 (frontend), S7
 | T2.5 breakers / pause / timelocked set_params | DONE (LiteSVM) |
 | T2.6 local validator + invariant tests | DONE (132 Rust tests) |
 | T2.6 devnet deploy | DONE (CCR33..., admin claimed) |
-| **P2 gate: full deposit->update->swap->withdraw loop ON DEVNET** | **PARTIAL — blocked on the Pyth receiver post** |
+| **P2 gate: full deposit->update->swap->withdraw loop ON DEVNET** | **DONE** — full lifecycle confirmed on devnet (commit `b099940`; signatures in docs/DEVNET.md) |
 
-Blocker: `update_quote` requires a real `PriceUpdateV2` account. The modern Pyth
-receiver (SDK 2.0.0, devnet `rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ`) uses
-**Merkle** price updates + a posted VAA account; Hermes now needs an API key.
-A client for this is required to run the on-device loop.
+Resolved: `scripts/devnet/post_pyth.ts` uses the official
+`@pythnetwork/hermes-client` + `@pythnetwork/pyth-solana-receiver` to post a
+fully verified SOL/USD update; `arbswap-e2e loop` consumes the `PriceUpdateV2`
+and runs the whole lifecycle. Gate PASSED.
