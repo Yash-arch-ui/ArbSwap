@@ -1,0 +1,130 @@
+{
+  "calibration": {
+    "accept_half_spread_bps": [
+      1.8,
+      3.4
+    ],
+    "accept_markout_bps": [
+      -0.5,
+      0.1
+    ],
+    "best_half_spread_bps": 2.4094157339308593,
+    "best_markout_bps": -0.019758438501197136,
+    "best_params": {
+      "arrival_rate": 0.3,
+      "depth_mult": 12.0,
+      "mean_size": 40.0
+    },
+    "seed": 20261006,
+    "target_half_spread_bps": 2.6,
+    "target_markout_bps": -0.2,
+    "window": "W1"
+  },
+  "cost": {
+    "cu_swap": 59258,
+    "cu_update_quote": 48158,
+    "sol_price": 150.0,
+    "swap_total_quote": 0.0007588887,
+    "update_gas_quote": 0.00075,
+    "update_priority_quote": 7.2237e-06,
+    "update_total_quote": 0.0007572237,
+    "updates_per_hour": 3600
+  },
+  "e1_e4": {
+    "W2": {
+      "E1_pct": 686.9200263934457,
+      "E2_arb_markout_2s_bps": 5.611291244644694,
+      "E2_b1_markout_2s_bps": 0.23750620691815202,
+      "E3_arb_hedged_pnl": 4895.323462454369,
+      "E3_b2_hedged_pnl": -10341.814634237613,
+      "E4_arb_le_b1": false,
+      "E4_arb_quiet_half_spread_bps": 8.26301303247171,
+      "E4_b1_quiet_half_spread_bps": 2.2551506742648058
+    },
+    "W3": {
+      "E1_pct": 469.9150569746586,
+      "E2_arb_markout_2s_bps": 4.659846261193999,
+      "E2_b1_markout_2s_bps": 0.319261136638786,
+      "E3_arb_hedged_pnl": 4356.92444216467,
+      "E3_b2_hedged_pnl": -8561.001341813417,
+      "E4_arb_le_b1": false,
+      "E4_arb_quiet_half_spread_bps": 8.045703696634988,
+      "E4_b1_quiet_half_spread_bps": 2.1682623240373124
+    },
+    "W4": {
+      "E1_pct": 726.1232624590687,
+      "E2_arb_markout_2s_bps": 4.000139301854481,
+      "E2_b1_markout_2s_bps": 0.17760920857143883,
+      "E3_arb_hedged_pnl": 3960.750302193607,
+      "E3_b2_hedged_pnl": -12034.389883261329,
+      "E4_arb_le_b1": false,
+      "E4_arb_quiet_half_spread_bps": 8.324113760201133,
+      "E4_b1_quiet_half_spread_bps": 2.2143431089871304
+    },
+    "W5": {
+      "E1_pct": 2406.541360587132,
+      "E2_arb_markout_2s_bps": 6.0266367900556,
+      "E2_b1_markout_2s_bps": 0.031286278412084166,
+      "E3_arb_hedged_pnl": 4859.8827559850415,
+      "E3_b2_hedged_pnl": -4023.4225323208457,
+      "E4_arb_le_b1": false,
+      "E4_arb_quiet_half_spread_bps": 8.292449592691572,
+      "E4_b1_quiet_half_spread_bps": 2.0494304992266894
+    },
+    "W6": {
+      "E1_pct": 750.4868559707536,
+      "E2_arb_markout_2s_bps": 6.810460824744286,
+      "E2_b1_markout_2s_bps": 0.17520015962362204,
+      "E3_arb_hedged_pnl": 4960.447562034714,
+      "E3_b2_hedged_pnl": -2004.45313125452,
+      "E4_arb_le_b1": false,
+      "E4_arb_quiet_half_spread_bps": 7.8892699302445894,
+      "E4_b1_quiet_half_spread_bps": 1.9947931719003411
+    }
+  },
+  "meta": {
+    "commit": "86bacdcb828300bd758069776c5c2042baf806ff",
+    "data_sha256": {
+      "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
+      "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
+      "binance_SOLUSDT_1s.csv": "a92033b3ff245b80f4f215956a6d9f2ae3df5307b018be87a82b7567a75c0193",
+      "binance_SOLUSDT_1s_6w.csv": "e31890292713bd8ffa0eb0927b3c96b2fc27554a081bab7083c5ec319d258e52",
+      "binance_SOLUSDT_1s_SA.csv": "6cdf748edbd1e66a8fc02693a6ee94c298d3e5652cef3e0e96538ec1148eb867",
+      "binance_SOLUSDT_1s_SB.csv": "e18abe7c93917a5d1e537aa79a290890a916a8efbba5537c608adcdfb4ca1317",
+      "binance_SOLUSDT_aggtrades_100ms_2026-09-10.csv": "49100720c5a38ec0ffa246d11c6eeea7983b744cf1e74f33c79786306e30e6d0",
+      "binance_SOLUSDT_aggtrades_100ms_2026-09-17.csv": "44af193cc4d1f79a4a717feb383f70877d7cb0bc36793f86c1da53252a37757c",
+      "binance_SOLUSDT_aggtrades_100ms_2026-10-01.csv": "e4f4639879d04bc097c86c26acdb7c71e7be652ccf6a4fc8015c5e4f5f662606",
+      "binance_USDCUSDT_1s_6w.csv": "11512c9fcfedb6c37ccb0a3f0f53571ad772b0cf0483257b8d8e0b0af03b38ea",
+      "binance_USDCUSDT_1s_SA.csv": "e2102887cd7a95e4885b38d08e07e14df6c9b2f01f890ffd151f066fef65f67d",
+      "binance_USDCUSDT_1s_SB.csv": "8dbad68d40499f903103f764fd1f710b4701d92e22446e3f0259ef000c886e03"
+    },
+    "date": "2026-10-09",
+    "flow_type": "synthetic (real price path)",
+    "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
+    "note": "Model output. Not a product result. See docs/RESULTS.md.",
+    "short": "86bacdc"
+  },
+  "routed_world": {
+    "rows": [
+      {
+        "fill_share": 0.015860116517364915,
+        "markout_2s_bps": 1.9887260190517495,
+        "venue": "ArbSwap",
+        "volume_share": 0.0002914669047098132
+      },
+      {
+        "fill_share": 0.16920461871297046,
+        "markout_2s_bps": -5.128355472790752,
+        "venue": "B1_passive",
+        "volume_share": 0.003251954369919267
+      },
+      {
+        "fill_share": 0.8149352647696646,
+        "markout_2s_bps": -1.1919332346230471,
+        "venue": "PropAMM",
+        "volume_share": 0.996456578725371
+      }
+    ],
+    "source": "real"
+  }
+}

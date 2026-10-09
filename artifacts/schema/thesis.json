@@ -1,0 +1,23 @@
+{
+  "properties": {
+    "T_A": {
+      "type": "object"
+    },
+    "T_B": {
+      "type": "object"
+    },
+    "T_C": {
+      "type": "object"
+    },
+    "decision": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "T_A",
+    "T_B",
+    "T_C",
+    "decision"
+  ],
+  "type": "object"
+}

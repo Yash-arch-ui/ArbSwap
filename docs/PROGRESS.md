@@ -118,3 +118,10 @@ README with no data and no API keys.
   must sign; timelocked `TIMELOCK_SLOTS`). Tests: `admin_rotation_*` (4) incl.
   wrong-signer, cancel, cross-vault config. Mutation rows S4.2. Squads v4 id
   VERIFIED (A-25). CU: propose/accept/cancel = 8,009 / 9,316 / 7,504.
+
+- **B9 data contract for the frontend — PASS (a/b/d), CLOSED-BY-DECISION (c).**
+  `scripts/publish_artifacts.py` → `artifacts/public/*.json` + `artifacts/schema/*.json`
+  + `manifest.json` (schema version, commit, data hashes, parameter hash, flow
+  type); validation tests `simulation/analytics/tests/test_artifacts_public.py`
+  (jsonschema). Docs: `docs/DATA_SCHEMA.md`, `docs/INTEGRATION.md`. Read-only HTTP
+  server CLOSED-BY-DECISION (static files suffice). `frontend/` untouched.

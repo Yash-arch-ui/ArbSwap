@@ -1,0 +1,35 @@
+{
+  "properties": {
+    "calibration": {
+      "type": "object"
+    },
+    "cost": {
+      "type": "object"
+    },
+    "e1_e4": {
+      "type": "object"
+    },
+    "meta": {
+      "required": [
+        "commit",
+        "date",
+        "flow_type"
+      ],
+      "type": "object"
+    },
+    "routed_world": {
+      "required": [
+        "rows"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "meta",
+    "calibration",
+    "routed_world",
+    "e1_e4",
+    "cost"
+  ],
+  "type": "object"
+}

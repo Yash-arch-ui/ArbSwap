@@ -1,0 +1,30 @@
+{
+  "additionalProperties": {
+    "properties": {
+      "log_return_7d": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "regime": {
+        "type": "string"
+      },
+      "sigma_per_sqrt_s": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "venues": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "regime",
+      "venues"
+    ],
+    "type": "object"
+  },
+  "type": "object"
+}

@@ -5,3 +5,4 @@ pandas
 matplotlib
 mpmath
 pytest
+jsonschema>=4

@@ -1,0 +1,72 @@
+{
+  "change_rate": 0.9830508474576272,
+  "kind": "proxy (quote persistence), NOT a fill gap",
+  "max_change_bps": 4.284572427795091,
+  "mean_change_bps": 1.0032733625457513,
+  "ok": 60,
+  "routes": [
+    [
+      "Aquifer"
+    ],
+    [
+      "BinaryFi"
+    ],
+    [
+      "BisonFi"
+    ],
+    [
+      "BisonFi",
+      "AlphaQ"
+    ],
+    [
+      "BisonFi",
+      "Byreal"
+    ],
+    [
+      "BisonFi",
+      "GoonFi V2"
+    ],
+    [
+      "BisonFi",
+      "Manifest",
+      "AlphaQ"
+    ],
+    [
+      "Deriverse"
+    ],
+    [
+      "Flux"
+    ],
+    [
+      "GoonFi V2"
+    ],
+    [
+      "HumidiFi"
+    ],
+    [
+      "Kipseli"
+    ],
+    [
+      "Obsidian"
+    ],
+    [
+      "PancakeSwap"
+    ],
+    [
+      "Scorch",
+      "Byreal"
+    ],
+    [
+      "StepN"
+    ],
+    [
+      "TesseraV"
+    ],
+    [
+      "Whirlpool",
+      "Manifest",
+      "AlphaQ"
+    ]
+  ],
+  "samples": 60
+}

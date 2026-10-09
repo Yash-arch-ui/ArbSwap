@@ -1,0 +1,60 @@
+{
+  "commit": "86bacdcb828300bd758069776c5c2042baf806ff",
+  "data_sha256": {
+    "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
+    "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
+    "binance_SOLUSDT_1s.csv": "a92033b3ff245b80f4f215956a6d9f2ae3df5307b018be87a82b7567a75c0193",
+    "binance_SOLUSDT_1s_6w.csv": "e31890292713bd8ffa0eb0927b3c96b2fc27554a081bab7083c5ec319d258e52",
+    "binance_SOLUSDT_1s_SA.csv": "6cdf748edbd1e66a8fc02693a6ee94c298d3e5652cef3e0e96538ec1148eb867",
+    "binance_SOLUSDT_1s_SB.csv": "e18abe7c93917a5d1e537aa79a290890a916a8efbba5537c608adcdfb4ca1317",
+    "binance_SOLUSDT_aggtrades_100ms_2026-09-10.csv": "49100720c5a38ec0ffa246d11c6eeea7983b744cf1e74f33c79786306e30e6d0",
+    "binance_SOLUSDT_aggtrades_100ms_2026-09-17.csv": "44af193cc4d1f79a4a717feb383f70877d7cb0bc36793f86c1da53252a37757c",
+    "binance_SOLUSDT_aggtrades_100ms_2026-10-01.csv": "e4f4639879d04bc097c86c26acdb7c71e7be652ccf6a4fc8015c5e4f5f662606",
+    "binance_USDCUSDT_1s_6w.csv": "11512c9fcfedb6c37ccb0a3f0f53571ad772b0cf0483257b8d8e0b0af03b38ea",
+    "binance_USDCUSDT_1s_SA.csv": "e2102887cd7a95e4885b38d08e07e14df6c9b2f01f890ffd151f066fef65f67d",
+    "binance_USDCUSDT_1s_SB.csv": "8dbad68d40499f903103f764fd1f710b4701d92e22446e3f0259ef000c886e03"
+  },
+  "files": {
+    "cu.json": {
+      "schema": "../schema/cu.json",
+      "sha256": "74156977b20eb4398692c6ad3625a66f69a03b57edb71ccffaa0391b17298708"
+    },
+    "e8_proxy.json": {
+      "schema": "../schema/e8_proxy.json",
+      "sha256": "3ebf5052b8e07ab9902791cd88de5c117a42df798e05eef9d874ff6b7e94b4b9"
+    },
+    "envelope.json": {
+      "schema": "../schema/envelope.json",
+      "sha256": "847e315411311385570ee27060524233a2bbe34eb689ad2b9276eb5db9e9f68e"
+    },
+    "headline.json": {
+      "schema": "../schema/headline.json",
+      "sha256": "4e2d8ec2ba71ba1ccefb27606a2db226c70a7025eaa25187ac7ac099d3d34621"
+    },
+    "held_out.json": {
+      "schema": "../schema/held_out.json",
+      "sha256": "269a5ec98841c282861f0d86398261785284950f408e76c6300cdf42b98e8944"
+    },
+    "mutation.json": {
+      "schema": "../schema/mutation.json",
+      "sha256": "180f1634ebd5fdfd39ce6a9bc305af35c11ce04b8a16624be01bfb255e8a189d"
+    },
+    "routed_world.json": {
+      "schema": "../schema/routed_world.json",
+      "sha256": "4e00b3d2f1ea1055b920a84198b6ddeb9d2383039083eb1aaee428925eeefee6"
+    },
+    "test_counts.json": {
+      "schema": "../schema/test_counts.json",
+      "sha256": "d12eb30efd0660c4ad6ad23eeea9f2ae18030824ba803d2bf07baebf75268a5e"
+    },
+    "thesis.json": {
+      "schema": "../schema/thesis.json",
+      "sha256": "2d7dbab6f77c5fb0eff4775799a43cfa9a8a378c95a9c4482cec2a909f1d6983"
+    }
+  },
+  "flow_type": "synthetic (real price path)",
+  "generated": "2026-10-09",
+  "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
+  "schema_version": "1.0.0",
+  "short": "86bacdc"
+}

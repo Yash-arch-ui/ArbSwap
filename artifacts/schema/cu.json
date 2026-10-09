@@ -1,0 +1,11 @@
+{
+  "properties": {
+    "instructions": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "instructions"
+  ],
+  "type": "object"
+}

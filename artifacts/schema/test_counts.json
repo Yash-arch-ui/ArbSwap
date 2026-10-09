@@ -1,0 +1,15 @@
+{
+  "properties": {
+    "python": {
+      "type": "integer"
+    },
+    "rust": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "rust",
+    "python"
+  ],
+  "type": "object"
+}
