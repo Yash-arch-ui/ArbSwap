@@ -52,10 +52,32 @@ pub struct VolatilityState {
 }
 
 impl VolatilityState {
-    /// EWMA over a return expressed in Q64.64 fraction units.
+    /// EWMA over a return expressed in Q64.64 fraction units, assuming a
+    /// one-second tick. Kept for callers/tests that sample at 1 s.
     pub fn update(
         self,
         price_q64: u128,
+        short_lambda_bps: u32,
+        medium_lambda_bps: u32,
+        jump_multiple: u128,
+    ) -> Self {
+        self.update_with_dt(
+            price_q64,
+            1_000,
+            short_lambda_bps,
+            medium_lambda_bps,
+            jump_multiple,
+        )
+    }
+
+    /// Time-normalised EWMA (h6). `dt_millis` is the wall-clock gap since the
+    /// previous tick. The decay is `lambda^n` (n = whole seconds, rounded) and
+    /// the innovation is the per-second variance `r²/n`, so an irregularly
+    /// sampled path estimates the same per-second volatility as a 1 s path.
+    pub fn update_with_dt(
+        self,
+        price_q64: u128,
+        dt_millis: u64,
         short_lambda_bps: u32,
         medium_lambda_bps: u32,
         jump_multiple: u128,
@@ -72,8 +94,20 @@ impl VolatilityState {
             ((self.previous_price_q64 - price_q64) << 64) / self.previous_price_q64
         };
         let ret2 = mul_q64(ret, ret);
-        let short = ewma(self.variance_short_q64, ret2, short_lambda_bps);
-        let medium = ewma(self.variance_medium_q64, ret2, medium_lambda_bps);
+        let n = ((dt_millis + 500) / 1_000).max(1) as u32;
+        let ret2_per_second = ret2 / n as u128;
+        let short = ewma_dt(
+            self.variance_short_q64,
+            ret2_per_second,
+            short_lambda_bps,
+            n,
+        );
+        let medium = ewma_dt(
+            self.variance_medium_q64,
+            ret2_per_second,
+            medium_lambda_bps,
+            n,
+        );
         let sigma = sqrt_q64(short).unwrap_or(u128::MAX);
         Self {
             variance_short_q64: short,
@@ -88,11 +122,21 @@ impl VolatilityState {
     }
 }
 
-fn ewma(old: u128, sample: u128, lambda_bps: u32) -> u128 {
-    let l = lambda_bps as u128;
-    (old.saturating_mul(l)
-        .saturating_add(sample.saturating_mul(BPS.saturating_sub(l))))
-        / BPS
+/// `lambda^n` in bps (lambda in bps, n whole steps).
+fn pow_bps(lambda_bps: u32, n: u32) -> u32 {
+    let mut decay: u128 = BPS;
+    for _ in 0..n {
+        decay = decay * lambda_bps as u128 / BPS;
+    }
+    decay as u32
+}
+
+/// One EWMA step with an `n`-second decay: `decay·old + (1-decay)·sample`.
+fn ewma_dt(old: u128, sample: u128, lambda_bps: u32, n: u32) -> u128 {
+    let decay_bps = pow_bps(lambda_bps, n);
+    let decay = ((decay_bps as u128) << 64) / BPS;
+    let one_minus = ((BPS - decay_bps as u128) << 64) / BPS;
+    mul_q64(decay, old).saturating_add(mul_q64(one_minus, sample))
 }
 
 fn mul_q64(a: u128, b: u128) -> u128 {
@@ -462,13 +506,96 @@ pub fn should_update(
     next: &QuoteUpdate,
     threshold_bps: u32,
     max_age_slots: u64,
+    regime_delta_bps: u32,
 ) -> bool {
     let Some(old) = previous else { return true };
     if next.slot.saturating_sub(old.slot) >= max_age_slots {
         return true;
     }
+    // h6: re-quote on a volatility-regime change (spread moved) or a jump /
+    // throttle change (depth multiplier moved), even if the price is flat.
+    if next.half_spread_bps.abs_diff(old.half_spread_bps) >= regime_delta_bps {
+        return true;
+    }
+    if next.depth_mult_bps != old.depth_mult_bps {
+        return true;
+    }
     let diff = next.oracle_price_q64.abs_diff(old.oracle_price_q64);
     diff.saturating_mul(BPS) >= old.oracle_price_q64.saturating_mul(threshold_bps as u128)
+}
+
+/// h6: the shared per-tick keeper logic used by BOTH the replay and the live
+/// paths, so the two cannot diverge. The transport (CSV vs RPC) stays outside.
+pub struct KeeperCore {
+    pub params: KeeperParams,
+    pub vol: VolatilityState,
+    pub previous: Option<QuoteUpdate>,
+    pub priority_base: u64,
+    pub update_threshold_bps: u32,
+    pub max_age_slots: u64,
+    pub regime_delta_bps: u32,
+    pub priority_floor: u64,
+    pub priority_cap: u64,
+}
+
+impl KeeperCore {
+    pub fn new(params: KeeperParams) -> Self {
+        Self {
+            params,
+            vol: VolatilityState::default(),
+            previous: None,
+            priority_base: 1_000,
+            update_threshold_bps: 5,
+            max_age_slots: 10,
+            regime_delta_bps: 2,
+            priority_floor: 1_000,
+            priority_cap: 50_000,
+        }
+    }
+
+    /// Process one tick. Returns `Some((quote, priority_fee))` when the update
+    /// gate passes. `dt_millis` is the wall-clock gap since the previous tick.
+    pub fn step(
+        &mut self,
+        tick: OracleTick,
+        base: u128,
+        quote: u128,
+        age: u64,
+        dt_millis: u64,
+    ) -> Option<(QuoteUpdate, u64)> {
+        let previous_price = self.vol.previous_price_q64;
+        self.vol = self
+            .vol
+            .update_with_dt(tick.price_q64, dt_millis, 9400, 9900, 4);
+        let next = compute_quote(
+            tick,
+            self.vol,
+            base,
+            quote,
+            age,
+            previous_price,
+            self.params,
+        )?;
+        if should_update(
+            self.previous,
+            &next,
+            self.update_threshold_bps,
+            self.max_age_slots,
+            self.regime_delta_bps,
+        ) {
+            let fee = adaptive_priority_fee(
+                self.vol.sigma_q64(),
+                self.priority_base,
+                self.vol.jump,
+                self.priority_floor,
+                self.priority_cap,
+            );
+            self.previous = Some(next);
+            Some((next, fee))
+        } else {
+            None
+        }
+    }
 }
 
 pub fn priority_fee_lamports(sigma_q64: u128, base: u64, jump: bool) -> u64 {
@@ -724,8 +851,8 @@ mod tests {
             KeeperParams::default(),
         )
         .unwrap();
-        assert!(should_update(None, &q, 5, 10));
-        assert!(!should_update(Some(q), &q, 5, 10));
+        assert!(should_update(None, &q, 5, 10, 2));
+        assert!(!should_update(Some(q), &q, 5, 10, 2));
     }
     #[test]
     fn priority_fee_increases_for_jump() {
@@ -1004,5 +1131,83 @@ mod tests {
             sum_bid_quote * BPS <= quote * params.utilization_bps as u128,
             "keeper bid quote capacity {sum_bid_quote} exceeds the utilization budget"
         );
+    }
+
+    #[test]
+    fn ewma_is_time_normalised() {
+        let base = VolatilityState {
+            variance_short_q64: 1 << 60,
+            variance_medium_q64: 1 << 60,
+            previous_price_q64: 100 * Q64,
+            jump: false,
+        };
+        let one = base.update_with_dt(100 * Q64, 1_000, 9_400, 9_900, 4);
+        let two = base.update_with_dt(100 * Q64, 2_000, 9_400, 9_900, 4);
+        assert!(two.variance_short_q64 < one.variance_short_q64);
+        let lambda_q64 = (9_400u128 << 64) / BPS;
+        let ratio = (two.variance_short_q64 << 64) / one.variance_short_q64;
+        assert!(
+            ratio.abs_diff(lambda_q64) <= lambda_q64 / 1_000_000,
+            "2 s decay ratio {ratio} is not ~lambda {lambda_q64}"
+        );
+    }
+
+    #[test]
+    fn regime_change_triggers_an_update() {
+        let tick = OracleTick {
+            slot: 1,
+            publish_time: 1,
+            price_q64: 150 * Q64,
+            confidence_bps: 1,
+        };
+        let q = compute_quote(
+            tick,
+            VolatilityState::default(),
+            1_000,
+            150_000,
+            0,
+            0,
+            KeeperParams::default(),
+        )
+        .unwrap();
+        let mut wider = q;
+        wider.half_spread_bps += 5;
+        assert!(should_update(Some(q), &wider, 5, 10, 2));
+        let mut throttled = q;
+        throttled.depth_mult_bps = q.depth_mult_bps.saturating_sub(1);
+        assert!(should_update(Some(q), &throttled, 5, 10, 2));
+        assert!(!should_update(Some(q), &q, 5, 10, 2));
+    }
+
+    #[test]
+    fn keeper_core_is_deterministic() {
+        let ticks = [
+            OracleTick {
+                slot: 1,
+                publish_time: 1,
+                price_q64: 150 * Q64,
+                confidence_bps: 1,
+            },
+            OracleTick {
+                slot: 3,
+                publish_time: 2,
+                price_q64: 151 * Q64,
+                confidence_bps: 1,
+            },
+            OracleTick {
+                slot: 5,
+                publish_time: 3,
+                price_q64: 149 * Q64,
+                confidence_bps: 1,
+            },
+        ];
+        let run = || {
+            let mut core = KeeperCore::new(KeeperParams::default());
+            ticks
+                .iter()
+                .map(|t| core.step(*t, 1_000, 150_000, 0, 1_000))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(), run());
     }
 }

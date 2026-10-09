@@ -14,9 +14,9 @@
 //! The default transports are dry-run/replay; nothing here embeds a private key.
 
 use arbswap_keeper::{
-    adaptive_priority_fee, compute_quote, encode_update_quote_instruction, parse_hermes,
-    should_update, DryRunSender, KeeperParams, OracleTick, QuoteSender, UpdateQuotePlan,
-    VolatilityState, MAX_UPDATE_COMPUTE_UNITS,
+    compute_quote, encode_update_quote_instruction, parse_hermes, DryRunSender, KeeperCore,
+    KeeperParams, OracleTick, QuoteSender, UpdateQuotePlan, VolatilityState,
+    MAX_UPDATE_COMPUTE_UNITS,
 };
 use base64::Engine;
 use solana_address::Address;
@@ -112,32 +112,16 @@ fn single_quote(
     }
 }
 
-/// Mutable keeper state carried across replay rows. Grouping it keeps the
-/// per-tick entry point small enough to stay clippy-clean.
+/// The replay transport wraps the shared [`KeeperCore`] (h6): the CSV path and
+/// the live path run the *same* per-tick logic.
 struct ReplayKeeper {
-    params: KeeperParams,
-    vol: VolatilityState,
-    previous: Option<arbswap_keeper::QuoteUpdate>,
+    core: KeeperCore,
     sender: DryRunSender,
-    priority_base: u64,
 }
 
 impl ReplayKeeper {
-    fn process(&mut self, tick: OracleTick, base: u128, quote: u128) {
-        let previous_price = self.vol.previous_price_q64;
-        self.vol = self.vol.update(tick.price_q64, 9400, 9900, 4);
-        let Some(next) = compute_quote(tick, self.vol, base, quote, 0, previous_price, self.params)
-        else {
-            return;
-        };
-        if should_update(self.previous, &next, 5, 10) {
-            let fee = adaptive_priority_fee(
-                self.vol.sigma_q64(),
-                self.priority_base,
-                self.vol.jump,
-                1_000,
-                50_000,
-            );
+    fn process(&mut self, tick: OracleTick, base: u128, quote: u128, dt_millis: u64) {
+        if let Some((next, fee)) = self.core.step(tick, base, quote, 0, dt_millis) {
             self.sender.send(next, fee).expect("dry-run sender");
             let payload = encode_update_quote_instruction(&next);
             let hex = payload
@@ -148,7 +132,6 @@ impl ReplayKeeper {
                 "update,slot={},spread_bps={},depth_bps={},priority_lamports={},instruction_hex={}",
                 next.slot, next.half_spread_bps, next.depth_mult_bps, fee, hex
             );
-            self.previous = Some(next);
         }
     }
 }
@@ -156,11 +139,8 @@ impl ReplayKeeper {
 fn replay(path: String) {
     let input = fs::read_to_string(path).expect("read replay CSV");
     let mut keeper = ReplayKeeper {
-        params: KeeperParams::default(),
-        vol: VolatilityState::default(),
-        previous: None,
+        core: KeeperCore::new(KeeperParams::default()),
         sender: DryRunSender::default(),
-        priority_base: 1_000,
     };
     let raw_price_csv = input
         .lines()
@@ -188,7 +168,7 @@ fn replay(path: String) {
                 price_q64,
                 confidence_bps: 2,
             };
-            keeper.process(tick, 1_000, 150_000);
+            keeper.process(tick, 1_000, 150_000, 1_000);
             continue;
         }
         if fields.len() < 6 {
@@ -202,7 +182,7 @@ fn replay(path: String) {
         };
         let base: u128 = fields[4].parse().expect("base_reserve");
         let quote: u128 = fields[5].parse().expect("quote_reserve");
-        keeper.process(tick, base, quote);
+        keeper.process(tick, base, quote, 1_000);
     }
     eprintln!(
         "replay complete: {} quote updates",
@@ -340,8 +320,7 @@ fn live(args: Vec<String>) {
         base_atom_scale,
         ..KeeperParams::default()
     };
-    let mut vol = VolatilityState::default();
-    let mut previous: Option<arbswap_keeper::QuoteUpdate> = None;
+    let mut core = KeeperCore::new(params);
 
     eprintln!("keeper live: rpc={rpc_url} hermes={hermes_url}");
     loop {
@@ -369,13 +348,7 @@ fn live(args: Vec<String>) {
             sleep(interval);
             continue;
         };
-        let previous_price = vol.previous_price_q64;
-        vol = vol.update(tick.price_q64, 9400, 9900, 4);
-        let Some(next) = compute_quote(tick, vol, base, quote, 0, previous_price, params) else {
-            sleep(interval);
-            continue;
-        };
-        if should_update(previous, &next, 5, 10) {
+        if let Some((next, _fee)) = core.step(tick, base, quote, 0, 400) {
             let plan = UpdateQuotePlan {
                 program_id,
                 keeper: keeper.pubkey(),
@@ -396,11 +369,12 @@ fn live(args: Vec<String>) {
                 priority_micro_lamports_per_cu,
             );
             match rpc_send_transaction(&rpc_url, &transaction) {
-                Some(()) => {
-                    eprintln!("update landed slot={}", next.slot);
-                    previous = Some(next);
+                Some(()) => eprintln!("update landed slot={}", next.slot),
+                None => {
+                    eprintln!("sendTransaction failed; will retry next tick");
+                    // Re-arm the gate so the next tick retries this quote.
+                    core.previous = None;
                 }
-                None => eprintln!("sendTransaction failed; will retry next tick"),
             }
         }
         sleep(interval);

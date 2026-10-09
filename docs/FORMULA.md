@@ -477,7 +477,7 @@ observation is Base/Flashblocks and must not be presented as a Solana result.
 | Exact 192-bit sqrt | `fixed.py` | `wide::isqrt` | via crate | n/a | via `arb-math` |
 | Segment walk (ask/bid) | `ladder.py` | `quote::walk_ladder` | builds ladder | implemented | executes levels |
 | Inventory/reservation | `quote_math.py` | not ported (keeper-side) | yes (decimals bug) | B3/B4 quote | levels supplied |
-| Volatility estimator | `quote_math.py` | not ported (keeper-side) | yes (not normalised) | implemented | off-chain |
+| Volatility estimator | `quote_math.py` | not ported (keeper-side) | yes (time-normalised) | implemented | off-chain |
 | Spread/directional fee | `quote_math.py` | not ported (keeper-side) | partial, no clamp | implemented | bounded only |
 | LVR budget/throttle | `quote_math.py` (`lvr_budget_value`) | not ported | σ-target only | σ-target/confidence only | keeper-side policy, bounded by on-chain caps |
 | Flow accumulator | reset only | n/a | n/a | reset only | removed on-chain (p2-T8) |
