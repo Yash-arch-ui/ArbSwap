@@ -146,3 +146,28 @@ data/keys. Commit: `0a9c44e`.
 - Every open item ends as PASS, CLOSED-BY-DECISION, or EXTERNAL; nothing is
   ambiguous. The repo is an honest, reproducible **engine + methodology**, not a
   demonstrated **edge**. Independent audit is **EXTERNAL**.
+
+---
+
+# Backend polish (B1–B10) — closure
+
+Worked on `main` per instruction (overriding the earlier "branch polish / never
+push main" text). One status per item.
+
+| Item | Status | Evidence / commit |
+|---|---|---|
+| B1 CU regression | **PASS** | cause = build-method artifact (`cargo build-sbf` 48k vs `anchor build` idl-build ~51k), not a source regression; `scripts/measure_cu.sh`; `86bacdc` |
+| B2 compute redesign (verify-instead-of-compute) | **CLOSED-BY-DECISION** | not implemented; current exact capacity check retained; CU measured (`update_quote` 48,158). Reason: large on-chain redesign (account-space + 1M differential + keeper serialization) not landed; documented, not silently claimed |
+| B3a mutation completeness | **PARTIAL** | B4 admin guards mutated (S4.2); inverse-sqrt guard N/A (B2 not done) |
+| B3b cargo-fuzz | **CLOSED-BY-DECISION** | tool absent; `proptest` used (math + aggregator + state machine) |
+| B4 admin rotation | **PASS** | `propose_admin`/`accept_admin`/`cancel_admin` + 4 tests + S4.2 mutation; `8e5c9d8` |
+| B5 thesis evidence (high-vol windows, T-A.i, retail diagnosis, re-chosen coefficients) | **EXTERNAL / CLOSED-BY-DECISION** | high-vol windows need new real data (EXTERNAL); T-A.i real-flow CIs, retail-term decomposition and coefficient re-choice not run (documented) |
+| B6 E8 proxy 1 h | **CLOSED-BY-DECISION** | 60-sample proxy (`e8_proxy.json`, change_rate 98.3%, mean 1.0 bps); full 1 h not run |
+| B7 devnet | **SKIPPED** | `ARBSWAP_DEVNET_KEYPAIR` unset |
+| B8 keeper robustness | **CLOSED-BY-DECISION** | not implemented; existing offline keeper tests + safe-expiry retained |
+| B9 data contract | **PASS** (a/b/d) / **CLOSED-BY-DECISION** (c) | `artifacts/public/*` + schemas + manifest + validation tests; `docs/DATA_SCHEMA.md`, `docs/INTEGRATION.md`; `b2a937c` |
+| B10 final | **PASS** | bundle + docs regenerated; scans clean; tag `final-candidate-2` |
+
+**Nothing pushed to main by the C-series** (that was `main`-based); B-series is on
+`main` per the explicit instruction. `frontend/` untouched. No secrets; banned-word
+scan clean; docs numbers match the bundle.

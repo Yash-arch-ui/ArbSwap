@@ -1,5 +1,5 @@
 {
-  "commit": "86bacdcb828300bd758069776c5c2042baf806ff",
+  "commit": "b2a937c35330882a26df2c38b7e64fca2b83e9fd",
   "data_sha256": {
     "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
     "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -29,7 +29,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "4e2d8ec2ba71ba1ccefb27606a2db226c70a7025eaa25187ac7ac099d3d34621"
+      "sha256": "8d4920b955637b81d56501e56d2c593b07de3b1b4ff2f757efc7a93b486e2745"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -45,7 +45,7 @@
     },
     "test_counts.json": {
       "schema": "../schema/test_counts.json",
-      "sha256": "d12eb30efd0660c4ad6ad23eeea9f2ae18030824ba803d2bf07baebf75268a5e"
+      "sha256": "88e2267884af6be3faf9daf03f8ba470d54e3921e1f72b0592edcb05e00cf0d1"
     },
     "thesis.json": {
       "schema": "../schema/thesis.json",
@@ -56,5 +56,5 @@
   "generated": "2026-10-09",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "86bacdc"
+  "short": "b2a937c"
 }
