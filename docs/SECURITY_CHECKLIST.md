@@ -160,6 +160,35 @@ longer quote (quoting deactivates). Rewards remain claimable. Tests:
 `slash_during_unbond_reduces_the_release`,
 `unbond_keeper_rejects_a_bond_from_another_vault`.
 
+## 2c. Guard mutation check (h5)
+
+Each guard was temporarily relaxed, the program rebuilt, and the mapped test run.
+Every mutation was **caught** (the test failed). No mutated code was committed
+(the tree was restored after each; `git diff` clean). Method: `anchor build
+--ignore-keys` + the named test; a mutation that left the test passing would be
+a test weakness.
+
+| Guard | Mutation (guard relaxed) | Test that caught it | Result |
+|---|---|---|---|
+| T1 withdraw-ticket seeds | remove `seeds=[b"wd",vault,user]` binding | `claim_withdraw_rejects_a_ticket_from_another_vault` | caught |
+| T1b reserve address | drop `address=vault.base_reserve/quote_reserve` on `Swap` | `swap_rejects_a_reserve_from_another_vault` | caught |
+| T2 min spread | `half_spread >= min` → `<= max` only | `a_zero_spread_quote_is_rejected` | caught |
+| T3 ask capacity | delete the ask `base_capacity ≤ u·avail_base` require | `a_ladder_deeper_than_the_reserves_is_rejected` | caught |
+| T3 buckets excluded | use gross quote reserve (drop bucket subtraction) | `buckets_are_excluded_from_available_reserves` | caught |
+| F-04 anchor↔oracle | delete the `AnchorTooFarFromOracle` require | `anchor_far_from_the_oracle_is_rejected` | caught |
+| T4 stored staleness | `age > 2·max_staleness` → `> i64::MAX` | `trip_breaker_on_stored_staleness` | caught |
+| H4 unbond amount | delete `amount == unbond_amount` | `unbond_release_wrong_amount_is_rejected` | caught |
+| H3 edge breaker | `realized_edge < -bound` → `false` | `malicious_keeper_edge_loss_trips_within_the_window` | caught |
+| T7 expiry | `slot < expiry_slot` → `true` | `expired_quote_always_rejects_swap` | caught |
+| T7 slippage | delete `out >= min_out` | `swap_enforces_slippage_version_and_size` | caught |
+| T7 flow cap | delete the window flow-cap require | `window_flow_cap_stops_one_sided_flow` | caught |
+| T7 account space | halve the `quote_state` space expression | `account_spaces_match_serialized_sizes` | caught |
+
+Note: the first attempt at the bucket mutation relaxed `available_base`, but
+`buckets_are_excluded_from_available_reserves` exercises the **quote** bucket;
+re-targeting `available_quote` was caught. This is a mutation-targeting lesson,
+not a test weakness.
+
 ## 3. Compute units (LiteSVM, program instruction only)
 
 Measured on this branch; re-measured in `measure_instruction_compute_units`
