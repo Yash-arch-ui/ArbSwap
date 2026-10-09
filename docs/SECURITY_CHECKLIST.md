@@ -244,9 +244,12 @@ This removes the 6 ask divisions (~23k) and would land `update_quote` near the
 30k stretch target. It changes the *update-time* guarantee from exact base
 capacity to exact value capacity, so it needs sign-off.
 
-**Separate finding (not fixed here):** a variant that replaced the two u128
-divisors of `base_capacity` with a single U256-divisor `div_rem` silently
-returned wrong (small) values for large ladders and the capacity guard stopped
-firing (`a_ladder_deeper_than_the_reserves_is_rejected` passed instead of
-failing). It was reverted. This suggests `arb_math::wide::U256::div_rem` may be
-wrong for divisors wider than two limbs — worth a dedicated fuzz case.
+**Correction (S1):** the earlier note that a single-U256-divisor `base_capacity`
+"silently returned wrong values" was a **false alarm**. The Stage-1 differential
+harness (`simulation/reference/test_wide_diff.py`, 1,000,000 cases per operation
+plus 3/4-limb-divisor edges) and a direct probe of the exact deep-ladder values
+both show `U256::div_rem` is correct, and re-applying the single-division form
+keeps `a_ladder_deeper_than_the_reserves_is_rejected` and
+`buckets_are_excluded_from_available_reserves` green. The H2 measurement was a
+build/staleness artifact. The single-division form is mathematically equal
+(`floor(floor(x/lo)/hi) == floor(x/(lo·hi))`) and is a legitimate S2 optimization.

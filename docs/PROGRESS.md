@@ -24,7 +24,7 @@ Baseline commit: `cc41f53` (tag `p2-claim-align-v1`). Baseline gate: fmt + clipp
 | Stage | Status | Commits | Tests | Open items |
 |---|---|---|---|---|
 | S0 baseline/hygiene | DONE | (this commit) | 125 Rust / 168 Py | — |
-| S1 math correctness | TODO | | | |
+| S1 math correctness | DONE (no bug found) | (this commit) | 125 Rust / 169 Py | suspected div_rem bug NOT reproduced; 1M/op differential green |
 | S2 CU reduction | TODO | | | |
 | S3 breaker + keeper gaps | TODO | | | |
 | S4 guard coverage | TODO | | | |

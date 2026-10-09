@@ -74,6 +74,32 @@ pre-registration (crash=W3, trend=W4, calm=W6), `docs/P1_RESULTS.md` regenerated
   (F-11), proptest harness (F-14), `InformedFlow.fee_bps` (F-15), and the
   post-capacity-change study re-run (F-18).
 
+## S1 — math correctness (wide / Q64.64 primitives)
+
+**Suspected `U256::div_rem` bug for >2-limb divisors: NOT REPRODUCED.**
+`vault/math/examples/wide_probe` + `simulation/reference/test_wide_diff.py`
+differentially compare every wide/Q64 primitive (`mul_u128`, `div_rem`, `shl`,
+`shr`, `isqrt`, `mul_q64`, `div_q64`, `recip_q64`, `sqrt_q64`,
+`price_from_sqrt`) against Python big integers. A full run of **1,000,000 cases
+per operation** (plus targeted edges: 3- and 4-limb divisors, top limb set,
+`a < b`, powers of two, `2^k − 1`, exact multiples) passed with **zero
+mismatches**. A direct probe of the exact deep-ladder values that had been
+suspected (quotient `44_999_999`, and the `anchor_ladder` level values
+`199_999_999`) is correct.
+
+**Reachability statement.** Because no wrong result was found, there is no
+bad case reachable from any path. The affected function (`Level::base_capacity`,
+used by `update_quote`'s capacity guard and by the keeper's ladder sizing) is
+verified against Python over the full random range. `walk_ladder`, quote
+construction and the share math are additionally covered by the golden vectors
+(`vault/math/tests/golden.rs`) and the property/fuzz tests. No funds-moving
+impact. The earlier H2 note (a single-division `base_capacity` "silently
+returned wrong values") was a build/staleness artifact and is corrected in
+`docs/SECURITY_CHECKLIST.md`.
+
+**CI:** the harness runs 2,000 cases/op in CI (`pytest`); the 1,000,000/op run is
+documented here as a local pre-release check.
+
 ## Limits
 The "no exploit" statement is an **internal self-review**. Do not move real funds
 until an independent external audit passes.
