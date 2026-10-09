@@ -52,3 +52,40 @@ Verify with `solana program show CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx --
 2. Choose a devnet Pyth feed id (VERIFY from official Pyth docs) and post a
    `PriceUpdateV2` for `update_quote`.
 3. Run the live keeper briefly (S7.5).
+
+---
+
+## P2 gate — devnet money-path progress (branch `dev`)
+
+### Setup DONE on devnet (mints + vault)
+
+`cargo run -q -p arbswap-e2e -- setup https://api.devnet.solana.com <keypair> <feed_id>`
+
+| Item | Address / signature |
+|---|---|
+| mints+accounts tx | `54p6dfAAe1AsWqAxbv8LBA7CtYCcY7QHtgAHW6wDZuuhMwa4upqJhFshwMUBHePCXaFUFG8jDbR3fCDi5VvQTiov` |
+| base mint (9 dp) | `CKqPS4AapFauaNnsWzKo4FEvxnEjW9kXZ4cV8GTfD8V3` |
+| quote mint (6 dp) | `GZinkYfCJpAPux7KGhUjQco3xRauGTA57DUrbM35fpmP` |
+| LP base account | `8DDAMwwhNpGZ1496BnCYVVsJuksfLrSEcRyFP7kSG2CS` |
+| LP quote account | `Af3tbpJzTyiDmdt1Gg42UmEe25UuS3xp5B4F8HBWMW3N` |
+| `initialize_vault` tx | `2TrHKZn6VPwKBXFEVegqAXfxxrsbmAxbUP2ucD8RjKw6hue67LXJD42nKLsdE6zGsXpLmCrwg194ojw8kbj6vbVA` |
+| vault | `DpC2MPJ43ycsnoaDmZWUHUijWrr8aqSMkMmuBqW3NF7V` |
+| config | `dH6GhYPgqFJTHTHwQf4ujd5VsfuxUs3HAhdKrYgbaFc` |
+| quote_state | `9GjxaFhhuAV5tfjoSQLaoSDPxqN9aCEyoyBZoMReeTmw` |
+| base_reserve | `53jaYgXGsgS8BGdvVjhaGEko5GzLtdQxUSqEiYvuG9Af` |
+| quote_reserve | `6oXbAxjUewmz3kfuh3zTJ9Pt38Kor9YaGXSwoRDSTFPo` |
+| share_mint | `CtJyzcABFoFSihErnZMBp2BupkSMupkbbvYsfMzxJ4M3` |
+| share_lock | `C4zkBMXi9ac6awRL4nn8xHpueyqqssfA6wKcHJoSs4dW` |
+
+Feed id used: SOL/USD `ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d`.
+
+### Remaining for the gate: `update_quote`/`swap`
+
+`update_quote` requires a real `PriceUpdateV2` account. Hermes returns a
+**Pythnet accumulator (Merkle) update** (`PNAU…`, verified by fetching with the
+API key in `.env`), so the client must parse it (`pythnet-sdk`
+`wire::v1::AccumulatorUpdate`) and call the receiver's `PostUpdate`/
+`PostUpdateAtomic` (accounts: payer, guardian_set, config, treasury,
+price_update (signer), system_program, write_authority). This is the one
+remaining client. Deposit/withdraw do not need the oracle and can run once the
+LP share account is created.

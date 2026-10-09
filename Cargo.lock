@@ -408,6 +408,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "arbswap-e2e"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "arbswap",
+ "base64 0.22.1",
+ "bs58",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-compute-budget-interface",
+ "solana-hash",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-signer",
+ "solana-system-interface 2.0.0",
+ "solana-transaction",
+ "spl-token-interface",
+ "ureq",
+ "wincode",
+]
+
+[[package]]
 name = "arbswap-keeper"
 version = "0.1.0"
 dependencies = [

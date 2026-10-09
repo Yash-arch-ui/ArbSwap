@@ -1,0 +1,24 @@
+[package]
+name = "arbswap-e2e"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arbswap = { path = "../program" }
+anchor-lang = "1.2.1"
+spl-token-interface = "2.0.0"
+solana-address = { version = "2.6.1", features = ["curve25519"] }
+solana-instruction = "3.4.1"
+solana-message = "4.4"
+solana-transaction = { version = "4.1.6", features = ["wincode"] }
+solana-keypair = "3.1.2"
+solana-signer = "3.0.0"
+solana-hash = "4.5.0"
+solana-compute-budget-interface = "3.0.0"
+solana-system-interface = "2"
+base64 = "0.22"
+bs58 = "0.5"
+serde_json = "1.0"
+ureq = { version = "2", default-features = false, features = ["tls", "gzip", "json"] }
+sha2 = "0.10"
+wincode = "0.5"
