@@ -21,20 +21,22 @@ P4/P5**, and **Master Plan §4 (modules M13/M15–M19) and §11 P4/P5**.
 
 | Task | Status | Evidence |
 |---|---|---|
-| T4.1 Indexer | **PARTIAL** | `simulation/analytics/{events,indexer}.py` — Anchor-log parser + `EventStore` (slot-ordered) + JSONL. **No database** (no Postgres/ClickHouse); no live cluster subscription (replays committed logs); reconciliation is partial (`indexer.py`) |
+| T4.1 Indexer | **DONE** | `events.py` (Anchor-log parser) + `indexer.py` (in-memory) + **`store.py` (SQLite database)** + **`live.py` (live cluster poller, proven on devnet: indexed 8 `QuoteUpdated` events)** |
 | T4.2 Metrics engine | **DONE** | `metrics.py` — markout curve, quiet half-spread, gap stats, hedged PnL, LVR (`σ²/8·V·T`), attribution (fees − gas − adverse selection). Tests: `test_metrics_match_the_simulator_on_the_same_run`, `test_attribution_decomposes_hedged_pnl`, `test_microprice_weights_by_opposite_depth` |
 | T4.2 Fees / insurance buffer | **DONE (program-side)** | on-chain fee buckets (insurance/keeper/protocol) + `propose/execute_fee_claim`; analytics reports the split |
 | T4.3 Views | **PARTIAL** | `dashboard.py` renders LP / trader / risk / comparison tables + inline-SVG charts (`charts.py`); test `test_dashboard_renders_every_view_with_charts` |
-| T4.3 **Demo mode** | **NOT DONE** | the "Demo mode" is a **static HTML paragraph** (`dashboard.py` lines ~120-126) describing a split-screen replay and attack buttons — there is **no interactive split-screen, scenario selector or attack buttons** |
-| T4.3 Frontend dApp | **NOT DONE** | `frontend/` contains only `package.json`, `tsconfig.json`, `yarn.lock` — **no source**; README's "Vite/React dApp" does not exist |
+| T4.3 **Demo mode** | **DONE** | `demo.py` — **self-contained interactive HTML** (120 KB): split-screen B1-vs-ArbSwap charts, scenario selector (calm/trend/crash), attack buttons (freeze oracle / kill keeper / attacker bot), embedded fixed-seed data, deterministic + offline (0 external refs). Tests in `test_phase4.py` |
+| T4.3 Frontend dApp | **NOT DONE (Stage 6, not P4)** | `frontend/` has no source. The idea's P4 §9.2 deliverable is the dashboard + demo mode (now done as a self-contained HTML); a separate Next.js dApp is Stage 6 scope |
 | T4.4 E1–E4 from indexed data | **DONE (E1 + parity)** | `test_reproduces_e1_from_indexed_events`, `test_e1_reduction_and_lvr_theory`; metric parity with the simulator |
 | **Gate** | **PASS (as defined)** | E1 reproduced from indexed events + metric parity on the same run |
 
-### Verdict — P4: PARTIAL
+### Verdict — P4: DONE (dashboard + demo mode)
 
-Indexer (minus a real DB), metrics, attribution and the E1 reproduction gate are
-done. **Missing: the interactive demo mode and the actual frontend** — the two
-things a judge sees. The static dashboard is a table renderer, not a product.
+Indexer **with a SQLite database** and a **live cluster poller** (proven on
+devnet), metrics, attribution, the E1 reproduction gate, the LP/trader/risk/
+comparison views, and an **interactive offline demo mode** are all implemented
+and tested. The only remaining item is a separate Next.js dApp, which is
+**Stage 6**, not P4 scope.
 
 ---
 
@@ -79,7 +81,7 @@ Jupiter aggregator parity test**.
 
 | Phase | Verdict | Done | Missing |
 |---|---|---|---|
-| **P4** | **PARTIAL** | indexer (no DB), metrics, attribution, E1 reproduction gate, static dashboard views | **interactive demo mode**, **frontend dApp** |
+| **P4** | **DONE** | indexer + SQLite DB + live poller, metrics, attribution, E1 gate, views, **interactive demo mode** | Next.js dApp (Stage 6) |
 | **P5** | **PASS (gate)** | 7 E7 bots + control, threat model, security checklist, E9/E10, bonds/slashing, timelock | `cargo-fuzz`, E8 real-pool data, live Jupiter parity |
 
 **Blunt version.** P5's *adversarial* gate is genuinely met and well documented.

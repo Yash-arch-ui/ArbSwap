@@ -13,6 +13,9 @@ values on the same run.
 | `charts.py` | Inline-SVG charts (no plotting library) |
 | `dashboard.py` | Static HTML with the LP / trader / risk / comparison views |
 | `bridge.py` | Simulator `TradeRecord` → `SwapEvent` bridge for cross-checks |
+| `store.py` | SQLite-backed persistent event store (§9.1 "indexer and database") |
+| `live.py` | Live indexer: polls a cluster, parses Anchor events, persists to SQLite |
+| `demo.py` | Interactive demo mode: self-contained split-screen replay (scenario selector + attack buttons), deterministic and offline |
 
 ## Metric definitions (see `docs/FORMULA.md` §13)
 
@@ -33,6 +36,12 @@ values on the same run.
 ```bash
 python -m simulation.analytics build --scenario crash --length 900 --out simulation/analytics/out
 # writes simulation/analytics/out/{events.jsonl, metrics.json, dashboard.html}
+
+python -m simulation.analytics demo --out simulation/analytics/out/demo.html
+# interactive split-screen replay: scenario selector + attack buttons, offline
+
+python -m simulation.analytics.live --rpc <url> --program <id> --db <path> [--once]
+# poll the cluster, parse Anchor events, persist to SQLite
 ```
 
 The dashboard is deterministic (fixed seeded replay), so "demo mode" never

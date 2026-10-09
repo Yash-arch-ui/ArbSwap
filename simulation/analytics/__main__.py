@@ -89,11 +89,22 @@ def main() -> None:
     build_parser.add_argument("--length", type=int, default=3_600)
     build_parser.add_argument("--seed", type=int, default=20261006)
     build_parser.add_argument("--out", type=Path, default=Path("simulation/analytics/out"))
+    demo_parser = sub.add_parser("demo", help="render the interactive split-screen demo mode")
+    demo_parser.add_argument("--length", type=int, default=1_800)
+    demo_parser.add_argument("--seed", type=int, default=20261006)
+    demo_parser.add_argument(
+        "--out", type=Path, default=Path("simulation/analytics/out/demo.html")
+    )
     args = parser.parse_args()
 
     if args.command == "build":
         payload = build(args.out, scenario=args.scenario, length=args.length, seed=args.seed)
         print(json.dumps(payload, sort_keys=True))
+    elif args.command == "demo":
+        from simulation.analytics import demo
+
+        demo.build_demo(args.out, length=args.length, seed=args.seed)
+        print(f"wrote {args.out}")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ Formerly "TruQuote" (working name); all spec documents use the old name.
 | P1 | Python reference, vectors, simulator, replay/report pipeline | ⚠️ **PARTIAL** — contamination fixed + B1 calibrated (markout −0.02 / half-spread 2.41); stress windows not yet ≥2×; all pre-fix numbers superseded |
 | P2 | Anchor accounts, custody, Pyth guards, swaps, withdrawals, breakers | ✅ local (73 Rust tests); devnet gate open |
 | P3 | Rust keeper core, replay, update gating, payload encoder | ✅ dry-run; live RPC gate open |
-| P4 | Analytics, fees, dashboard | ✅ PASS (gate: dashboard reproduces E1-E4 from indexed events) |
+| P4 | Analytics, fees, dashboard | ✅ PASS (SQLite indexer + live poller; metrics/attribution; interactive offline demo mode) |
 | P5 | Attacker bots, fuzzing, aggregator adapter | ✅ PASS (gate: every E7 attack contained/documented). Roadmap: cargo-fuzz, E8 real-pool data |
 | P6 | Reproducibility, demo, docs | ⬜ not started |
 
