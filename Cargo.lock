@@ -438,9 +438,12 @@ dependencies = [
 name = "arbswap-keeper"
 version = "0.1.0"
 dependencies = [
+ "anchor-lang",
  "arb-math",
+ "arbswap",
  "base64 0.22.1",
  "bs58",
+ "pyth-solana-receiver-sdk",
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",

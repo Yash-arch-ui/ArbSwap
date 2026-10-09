@@ -146,3 +146,62 @@ cd ../.. && cargo run -q -p arbswap-e2e -- loop https://api.devnet.solana.com \
 - A smoke-test note: the keeper ladder treats the price as an atom-ratio, so the
   devnet bid depth is small; the SellBase size was set to 50,000 base atoms and
   `expiry_slots` to 1000 so the quote stays live across the multi-tx loop.
+
+---
+
+## P3 GATE — LIVE KEEPER ON DEVNET (branch `dev`)
+
+The actual keeper binary (`arbswap-keeper live`) ran on devnet for **600 s**,
+reading the persistent Pyth SOL/USD feed account
+`7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE` (decoded with the receiver SDK
+`PriceUpdateV2`), and submitting `update_quote` within the program's bounds.
+
+Vault: `CbVJqgp8MwFbtgEktoNJGYGxR4RBbdcUe1RzqkJrqjwz` (keeper = deployer).
+
+| Metric | Result |
+|---|---|
+| updates submitted | **29** |
+| failures / skipped | **0 / 0** |
+| landing latency | 0.37–0.77 s |
+| attempts per update | 1 |
+| CU consumed | ~46,835–46,866 (3 samples; others 0 = a `getTransaction` race) |
+| first sig | `2fcDXj47qpP5m6geUUB2MX2uwLX959Zmsi9YoN7NQa9bbMXc83B7bm4Je9EYVG7DPJ7QkSQJzJWtUymgcn2cc2gB` |
+| last sig | `3h2YRuZ8hWtTrR8TVGbUmLnmBExQtGmdbrvY9ohpHKytAawnmCMq8WTfE6aPDkjdLarhQ4z7Q3CM89J3EWAUFRe1` |
+
+**Negative tests (live):**
+
+| Test | Result |
+|---|---|
+| Stale feed (`max_staleness=1`, feed older) | `submitted=0 skipped=13` |
+| RPC failure (bad URL) | `submitted=0 skipped=17` |
+| Keeper outage → quote expiry | LiteSVM `keeper_outage_lets_the_quote_expire` |
+| Send retry (fresh blockhash) | unit test `live_sender_retries_with_a_fresh_blockhash` |
+
+**Feed freshness:** the push-oracle persistent feed updates only every ~5 min,
+so a TS poster (`scripts/devnet/post_feed_loop.ts`, official SDK
+`addUpdatePriceFeed`) refreshes it every ~20 s; the keeper then reads a **fixed**
+account. The keeper sizes the ladder from **LP-available** reserves (net of the
+fee buckets), matching the program's utilization cap.
+
+**Bonding/reward:** kept as an **operations script** (not the keeper binary) —
+the on-chain `bond_keeper`/`claim_keeper_reward`/`slash_keeper`/`unbond_keeper`
+are already tested (`keeper_bond_locks_quote_and_admin_slashes_to_insurance`,
+`keeper_reward_claim_pays_only_accrued_and_zeroes_it`). The keeper's job is
+quoting.
+
+### Reproduce
+
+```bash
+# 1. mints + vault + deposit
+cargo run -q -p arbswap-e2e -- setup https://api.devnet.solana.com ~/.config/solana/id.json \
+  ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d /tmp/arbswap_state.json
+cargo run -q -p arbswap-e2e -- deposit https://api.devnet.solana.com ~/.config/solana/id.json /tmp/arbswap_state.json
+# 2. keep the persistent feed fresh (official Pyth TS SDK)
+cd scripts/devnet && PYTH_API_KEY=... POST_INTERVAL_MS=20000 npx tsx post_feed_loop.ts &
+# 3. run the keeper binary
+cd ../.. && cargo run -q -p arbswap-keeper -- live https://api.devnet.solana.com \
+  CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx <vault> <config> <quote_state> \
+  <base_reserve> <quote_reserve> 7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE <vault> \
+  ~/.config/solana/id.json ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d \
+  60 50 1000 1000 600
+```

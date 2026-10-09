@@ -14,9 +14,9 @@
 //! The default transports are dry-run/replay; nothing here embeds a private key.
 
 use arbswap_keeper::{
-    compute_quote, encode_update_quote_instruction, parse_hermes, DryRunSender, KeeperCore,
-    KeeperParams, OracleTick, QuoteSender, UpdateQuotePlan, VolatilityState,
-    MAX_UPDATE_COMPUTE_UNITS,
+    build_update_quote_transaction, compute_quote, confidence_bps, encode_update_quote_instruction,
+    pyth_decimal_to_q64, DryRunSender, KeeperCore, KeeperParams, OracleTick, QuoteSender,
+    UpdateQuotePlan, VolatilityState, MAX_UPDATE_COMPUTE_UNITS,
 };
 use base64::Engine;
 use solana_address::Address;
@@ -27,7 +27,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -49,9 +49,10 @@ fn main() {
                       [previous_price_q64] [base_atom_scale]"
             );
             println!(
-                "arbswap-keeper live <hermes_url> <rpc_url> <program_id> <vault> <config> \
-                 <quote_state> <base_reserve> <quote_reserve> <price_update> <keeper_bond> \
-                 <keeper.json> [base_atom_scale] [priority_micro_lamports_per_cu]"
+                "arbswap-keeper live <rpc_url> <program_id> <vault> <config> <quote_state> \
+                 <base_reserve> <quote_reserve> <price_feed> <keeper_bond> <keeper.json> \
+                 <feed_id_hex> [max_staleness_s] [max_conf_bps] [base_atom_scale] \
+                 [priority_micro_lamports_per_cu] [run_seconds]"
             );
             println!("CSV: slot,publish_time,price_q64,confidence_bps,base_reserve,quote_reserve");
         }
@@ -228,7 +229,7 @@ fn init_program(args: Vec<String>) {
         blockhash,
     );
     match rpc_send_transaction(&rpc_url, &transaction) {
-        Some(()) => println!("initialize_program sent; program_config={program_config}"),
+        Some(sig) => println!("initialize_program sent; sig={sig} program_config={program_config}"),
         None => eprintln!("sendTransaction failed (already initialized?)"),
     }
 }
@@ -304,19 +305,75 @@ fn rpc_slot(rpc_url: &str) -> u64 {
 fn rpc_send_transaction(
     rpc_url: &str,
     transaction: &solana_transaction::Transaction,
-) -> Option<()> {
+) -> Option<String> {
     let bytes = wincode::serialize(transaction).ok()?;
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     let value = rpc_call(
         rpc_url,
         "sendTransaction",
-        serde_json::json!([encoded, {"encoding": "base64"}]),
+        serde_json::json!([encoded, {"encoding": "base64", "skipPreflight": false}]),
     )?;
-    if value.get("error").is_some() {
+    if let Some(err) = value.get("error") {
+        eprintln!("sendTransaction error: {err}");
         None
     } else {
-        Some(())
+        value.get("result")?.as_str().map(str::to_string)
     }
+}
+
+/// Compute units consumed by a confirmed transaction.
+fn rpc_transaction_cu(rpc_url: &str, signature: &str) -> Option<u64> {
+    let v = rpc_call(
+        rpc_url,
+        "getTransaction",
+        serde_json::json!([signature, {"encoding": "json", "maxSupportedTransactionVersion": 0}]),
+    )?;
+    v.get("result")?
+        .get("meta")?
+        .get("computeUnitsConsumed")?
+        .as_u64()
+}
+
+/// Read and decode a Pyth persistent price-feed account via the receiver SDK.
+fn read_price_feed(
+    rpc_url: &str,
+    feed_account: &Address,
+) -> Option<pyth_solana_receiver_sdk::price_update::PriceUpdateV2> {
+    use anchor_lang::AccountDeserialize;
+    let v = rpc_call(
+        rpc_url,
+        "getAccountInfo",
+        serde_json::json!([feed_account.to_string(), {"encoding": "base64"}]),
+    )?;
+    let value = v.get("result")?.get("value")?;
+    if value.is_null() {
+        return None;
+    }
+    if value.get("owner")?.as_str()? != pyth_solana_receiver_sdk::ID.to_string() {
+        return None;
+    }
+    let b64 = value.get("data")?.as_array()?.first()?.as_str()?;
+    let data = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    let mut slice: &[u8] = &data;
+    pyth_solana_receiver_sdk::price_update::PriceUpdateV2::try_deserialize(&mut slice).ok()
+}
+/// Read the vault account to exclude the fee buckets from ladder capacity.
+fn read_vault(rpc_url: &str, vault: &Address) -> Option<arbswap::Vault> {
+    use anchor_lang::AccountDeserialize;
+    let v = rpc_call(
+        rpc_url,
+        "getAccountInfo",
+        serde_json::json!([vault.to_string(), {"encoding": "base64"}]),
+    )?;
+    let b64 = v
+        .get("result")?
+        .get("value")?
+        .get("data")?
+        .as_array()?
+        .first()?
+        .as_str()?;
+    let data = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    arbswap::Vault::try_deserialize(&mut &data[..]).ok()
 }
 
 fn read_keypair(path: &str) -> Keypair {
@@ -330,33 +387,64 @@ fn read_keypair(path: &str) -> Keypair {
     Keypair::new_from_array(seed)
 }
 
-/// The streaming loop (Build Plan §7.1). Stale/wide/absent prices are skipped,
-/// so a keeper outage simply lets the on-chain quote expire (safe).
+fn parse_feed_id(hex: &str) -> [u8; 32] {
+    let h = hex.trim_start_matches("0x");
+    let mut out = [0u8; 32];
+    for k in 0..32 {
+        out[k] = u8::from_str_radix(&h[k * 2..k * 2 + 2], 16).expect("feed id hex");
+    }
+    out
+}
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// The streaming loop (Build Plan §7.1). Reads the persistent Pyth price-feed
+/// account over RPC, decodes it with the receiver SDK, rejects stale / invalid /
+/// wide observations, updates volatility only on a genuinely new publish time,
+/// and submits `update_quote` within the program's bounds. A keeper outage
+/// simply lets the on-chain quote expire (safe failure).
 fn live(args: Vec<String>) {
     let get = |index: usize, name: &str| -> String {
         args.get(index)
             .unwrap_or_else(|| panic!("live requires {name}"))
             .clone()
     };
-    let hermes_url = get(0, "hermes_url");
-    let rpc_url = get(1, "rpc_url");
-    let program_id: Address = get(2, "program_id").parse().expect("program_id");
-    let vault: Address = get(3, "vault").parse().expect("vault");
-    let config: Address = get(4, "config").parse().expect("config");
-    let quote_state: Address = get(5, "quote_state").parse().expect("quote_state");
-    let base_reserve: Address = get(6, "base_reserve").parse().expect("base_reserve");
-    let quote_reserve: Address = get(7, "quote_reserve").parse().expect("quote_reserve");
-    let price_update: Address = get(8, "price_update").parse().expect("price_update");
-    let keeper_bond: Address = get(9, "keeper_bond").parse().expect("keeper_bond");
-    let keeper = read_keypair(&get(10, "keeper_keypair"));
-    let base_atom_scale: u128 = args
+    let rpc_url = get(0, "rpc_url");
+    let program_id: Address = get(1, "program_id").parse().expect("program_id");
+    let vault: Address = get(2, "vault").parse().expect("vault");
+    let config: Address = get(3, "config").parse().expect("config");
+    let quote_state: Address = get(4, "quote_state").parse().expect("quote_state");
+    let base_reserve: Address = get(5, "base_reserve").parse().expect("base_reserve");
+    let quote_reserve: Address = get(6, "quote_reserve").parse().expect("quote_reserve");
+    let price_feed: Address = get(7, "price_feed").parse().expect("price_feed");
+    let keeper_bond: Address = get(8, "keeper_bond").parse().expect("keeper_bond");
+    let keeper = read_keypair(&get(9, "keeper_keypair"));
+    let expected_feed = parse_feed_id(&get(10, "feed_id"));
+    let max_staleness: i64 = args
         .get(11)
-        .map(|value| value.parse().expect("base_atom_scale"))
+        .map(|v| v.parse().expect("max_staleness"))
+        .unwrap_or(60);
+    let max_conf_bps: u32 = args
+        .get(12)
+        .map(|v| v.parse().expect("max_conf_bps"))
+        .unwrap_or(50);
+    let base_atom_scale: u128 = args
+        .get(13)
+        .map(|v| v.parse().expect("base_atom_scale"))
         .unwrap_or(1);
     let priority_micro_lamports_per_cu: u64 = args
-        .get(12)
-        .map(|value| value.parse().expect("priority_micro_lamports_per_cu"))
+        .get(14)
+        .map(|v| v.parse().expect("priority"))
         .unwrap_or(1_000);
+    let run_seconds: u64 = args
+        .get(15)
+        .map(|v| v.parse().expect("run_seconds"))
+        .unwrap_or(0);
     let interval = Duration::from_millis(400);
 
     let params = KeeperParams {
@@ -364,26 +452,59 @@ fn live(args: Vec<String>) {
         ..KeeperParams::default()
     };
     let mut core = KeeperCore::new(params);
+    let mut last_publish_time: i64 = 0;
+    let mut last_publish_wall: u64 = 0;
+    let mut submitted: u64 = 0;
+    let mut skipped: u64 = 0;
+    let mut failures: u64 = 0;
+    let start = Instant::now();
 
-    eprintln!("keeper live: rpc={rpc_url} hermes={hermes_url}");
+    eprintln!("keeper live: rpc={rpc_url} feed={price_feed}");
     loop {
-        let Some(blockhash) = rpc_blockhash(&rpc_url) else {
+        if run_seconds > 0 && start.elapsed().as_secs() >= run_seconds {
+            break;
+        }
+        let wall = now_unix();
+        let Some(pu) = read_price_feed(&rpc_url, &price_feed) else {
+            skipped += 1;
+            sleep(interval);
+            continue;
+        };
+        let msg = &pu.price_message;
+        if msg.feed_id != expected_feed {
+            skipped += 1;
+            sleep(interval);
+            continue;
+        }
+        let age = wall as i64 - msg.publish_time;
+        if msg.price <= 0 || age > max_staleness {
+            skipped += 1;
+            sleep(interval);
+            continue;
+        }
+        let conf_bps = confidence_bps(msg.conf, msg.price);
+        if conf_bps > max_conf_bps {
+            skipped += 1;
+            sleep(interval);
+            continue;
+        }
+        // Only a genuinely new observation advances the EWMA/jump state.
+        if msg.publish_time <= last_publish_time {
+            sleep(interval);
+            continue;
+        }
+        let dt_millis = if last_publish_wall == 0 {
+            1_000
+        } else {
+            (wall.saturating_sub(last_publish_wall) * 1_000).max(1)
+        };
+        last_publish_time = msg.publish_time;
+        last_publish_wall = wall;
+        let Some(price_q64) = pyth_decimal_to_q64(msg.price, msg.exponent) else {
             sleep(interval);
             continue;
         };
         let slot = rpc_slot(&rpc_url);
-        let Some(body) = ureq::get(&hermes_url)
-            .call()
-            .ok()
-            .and_then(|response| response.into_string().ok())
-        else {
-            sleep(interval);
-            continue;
-        };
-        let Some(tick) = parse_hermes(&body, slot) else {
-            sleep(interval);
-            continue;
-        };
         let (Some(base), Some(quote)) = (
             rpc_token_amount(&rpc_url, &base_reserve),
             rpc_token_amount(&rpc_url, &quote_reserve),
@@ -391,35 +512,85 @@ fn live(args: Vec<String>) {
             sleep(interval);
             continue;
         };
-        if let Some((next, _fee)) = core.step(tick, base, quote, 0, 400) {
-            let plan = UpdateQuotePlan {
-                program_id,
-                keeper: keeper.pubkey(),
-                vault,
-                config,
-                quote_state,
-                price_update,
-                keeper_bond,
-                base_reserve,
-                quote_reserve,
-                recent_blockhash: blockhash,
-                compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
-            };
-            let transaction = arbswap_keeper::build_update_quote_transaction(
+        // Size the ladder from the LP-available reserves (net of the fee
+        // buckets), matching the program's utilization cap (Item 3).
+        let Some(vs) = read_vault(&rpc_url, &vault) else {
+            sleep(interval);
+            continue;
+        };
+        let (base_avail, quote_avail) = arbswap_keeper::available_reserves(
+            base,
+            quote,
+            vs.insurance_base as u128,
+            vs.insurance_quote as u128,
+            vs.keeper_base as u128,
+            vs.keeper_quote as u128,
+            vs.protocol_base as u128,
+            vs.protocol_quote as u128,
+        );
+        let tick = OracleTick {
+            slot,
+            publish_time: msg.publish_time,
+            price_q64,
+            confidence_bps: conf_bps,
+        };
+        let Some((next, _fee)) = core.step(tick, base_avail, quote_avail, 0, dt_millis) else {
+            sleep(interval);
+            continue;
+        };
+        let Some(blockhash) = rpc_blockhash(&rpc_url) else {
+            failures += 1;
+            sleep(interval);
+            continue;
+        };
+        let plan = UpdateQuotePlan {
+            program_id,
+            keeper: keeper.pubkey(),
+            vault,
+            config,
+            quote_state,
+            price_update: price_feed,
+            keeper_bond,
+            base_reserve,
+            quote_reserve,
+            recent_blockhash: blockhash,
+            compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
+        };
+        let tx_start = Instant::now();
+        let mut attempt = 0u32;
+        let mut sig: Option<String> = None;
+        while attempt < 3 {
+            attempt += 1;
+            let transaction = build_update_quote_transaction(
                 &plan,
                 &keeper,
                 &next,
                 priority_micro_lamports_per_cu,
             );
             match rpc_send_transaction(&rpc_url, &transaction) {
-                Some(()) => eprintln!("update landed slot={}", next.slot),
-                None => {
-                    eprintln!("sendTransaction failed; will retry next tick");
-                    // Re-arm the gate so the next tick retries this quote.
-                    core.previous = None;
+                Some(s) => {
+                    sig = Some(s);
+                    break;
                 }
+                None => core.previous = None,
+            }
+        }
+        match sig {
+            Some(s) => {
+                let latency_ms = tx_start.elapsed().as_millis();
+                let cu = rpc_transaction_cu(&rpc_url, &s).unwrap_or(0);
+                submitted += 1;
+                println!(
+                    "update,sig={s},publish_time={},version_slot={},latency_ms={latency_ms},cu={cu},attempts={attempt},err=none",
+                    next.publish_time, next.slot
+                );
+            }
+            None => {
+                failures += 1;
+                eprintln!("update failed after {attempt} attempts");
             }
         }
         sleep(interval);
     }
+    eprintln!("keeper live done: submitted={submitted} skipped={skipped} failures={failures}");
 }

@@ -91,3 +91,27 @@ was submitted by the e2e client, not the keeper binary.
 **Bottom line:** P3's *offline* half (estimators, quote calculator, replay,
 parity, sender) is done; the *online* half (streaming Pyth with auth, posting
 fresh updates, running live on devnet, CU/latency metrics) is what remains.
+
+---
+
+## 6. Completion pass (branch `dev`)
+
+**P3 gate: PASSED.** The live keeper binary ran on devnet for 600 s and
+submitted 29 `update_quote` transactions (0 failures, 0 skipped), reading the
+persistent Pyth feed account and decoding it with the receiver SDK. Full
+signatures, latency and CU in `docs/DEVNET.md`.
+
+Resolved items:
+1. **Hermes auth / Pyth posting** — replaced by reading the persistent feed
+   account over RPC; a TS poster (`scripts/devnet/post_feed_loop.ts`, official
+   Pyth SDK `addUpdatePriceFeed`) refreshes it. The unauthenticated Hermes fetch
+   was removed from the active path.
+2. **Live keeper on devnet** — ran (29 updates).
+3. **Stale/wide rejection in the keeper** — implemented and tested live
+   (`submitted=0 skipped=13` with `max_staleness=1`).
+4. **Available-reserves sizing** — the keeper now reads the vault and subtracts
+   the fee buckets (fixes `UtilizationExceeded`).
+5. **Bonding/reward** — decided: operations script, not the keeper binary;
+   on-chain instructions already tested.
+
+Still later-phase (not P3): multiple-keeper competition / open network (P5).

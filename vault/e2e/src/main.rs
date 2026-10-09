@@ -204,6 +204,7 @@ fn main() {
             hex32(&args[3]),
             &args[4],
         ),
+        "deposit" => deposit_only(&rpc_url, &payer, program_id, token, system, &args[3]),
         "loop" => run_loop(
             &rpc_url, &payer, program_id, token, system, &args[3], &args[4],
         ),
@@ -430,6 +431,52 @@ struct PythInfo {
     price_q64: String,
     conf_bps: u32,
     publish_time: i64,
+}
+
+fn load_state(path: &str) -> State {
+    serde_json::from_str(&std::fs::read_to_string(path).expect("state")).expect("state json")
+}
+
+fn deposit_only(
+    rpc_url: &str,
+    payer: &Keypair,
+    program_id: Address,
+    token: Address,
+    system: Address,
+    state_path: &str,
+) {
+    let s = load_state(state_path);
+    let (vault, config) = (addr(&s.vault), addr(&s.config));
+    let (base_reserve, quote_reserve) = (addr(&s.base_reserve), addr(&s.quote_reserve));
+    let (share_mint, share_lock) = (addr(&s.share_mint), addr(&s.share_lock));
+    let (lp_base, lp_quote, lp_shares) = (addr(&s.lp_base), addr(&s.lp_quote), addr(&s.lp_shares));
+    let user = payer.pubkey();
+    let deposit_ticket = pda(&[b"dep", vault.as_ref(), user.as_ref()], &program_id);
+    let deposit = ix(
+        program_id,
+        arbswap::instruction::Deposit {
+            base_amount: 1_000_000_000,
+            quote_amount: 110_000_000,
+            min_shares: 1,
+        },
+        arbswap::accounts::Deposit {
+            user,
+            vault,
+            config,
+            base_reserve,
+            quote_reserve,
+            share_mint,
+            share_lock,
+            user_base: lp_base,
+            user_quote: lp_quote,
+            user_shares: lp_shares,
+            deposit_ticket,
+            token_program: token,
+            system_program: system,
+        },
+    );
+    let sig = send(rpc_url, payer, &[payer], vec![deposit]);
+    println!("deposit sig={sig}");
 }
 
 #[allow(clippy::too_many_arguments)]
