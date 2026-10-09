@@ -127,3 +127,47 @@ changed; this fixes what "done" means for the headline.
    measured claim about competitors".
 7. **Acceptance:** all criteria MET, or listed PARTIAL with reasons; no tuning on
    held-out windows (commit evidence).
+
+---
+
+## Amendment 3 (dated 2026-10-09) — closure thesis test (Stage C2)
+
+Registered **before** running any C2 experiment. No target, window or parameter
+is changed here; this fixes the pass criteria and the decision rule.
+
+**T-A "Beats passive" (Option 1) holds only if ALL of:**
+1. hedged PnL of ArbSwap minus B1 (B1 at fee tiers 1, 5, 30 bps) has a bootstrap
+   95% CI **above zero** in **≥ 3 held-out windows including ≥ 1 stress window**,
+   on **real aggTrades flow**;
+2. quiet-flow half-spread of ArbSwap **≤ B1's** in those windows;
+3. in the routed world **without a propAMM**, ArbSwap **volume share ≥ 10%**;
+4. results hold at tolerance **1 bp** and **20% price-insensitive** flow.
+
+**T-B "Competitiveness vs tight propAMM-like venues" (measured, not claimed):**
+report ArbSwap volume/fill share at competitor half-spreads **0.3, 0.5, 1.0,
+2.0 bps** with the competitor at **break-even (hedged PnL ≥ 0)**.
+
+**T-C Retail execution (E4):** ArbSwap quiet half-spread versus B1 and versus the
+propAMM-like venue, with bootstrap CIs.
+
+**Calibration (C2.2):** B1 2s markout −0.2 bps (accept −0.5…+0.1) and quiet
+half-spread 2.6 bps (accept 1.8…3.4). If real-flow B1 cannot be brought within
+tolerance, report the residual, diagnose the cause, and record
+**CLOSED-BY-DECISION** with the bounded impact — never hide it.
+
+**Operating point (C2.3):** chosen on the **calibration window only**, objective
+"maximize routed volume share subject to hedged PnL ≥ 0 and quiet half-spread ≤
+B1". Publish the full frontier; freeze parameters with a hash.
+
+**Held-out (C2.4):** W2–W6 plus two genuinely high-volatility real windows
+(measured σ ≥ 2× existing) plus injected jumps 50/100/300 bps; re-run E5, E7, E9,
+E10 on the current engine and capacity logic. Absolute PnL with bootstrap CIs.
+
+**Decision (C2.6):** if T-A holds, Option 1 may be stated as a secondary claim
+with its limits; otherwise write "Option 1 not shown" and keep Option 2 as the
+sole headline. Option 3 is never claimed. Either outcome is a PASS if the
+evidence is complete and honest.
+
+**Niche (C2.7):** routed world **without a propAMM** (long-tail pair model) —
+report whether ArbSwap offers traders a better price than passive pools there, as
+a scenario, not a prediction.
