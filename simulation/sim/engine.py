@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 
 from simulation.sim.costs import CostModel, landing_delay
 from simulation.sim.flow import InformedFlow, NoiseFlow
+from simulation.sim.guards import assert_conservation, assert_price_within_band, assert_sane
 from simulation.sim.metrics import TradeRecord
 from simulation.sim.oracle import OracleModel, OracleTick
 from simulation.sim.price_source import PricePoint
@@ -156,6 +157,8 @@ def simulate(
     update_priority = 0.0
     swap_gas = 0.0
     swap_priority = 0.0
+    initial_base = venue.base
+    initial_quote = venue.quote
 
     for index in range(n_steps):
         now = index * step_seconds
@@ -253,6 +256,22 @@ def simulate(
         price_path.append(reference)
         if record_quotes:
             mid_path.append(venue_mid(venue))
+        # S0.3 runtime sanity guards (cheap; every 100 steps).
+        if index % 100 == 0:
+            assert_sane(venue)
+            # The vault is oracle-anchored: check its *quoted* mid (the
+            # reservation) with a tight band. A passive pool's reserve ratio IS
+            # its price and legitimately drifts far when it is picked off, so
+            # only order-of-magnitude contamination is flagged there.
+            if isinstance(venue, VaultVenue) and venue.quote_state is not None:
+                quoted = venue.quote_state.reservation_price
+                assert_price_within_band(quoted, reference, max_rel_dev=0.5)
+            elif venue.base > 0:
+                assert_price_within_band(venue.quote / venue.base, reference, max_rel_dev=5.0)
+
+    assert_conservation(
+        venue, initial_base, initial_quote, trades, update_gas + update_priority
+    )
 
     return SimResult(
         venue_name=venue_name,
