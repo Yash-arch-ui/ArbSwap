@@ -85,3 +85,20 @@ README with no data and no API keys.
 - Reconciled stale claims: `docs/CLAIMS.md` (devnet + live keeper + demo now
   SUPPORTED), README P2/P3 rows, `docs/DEVNET.md` superseding note.
 - Gate: 133 Rust / 183 Python tests, fmt + clippy clean, `anchor build` OK.
+
+## Closure pass (C1-C6) — on `main` per instruction
+
+- C1 single source of truth: `scripts/export_artifacts.py` → `artifacts.json`;
+  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (51,296 /
+  61,513). PASS.
+- C2 pre-registered thesis (Amendment 3): `docs/THESIS.md` — **Option 1 not
+  shown**; T-A.iii no-propAMM share 27.9%; calibration CLOSED-BY-DECISION.
+- C3 NOT DONE (reciprocal-sqrt redesign is roadmap); CU re-measured.
+- C4: prior art, A-08 CLOSED-BY-DECISION, HWM fee report, E8 proxy, A-24 admin
+  rotation CLOSED-BY-DECISION, cargo-fuzz CLOSED-BY-DECISION, devnet keeper
+  SKIPPED (no keypair).
+- C5 frontend NOT DONE.
+- C6 handoff `docs/AUDIT_PACKAGE.md`; regenerated
+  `docs/AUDIT_ACHIEVED_VS_PLAN.md`; claims + banned-word scan CLEAN; fresh-clone
+  reproduction PASS; tag `final-candidate-1`.
+- Gate: 133 Rust / 189 Python, fmt+clippy clean, anchor build OK.
