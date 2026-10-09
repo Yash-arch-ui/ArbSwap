@@ -98,3 +98,32 @@ hedged PnL** with bootstrap CIs (10,000 resamples of the per-trade PnL series).
    losing and zero-share cells marked.
 7. **Bootstrap CIs** (10,000 resamples) accompany rejection, would-be gap and
    hedged-PnL tables.
+
+---
+
+## Amendment 2 (dated 2026-10-09) — Stage-5 proof protocol
+
+Registered before running any new Stage-5 experiment. No target or window is
+changed; this fixes what "done" means for the headline.
+
+1. **Headline default:** Option 2 ("open, transparent, honest, bounded active
+   liquidity"). Option 1 ("beats passive pools") is added only if the routed
+   world on real flow beats B1 on hedged PnL in ≥3 regimes (incl. stress) with
+   bootstrap CIs excluding zero. Option 3 is never claimed.
+2. **Targets (unchanged):** B1 2s markout −0.2 bps (accept −0.5…+0.1); quiet
+   half-spread 2.6 bps (accept 1.8…3.4).
+3. **Routed world:** ArbSwap, B1 (1/5/30 bps), and a propAMM-like venue at
+   0.3/0.5/1.0/2.0 bps half-spread; price-insensitive shares 0/20/50%;
+   slippage 0/0.5/1/2/5 bps. Report volume share, fill share, quoted
+   half-spread distribution, hedged PnL (absolute, bootstrap CIs), 2s markout,
+   quiet half-spread, rejection rate.
+4. **Honesty cost:** rejection rate and would-be quote-vs-fill gap (mean, VW,
+   p95) before rejection next to the post-rejection gap, versus tolerance;
+   update-cadence sweep.
+5. **Stress:** two genuinely high-volatility real windows (measured σ ≥ ~2× the
+   existing windows) plus injected jumps 50/100/300 bps.
+6. **E8:** attempt to source real Solana pool quote/fill data; if unavailable,
+   state "honest by construction; measured in simulation and on devnet; no
+   measured claim about competitors".
+7. **Acceptance:** all criteria MET, or listed PARTIAL with reasons; no tuning on
+   held-out windows (commit evidence).
