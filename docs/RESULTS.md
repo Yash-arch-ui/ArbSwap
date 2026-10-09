@@ -22,7 +22,7 @@ The routed chart is `docs/headline_chart.svg` (`./scripts/headline.sh`).
 
 <!-- BEGIN GENERATED NUMBERS -->
 
-_Generated from `simulation/data/results/artifacts.json` (commit `6220ddb`, 2026-10-09, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
+_Generated from `simulation/data/results/artifacts.json` (commit `765f109`, 2026-10-09, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
 
 **Calibration (W1):** B1 best 2s markout **-0.02 bps** (target -0.2, accept [-0.5, 0.1]); quiet half-spread **2.409 bps** (target 2.6, accept [1.8, 3.4]).
 
@@ -40,7 +40,7 @@ _Generated from `simulation/data/results/artifacts.json` (commit `6220ddb`, 2026
 
 **Cost (E10, source: `LiteSVM measure_instruction_compute_units (vault/program/tests/litesvm_lifecycle.rs)`):** `update_quote` **51296 CU**, `swap` **61513 CU**; cost/update 0.00076 quote @ SOL=150.
 
-**Tests:** 133 Rust / 183 Python. **Guard mutations:** 44 caught (docs/SECURITY_CHECKLIST.md).
+**Tests:** 133 Rust / 185 Python. **Guard mutations:** 44 caught (docs/SECURITY_CHECKLIST.md).
 
 <!-- END GENERATED NUMBERS -->
 

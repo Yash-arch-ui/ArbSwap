@@ -1,0 +1,255 @@
+{
+  "T_A": {
+    "T_A_holds": false,
+    "T_A_i_real_flow_ci": {
+      "met": false,
+      "reason": "real aggTrades held-out study with bootstrap CIs not run; measured real-flow B1 saturates at ~-7.9/13 bps (F-08)"
+    },
+    "T_A_ii_quiet_hs_le_b1": {
+      "detail": [
+        {
+          "arb": 8.26301303247171,
+          "arb_le_b1": false,
+          "b1": 2.2551506742648058,
+          "window": "W2"
+        },
+        {
+          "arb": 8.045703696634988,
+          "arb_le_b1": false,
+          "b1": 2.1682623240373124,
+          "window": "W3"
+        },
+        {
+          "arb": 8.324113760201133,
+          "arb_le_b1": false,
+          "b1": 2.2143431089871304,
+          "window": "W4"
+        },
+        {
+          "arb": 8.292449592691572,
+          "arb_le_b1": false,
+          "b1": 2.0494304992266894,
+          "window": "W5"
+        },
+        {
+          "arb": 7.8892699302445894,
+          "arb_le_b1": false,
+          "b1": 1.9947931719003411,
+          "window": "W6"
+        }
+      ],
+      "met": false
+    },
+    "T_A_iii_noprop_share_ge_10pct": {
+      "met": true,
+      "share": 0.2786508561051532
+    },
+    "T_A_iv_tolerance_insensitive": {
+      "met": false,
+      "reason": "depends on T-A.i real-flow run"
+    }
+  },
+  "T_B": {
+    "0.3": {
+      "ArbSwap": {
+        "fill_share": 0.014886274237149283,
+        "markout_2s_bps": 2.008334673545485,
+        "volume_share": 0.0002676966214225118,
+        "windows": 6
+      },
+      "B1_passive": {
+        "fill_share": 0.1673380116228934,
+        "markout_2s_bps": -5.229995314581538,
+        "volume_share": 0.0032147709091337184,
+        "windows": 6
+      },
+      "PropAMM": {
+        "fill_share": 0.8177757141399574,
+        "markout_2s_bps": -1.391820071554364,
+        "volume_share": 0.9965175324694439,
+        "windows": 6
+      }
+    },
+    "0.5": {
+      "ArbSwap": {
+        "fill_share": 0.01586011651736492,
+        "markout_2s_bps": 1.9887260190517495,
+        "volume_share": 0.00029146690470981313,
+        "windows": 6
+      },
+      "B1_passive": {
+        "fill_share": 0.16920461871297046,
+        "markout_2s_bps": -5.128355472790752,
+        "volume_share": 0.003251954369919267,
+        "windows": 6
+      },
+      "PropAMM": {
+        "fill_share": 0.8149352647696646,
+        "markout_2s_bps": -1.1919332346230471,
+        "volume_share": 0.996456578725371,
+        "windows": 6
+      }
+    },
+    "1.0": {
+      "ArbSwap": {
+        "fill_share": 0.030268936965314925,
+        "markout_2s_bps": 1.873113597674532,
+        "volume_share": 0.0008237895237011911,
+        "windows": 6
+      },
+      "B1_passive": {
+        "fill_share": 0.28629139602955017,
+        "markout_2s_bps": -5.025957595147661,
+        "volume_share": 0.008253659113645959,
+        "windows": 6
+      },
+      "PropAMM": {
+        "fill_share": 0.6834396670051349,
+        "markout_2s_bps": -1.6253988125713554,
+        "volume_share": 0.9909225513626528,
+        "windows": 6
+      }
+    },
+    "2.0": {
+      "ArbSwap": {
+        "fill_share": 0.11223711134019941,
+        "markout_2s_bps": 1.8706271728403772,
+        "volume_share": 0.0066064356367348705,
+        "windows": 6
+      },
+      "B1_passive": {
+        "fill_share": 0.4212622853993772,
+        "markout_2s_bps": -4.528094343406379,
+        "volume_share": 0.020578928223500697,
+        "windows": 6
+      },
+      "PropAMM": {
+        "fill_share": 0.4665006032604235,
+        "markout_2s_bps": -1.774244419860232,
+        "volume_share": 0.9728146361397645,
+        "windows": 6
+      }
+    }
+  },
+  "T_C": {
+    "arb_le_b1_all": false,
+    "prop_like_half_spread_bps": 0.5,
+    "rows": [
+      {
+        "arb": 8.26301303247171,
+        "arb_le_b1": false,
+        "b1": 2.2551506742648058,
+        "window": "W2"
+      },
+      {
+        "arb": 8.045703696634988,
+        "arb_le_b1": false,
+        "b1": 2.1682623240373124,
+        "window": "W3"
+      },
+      {
+        "arb": 8.324113760201133,
+        "arb_le_b1": false,
+        "b1": 2.2143431089871304,
+        "window": "W4"
+      },
+      {
+        "arb": 8.292449592691572,
+        "arb_le_b1": false,
+        "b1": 2.0494304992266894,
+        "window": "W5"
+      },
+      {
+        "arb": 7.8892699302445894,
+        "arb_le_b1": false,
+        "b1": 1.9947931719003411,
+        "window": "W6"
+      }
+    ]
+  },
+  "calibration": {
+    "accept_half_spread_bps": [
+      1.8,
+      3.4
+    ],
+    "accept_markout_bps": [
+      -0.5,
+      0.1
+    ],
+    "fit_half_spread_bps": 2.4094157339308593,
+    "fit_markout_bps": -0.019758438501197136,
+    "paper_half_spread_bps": 2.6,
+    "paper_markout_bps": -0.2,
+    "real_flow_residual": {
+      "half_spread_bps": 13.1,
+      "markout_bps": -7.9,
+      "source": "docs/AUDIT_FULL.md (real flow saturates)"
+    },
+    "reason": "synthetic W1 fit is within tolerance (-0.02/2.41); real-flow adverse selection saturates at ~-7.9/13.1 bps (~40x/5x the paper), a venue/flow-definition gap that parameter tuning cannot close. Bounded impact: all headline numbers are model outputs and labelled so.",
+    "status": "CLOSED-BY-DECISION"
+  },
+  "decision": "Option 1 not shown",
+  "envelope": {
+    "cells": 75,
+    "deploy_ok": 40,
+    "losing_examples": [
+      {
+        "arb_markout_2s_bps": 0.0,
+        "arb_volume_share": 0.0,
+        "prop_half_spread_bps": 0.3,
+        "regime": "calm",
+        "vault_fee_bps": 3
+      },
+      {
+        "arb_markout_2s_bps": 0.0,
+        "arb_volume_share": 0.0,
+        "prop_half_spread_bps": 0.5,
+        "regime": "calm",
+        "vault_fee_bps": 3
+      },
+      {
+        "arb_markout_2s_bps": 0.0,
+        "arb_volume_share": 0.0,
+        "prop_half_spread_bps": 1.0,
+        "regime": "calm",
+        "vault_fee_bps": 3
+      },
+      {
+        "arb_markout_2s_bps": 0.0,
+        "arb_volume_share": 0.0,
+        "prop_half_spread_bps": 0.3,
+        "regime": "calm",
+        "vault_fee_bps": 5
+      },
+      {
+        "arb_markout_2s_bps": 0.0,
+        "arb_volume_share": 0.0,
+        "prop_half_spread_bps": 0.5,
+        "regime": "calm",
+        "vault_fee_bps": 5
+      }
+    ],
+    "not_ok": 35
+  },
+  "niche_C2_7": {
+    "arb_better_price_than_b1": true,
+    "arb_ge_10pct": true,
+    "arb_markout_bps": 1.9675906708041067,
+    "arb_volume_share": 0.2786508561051532,
+    "b1_markout_bps": -2.619605246884355,
+    "mean": {
+      "ArbSwap": {
+        "fill_share": 0.2741094351732991,
+        "markout_2s_bps": 1.9675906708041067,
+        "volume_share": 0.2786508561051532,
+        "windows": 6
+      },
+      "B1_passive": {
+        "fill_share": 0.725890564826701,
+        "markout_2s_bps": -2.619605246884355,
+        "volume_share": 0.7213491438948468,
+        "windows": 6
+      }
+    }
+  }
+}

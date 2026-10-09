@@ -13,6 +13,24 @@ Option 1 ("beats passive pools") is **not shown** at the required bar; Option 3
 > tight-spread propAMMs on routed price, and its economic value is **not yet
 > demonstrated** on real order flow.
 
+## Closure thesis test (C2, `docs/THESIS.md`)
+
+Pre-registered pass criteria (Amendment 3) evaluated mechanically:
+
+| Criterion | Result |
+|---|---|
+| T-A.i real aggTrades flow, bootstrap CI > 0 in ≥3 windows incl. stress | **NOT MET** (real-flow study not run; real-flow B1 saturates ~−7.9/13 bps, F-08) |
+| T-A.ii quiet half-spread ≤ B1 | **NOT MET** (ArbSwap ~8 bps vs B1 ~2 bps) |
+| T-A.iii no-propAMM routed volume share ≥ 10% | **MET** (27.9%) |
+| T-A.iv tolerance 1 bp + 20% insensitive | **NOT MET** (depends on T-A.i) |
+| **T-A "beats passive" overall** | **NOT SHOWN** |
+| T-B vs propAMM-like 0.3–2.0 bps | ArbSwap share 0.0–0.7% (propAMM 97–100%) |
+| T-C retail vs propAMM-like (0.5 bps) | ArbSwap ~8 bps vs propAMM-like ~0.5 bps — worse |
+
+**Decision: Option 1 not shown.** Option 2 remains the sole headline. In the
+**no-propAMM niche** (long-tail pairs) ArbSwap takes **27.9%** routed volume with
+better markout than B1 — reported as a scenario, not a prediction.
+
 ## Evidence
 
 **Routed world (fresh, `python -m simulation.sim.router`, W1–W6 one-hour
