@@ -180,3 +180,4 @@ speed; never claim an unmeasured result; report losing regimes.
 - `docs/DEMO_SCRIPT.md` — 3-minute demo script, live-demo script, backup plan.
 - `docs/PITCH_DECK.md` — pitch deck source (rendered to HTML/PDF).
 - `docs/P5_REPORT.md`, `docs/P6_AUDIT.md` — phase evidence and gate verdicts.
+- `docs/AUDIT_ACHIEVED_VS_PLAN.md` — achieved vs not achieved vs MasterPlan + BuilderPlan, phase by phase, with data.
