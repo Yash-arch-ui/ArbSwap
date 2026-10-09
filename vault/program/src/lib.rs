@@ -1173,6 +1173,9 @@ pub mod arbswap {
                 clock.slot >= bond.unbond_ready_slot,
                 ErrorCode::TimelockNotElapsed
             );
+            // h4: the release call must name exactly the queued amount, so a
+            // caller cannot silently release a different (larger) stake.
+            require!(amount == bond.unbond_amount, ErrorCode::InvalidAmount);
             let release = bond.unbond_amount.min(bond.bond);
             if release > 0 {
                 let bump = [ctx.accounts.vault.bump];

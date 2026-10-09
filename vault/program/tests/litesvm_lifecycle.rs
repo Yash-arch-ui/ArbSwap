@@ -2869,11 +2869,14 @@ fn unbond_keeper_cooldown_and_release() {
     assert!(bond.unbond_ready_slot > SLOT);
 
     // Releasing before the cooldown elapses fails.
-    assert_anchor_error(fixture.unbond_keeper(&keys.keeper, 0), "TimelockNotElapsed");
+    assert_anchor_error(
+        fixture.unbond_keeper(&keys.keeper, 400),
+        "TimelockNotElapsed",
+    );
 
     fixture.warp_to_slot(bond.unbond_ready_slot);
     let m = fixture
-        .unbond_keeper(&keys.keeper, 0)
+        .unbond_keeper(&keys.keeper, 400)
         .expect("release after cooldown");
     println!("cu_unbond_keeper_release={}", m.compute_units_consumed);
     let after = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
@@ -2926,7 +2929,7 @@ fn slash_during_unbond_reduces_the_release() {
 
     fixture.warp_to_slot(bond.unbond_ready_slot);
     fixture
-        .unbond_keeper(&keys.keeper, 0)
+        .unbond_keeper(&keys.keeper, 1_000)
         .expect("release the capped amount");
     let after = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
     assert_eq!(after.bond, 0);
@@ -3713,5 +3716,112 @@ fn deposits_and_withdrawals_do_not_move_the_edge_tracker() {
         fixture.quote_state_value().realized_edge,
         edge_after_swap,
         "a withdrawal request must not change the edge tracker"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// H4: unbond_keeper amount handling.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn unbond_partial_and_full_release() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    let before = token_amount(&fixture.svm, fixture.keeper_quote);
+
+    fixture.unbond_keeper(&keys.keeper, 400).expect("queue 400");
+    let bond = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    fixture.warp_to_slot(bond.unbond_ready_slot);
+    fixture
+        .unbond_keeper(&keys.keeper, 400)
+        .expect("partial release");
+    let after_partial = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    assert_eq!(after_partial.bond, 600);
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.keeper_quote),
+        before + 400
+    );
+
+    fixture.unbond_keeper(&keys.keeper, 600).expect("queue 600");
+    let bond = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    fixture.warp_to_slot(bond.unbond_ready_slot);
+    fixture
+        .unbond_keeper(&keys.keeper, 600)
+        .expect("full release");
+    let after_full = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    assert_eq!(after_full.bond, 0);
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.keeper_quote),
+        before + 1_000
+    );
+}
+
+#[test]
+fn unbond_release_wrong_amount_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    fixture.unbond_keeper(&keys.keeper, 400).expect("queue 400");
+    let bond = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    fixture.warp_to_slot(bond.unbond_ready_slot);
+    assert_anchor_error(fixture.unbond_keeper(&keys.keeper, 300), "InvalidAmount");
+    fixture
+        .unbond_keeper(&keys.keeper, 400)
+        .expect("the queued amount releases");
+}
+
+#[test]
+fn unbond_double_release_starts_a_new_queue() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    fixture.unbond_keeper(&keys.keeper, 400).expect("queue 400");
+    let bond = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    fixture.warp_to_slot(bond.unbond_ready_slot);
+    fixture
+        .unbond_keeper(&keys.keeper, 400)
+        .expect("release 400");
+
+    // No pending unbond now: the next call queues a NEW unbond, it does not
+    // release again.
+    fixture
+        .unbond_keeper(&keys.keeper, 400)
+        .expect("starts a new queue");
+    let again = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    assert_eq!(again.bond, 600, "bond unchanged: nothing released twice");
+    assert_eq!(again.unbond_amount, 400);
+    assert!(again.unbond_ready_slot > 0);
+}
+
+#[test]
+fn unbond_does_not_affect_keeper_rewards() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture.bond_keeper(&keys.keeper, 1_000).expect("bond");
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    fixture
+        .swap(&keys.trader, AMOUNT_IN, 0, 1)
+        .expect("swap accrues keeper fees");
+    assert!(fixture.vault_state().keeper_quote > 0);
+
+    fixture.unbond_keeper(&keys.keeper, 1_000).expect("queue");
+    let bond = read_state::<KeeperBond>(&fixture.svm, fixture.keeper_bond(&keys.keeper));
+    fixture.warp_to_slot(bond.unbond_ready_slot);
+    fixture.unbond_keeper(&keys.keeper, 1_000).expect("release");
+
+    let before = token_amount(&fixture.svm, fixture.keeper_quote);
+    fixture
+        .claim_keeper_reward(&keys.keeper)
+        .expect("rewards remain claimable after unbond");
+    assert!(
+        token_amount(&fixture.svm, fixture.keeper_quote) > before,
+        "the accrued reward must still be paid"
     );
 }
