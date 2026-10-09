@@ -199,9 +199,9 @@ Measured with `measure_instruction_compute_units` (bonded path) after p2-T3:
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | ≈68k (63–73k across runs; two-sided capacity + Pyth dominate) |
+| `update_quote` | ≈48k (S2 single-division base_capacity; was ≈68k) |
 | `update_quote` (wide-conf rejected) | ~13.6k |
-| `swap` | 75,219 (incl. h3 edge tracker) |
+| `swap` | ≈61k (incl. h3 edge tracker) |
 | `trip_breaker` | 12,377 |
 | `deposit` | 46,477 |
 | `request_withdraw` | 24,420 |
@@ -226,7 +226,8 @@ Profiled by ablation (LiteSVM, two-sided ladder, 12 levels):
 | level band binding (24 `price_from_sqrt`) | ≈0 | remove the binding loop |
 | keeper-bond PDA check | ≈2k | bonded vs unbonded |
 
-**Target <=40k is NOT met** (measured ≈68k). The dominant cost is the ask-side
+**Target <=40k is NOT met** (measured ≈48k after the S2 single-division win; the
+raw `base_capacity` two-division form was ≈68k). The remaining dominant cost is the ask-side
 `base_capacity` (`floor(L·Δ/(lo·hi))`, a 256-bit division per level), on top of
 the fixed account-validation + Pyth verification (~30k) that the program cannot
 remove without dropping the on-chain oracle check.

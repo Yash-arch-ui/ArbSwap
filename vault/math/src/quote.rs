@@ -47,14 +47,16 @@ impl Level {
     /// Base released by fully consuming the segment (ask output / bid input).
     pub fn base_capacity(&self) -> MathResult<u128> {
         let delta = self.delta_sqrt()?;
-        let scaled = U256::mul_u128(self.liquidity, delta)
-            .div_rem(U256::from_u128(self.sqrt_lo))
+        // S2: `floor(floor(x/lo)/hi) == floor(x/(lo*hi))`, so one U256 division
+        // replaces two (verified equal by the S1 differential harness).
+        let numerator = U256::mul_u128(self.liquidity, delta);
+        let denominator = U256::mul_u128(self.sqrt_lo, self.sqrt_hi);
+        numerator
+            .div_rem(denominator)
             .ok_or(MathError::DivideByZero)?
             .0
-            .div_rem(U256::from_u128(self.sqrt_hi))
-            .ok_or(MathError::DivideByZero)?
-            .0;
-        scaled.to_u128().ok_or(MathError::Overflow)
+            .to_u128()
+            .ok_or(MathError::Overflow)
     }
 
     /// Quote released/consumed by fully consuming the segment.
