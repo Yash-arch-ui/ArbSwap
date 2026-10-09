@@ -281,7 +281,7 @@ remove without dropping the on-chain oracle check.
 **Proposed design change (WAITING for approval; semantics change).** Validate
 capacity **coarsely** at update time and enforce the **exact** consumption cap at
 swap time:
-- update time: require the *cheap* per-side `quote_capacity` sums
+- update time: require the *lower-cost* per-side `quote_capacity` sums
   (`Σ L·Δ/2¹²⁸`, no 256-bit division) ≤ `utilization × value` of the reserve, so
   an over-deep ladder is still rejected;
 - swap time: the existing `walk_ladder` `remaining != 0` check plus the token

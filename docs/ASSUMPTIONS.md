@@ -42,7 +42,7 @@ HumidiFi reported ~300 → 47 CU per update. The <1,000 CU target in Build Plan
 §2.5 is conservative. **Measured on the built program (LiteSVM, 2026-10-07):**
 `update_quote` 17,962 CU, `swap` 71,518 CU (ladder-dependent), `trip_breaker`
 10,054 CU. All fit the 200,000 CU transaction
-default. The update is still ~19–26× the paper's propAMM median, so the "cheap
+default. The update is still ~19–26× the paper's propAMM median, so the "low-cost
 update" claim is *not* supported for `update_quote`; it is dominated by Anchor
 account validation, not the ladder math (ASSUMPTIONS A-17).
 
@@ -63,7 +63,7 @@ Verified from the skim:
 Still owed before demo: full read + row in the comparison table.
 
 ## A-07. Pyth product choice (Build Plan decision D-09) — OPEN, mechanics VERIFIED
-- **Pyth Core:** pull-based price feeds with confidence intervals; the safe,
+- **Pyth Core:** pull-based price feeds with confidence intervals; the lower-risk,
   trust-minimized default. Verified: `PriceUpdateV2` account exposes
   `Price { price: i64, conf: u64, exponent: i32, publish_time: i64 }` in **one
   account read**; account owner is the Pyth Solana Receiver program (enforced by
@@ -74,7 +74,7 @@ Still owed before demo: full read + row in the comparison table.
   separate crank).
   **Consequence for §6.3/CU accounting:** one keeper tx = ComputeBudget +
   Pyth verification + our update. Report CU for our instruction *separately*
-  from total-tx CU; the Build Plan's "one cheap tx" claim is about our part.
+  from total-tx CU; the Build Plan's "one low-cost tx" claim is about our part.
 - **Pyth Lazer:** 1 ms / 50 ms / 200 ms channels, richer data (bid-ask, depth),
   **15K CU for 20 feeds on Solana**, permissioned/custom integration (no public
   pricing tiers found), designed to be cross-checked against Core with circuit
@@ -124,7 +124,7 @@ on GitHub — check before shipping an adapter (P5/T5.4).
   `P_res = P(1 − g·q)` is the inventory-linear skew in bps form (state the
   adaptation). Note: the A–S *total spread* is q-independent; only the quote
   mid/skew moves linearly in q, which is exactly what `P_res` models.
-- propAMM edge sources (Solmaz et al., arXiv:2609.38056): cheap updates,
+- propAMM edge sources (Solmaz et al., arXiv:2609.38056): low-cost updates,
   counterparty pricing, winning arb leg, spoofing — ArbSwap keeps the first three
   by design and removes spoofing via versioned quotes + the gap metric.
 - Spoofing evidence (39% identical / 1.08 bps worse) is **Base/Flashblocks**;
@@ -252,7 +252,7 @@ explains the audit's F-06 "7,051 vs 10,051" disagreement — the two numbers are
 the same instruction measured two ways. Consequence: no caller needs a
 compute-budget bump. (Later re-measured after F-04/D-07: `update_quote` 17,962,
 `swap` 71,518, `trip_breaker` 10,054 — see A-21 and `SECURITY_CHECKLIST.md`;
-`research/sim/costs.py` now records those.) The "cheap update" claim is still
+`research/sim/costs.py` now records those.) The "low-cost update" claim is still
 **not** supported for `update_quote`.
 
 ## A-18. Task 5/6 keeper parity and security tests — VERIFIED (2026-10-07)
