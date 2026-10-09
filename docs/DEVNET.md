@@ -89,3 +89,60 @@ API key in `.env`), so the client must parse it (`pythnet-sdk`
 price_update (signer), system_program, write_authority). This is the one
 remaining client. Deposit/withdraw do not need the oracle and can run once the
 LP share account is created.
+
+---
+
+## P2 GATE — FULL LIFECYCLE PASSED ON DEVNET (branch `dev`)
+
+The complete money path ran on devnet against the deployed program
+`CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`, consuming a **fully verified**
+SOL/USD Pyth update posted with the **official `@pythnetwork/pyth-solana-receiver`
+TypeScript SDK**.
+
+Vault: `8pubuchUdm9vmnXhxCRie32phFuDiiGi3skCa5okg4qU`
+(base mint `Aiv3cxvMCrKq3VadsV9o72pHbuNKseN1jHF56QuGyWSc`, quote mint
+`EwGBJg2XqVYcPVnNDfvt5dSZwsFXL4meaMoFgK6FCz6a`).
+
+| Step | Signature |
+|---|---|
+| `deposit` | `2cZqAfRowJev4CZJe5ESc1c2H4b667cbB8RHJgQfJ15yRAvAaDmEWM2f7T5cNUzDsxn93LCZZ2en3nLUtJbFwaTi` |
+| `update_quote` (Pyth `PriceUpdateV2` `BPaaStZuWrUfGfbaFomayCpVjaEJ48pLgxmbmWfqj8Rx`) | `2U67ZEAgHy5dYJCHbkgN8cRb7qiJ8MFBTU8LmQqmqXinqX8pft7gVTKMfBJJSnuVp9FqphrrWr8amwmJWqpzxdub` |
+| `swap` BuyBase | `4bBrSFfir7NVhW3JmikCGEXRWnPHa8iy4qsDKhANxssAV5dJZTntpL2kMstcriu7v9XVxq9Xa6M2WbfxHGt9WV32` |
+| `swap` SellBase | `2PNitWMCW8FZrJQc3LDFs1JeBFJiWAheHLHExRH376y9cfLs3hmedT2L1KaFSdXg5RvyxJoNQPykrqLNJ2jUt7Lv` |
+| `request_withdraw` | `DATqE2VAeQQCntoSfCQYjkyZfj5q1CjYFTFqyNCQzzCHdXx3n1xB4fBjjeFGnrc3KUXpErfNSR6aLYqi85XCRi3` |
+| `crank_epoch` | `5gG4EorK2isjqv631gq9wpxJ8Kbpm9SBkUQoEpzmkSiF96PE7uT6EPv3hHriyfFZYsne4pS24YSWEUoySPuQ9JBk` |
+| `claim_withdraw` | `G7NSneNm6dNiMqHCEqHJaYX2Q52BBaBCKh3Msg3663KLcNE2rQQcZ4gMsTjTcaYYAeUiizw32oT5bbSrm7NtcCS` |
+
+Pyth post signatures: `2XDaEmvFxUQ4Uokv9qyxt5tVSbHUyrwmnikLwGUeHUS43PKwxbQviwk9JCY64bLcvBEqpKjhGcL8BFen7ysVd9rq`,
+`mjz7VjgvMueiw6hjSPgKjdUHG4AzFzpfkKaUj1bJm3abCPoGBsPsbv4HoigbChPWuGSrf8BthprSEKz5HPzGqxr` (one of the runs).
+
+### Reproduce
+
+```bash
+# 1. mints + LP accounts + vault (writes /tmp/arbswap_state.json)
+cargo run -q -p arbswap-e2e -- setup https://api.devnet.solana.com ~/.config/solana/id.json \
+  ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d /tmp/arbswap_state.json
+
+# 2. post a fully verified SOL/USD update with the OFFICIAL Pyth TS SDK
+#    (writes /tmp/arbswap_pyth.json; PYTH_API_KEY from the environment only)
+cd scripts/devnet && npm install && PYTH_API_KEY=... npx tsx post_pyth.ts
+
+# 3. full loop (consumes the PriceUpdateV2 from step 2)
+cd ../.. && cargo run -q -p arbswap-e2e -- loop https://api.devnet.solana.com \
+  ~/.config/solana/id.json /tmp/arbswap_state.json /tmp/arbswap_pyth.json
+```
+
+### Compatibility notes (verified, not guessed)
+
+- Deployed receiver `rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ` ==
+  `DEFAULT_RECEIVER_PROGRAM_ID` in `@pythnetwork/pyth-solana-receiver@0.16.0`.
+- Hermes `getLatestPriceUpdates({encoding:"base64"})` returns the Pythnet
+  accumulator blobs the SDK's `addPostPriceUpdates` parses — no custom parser.
+- `PriceUpdateV2` account owner is the receiver program; `update_quote` requires
+  `Account<PriceUpdateV2>` (unchanged constraint). No on-chain check weakened.
+- npm packaging: `jito-ts`→`@solana/web3.js@1.77` needs the legacy
+  `rpc-websockets/dist/lib/client` subpath; `scripts/devnet/fix-rpc-websockets.cjs`
+  (postinstall) writes the `.js` re-export shims. web3.js pinned to `1.92.3`.
+- A smoke-test note: the keeper ladder treats the price as an atom-ratio, so the
+  devnet bid depth is small; the SellBase size was set to 50,000 base atoms and
+  `expiry_slots` to 1000 so the quote stays live across the multi-tx loop.

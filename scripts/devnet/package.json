@@ -1,0 +1,21 @@
+{
+  "name": "arbswap-devnet",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "post-pyth": "tsx post_pyth.ts",
+    "postinstall": "node fix-rpc-websockets.cjs"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@pythnetwork/hermes-client": "^3.1.0",
+    "@pythnetwork/pyth-solana-receiver": "0.16.0",
+    "@solana/web3.js": "1.92.3",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5"
+  }
+}

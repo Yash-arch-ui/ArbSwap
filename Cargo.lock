@@ -412,9 +412,12 @@ name = "arbswap-e2e"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "arb-math",
  "arbswap",
+ "arbswap-keeper",
  "base64 0.22.1",
  "bs58",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
