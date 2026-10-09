@@ -15,7 +15,7 @@ Formerly "TruQuote" (working name); all spec documents use the old name.
 | P2 | Anchor accounts, custody, Pyth guards, swaps, withdrawals, breakers | ✅ local (73 Rust tests); devnet gate open |
 | P3 | Rust keeper core, replay, update gating, payload encoder | ✅ dry-run; live RPC gate open |
 | P4 | Analytics, fees, dashboard | ✅ PASS (SQLite indexer + live poller; metrics/attribution; interactive offline demo mode) |
-| P5 | Attacker bots, fuzzing, aggregator adapter | ✅ PASS (gate: every E7 attack contained/documented). Roadmap: cargo-fuzz, E8 real-pool data |
+| P5 | Attacker bots, fuzzing, aggregator adapter | ✅ PASS (gate: every E7 attack contained/documented; aggregator parity; docs/P5_REPORT.md). Roadmap: cargo-fuzz, E8 fill data |
 | P6 | Reproducibility, demo, docs | ⬜ not started |
 
 ## Claims register (only what a test proves)

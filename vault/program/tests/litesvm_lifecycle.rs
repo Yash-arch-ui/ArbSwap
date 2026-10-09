@@ -3944,3 +3944,45 @@ fn state_machine_full_action_set_preserves_invariants() {
         assert!(v.total_shares > 0, "shares vanished");
     }
 }
+
+/// T5.4: the aggregator's quote matches the on-chain swap for the same ladder
+/// (the jupiter-amm-test-kit "quote -> execute -> assert parity" pattern).
+#[test]
+fn aggregator_quote_matches_onchain_swap() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+
+    let levels: Vec<arb_math::Level> = ladder()
+        .iter()
+        .map(|l| arb_math::Level {
+            sqrt_lo: l.sqrt_lo,
+            sqrt_hi: l.sqrt_hi,
+            liquidity: l.liquidity,
+        })
+        .collect();
+    let quote = arb_aggregator::out_given_in(
+        &levels,
+        arb_aggregator::PaymentToken::Quote,
+        AMOUNT_IN as u128,
+        FEE_BPS as u128,
+        0,
+    )
+    .expect("aggregator quote");
+
+    let before = token_amount(&fixture.svm, fixture.trader_base);
+    fixture
+        .swap(&keys.trader, AMOUNT_IN, quote.amount_out as u64, 1)
+        .expect("on-chain swap");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.trader_base) - before,
+        quote.amount_out as u64,
+        "on-chain swap output must equal the aggregator quote"
+    );
+}

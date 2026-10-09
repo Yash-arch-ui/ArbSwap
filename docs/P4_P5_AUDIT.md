@@ -61,8 +61,8 @@ and tested. The only remaining item is a separate Next.js dApp, which is
 | T5.2 Fuzzing / property tests | **PARTIAL** | `vault/math/tests/proptest.rs` (6 properties × 2000 cases) + `properties.rs` + the S1 differential harness; program state-machine test `state_machine_full_action_set_preserves_invariants`; **no `cargo-fuzz`** target |
 | T5.3 Security checklist | **DONE** | `docs/SECURITY_CHECKLIST.md` — account-binding table, 31-guard mutation table, per-instruction checks, CU table |
 | T5.3 Threat model | **DONE** | `docs/THREAT_MODEL.md` — every threat maps to a mitigation + a test (E7 / LiteSVM), incl. T6 loss bound and H3 edge breaker |
-| T5.4 Aggregator adapter | **PARTIAL** | `vault/aggregator/src/lib.rs` — `out_given_in`, `in_given_out`, `best_price` + 3 property tests; **no live Jupiter CPI parity test**, interface not re-verified against the current Jupiter spec (A-09) |
-| T5.5 E8 real Solana gaps | **NOT DONE** | no Solana DEX/indexer data source; "honest by construction; no measured competitor claim" |
+| T5.4 Aggregator adapter | **DONE (pricing + parity + verified)** | `vault/aggregator` quote engine + 3 property tests; LiteSVM parity test `aggregator_quote_matches_onchain_swap` (test-kit pattern); interface verified + recorded (ASSUMPTIONS A-23). Full listing needs a Jupiter-side `Swap` variant (closed enum) |
+| T5.5 E8 real Solana gaps | **PARTIAL** | real Jupiter-routed SOL/USDC quote via the live propAMM BisonFi (110.2525, impact ~0.0005%); full quote-vs-fill gap needs execution data — **not measured**, no competitor claim |
 | T5.5 E9 sensitivity / E10 cost | **DONE** | `simulation/sim/e9_e10.py` (passive fee × vault fee × latency; CU per update/swap) |
 | T5.5 Keeper bonds/slashing | **DONE** | on-chain `bond_keeper`/`slash_keeper`/`claim_keeper_reward`/`unbond_keeper` + tests |
 | T5.5 Governance/timelock | **DONE** | `set_params`/`apply_params` timelock + tests |
@@ -82,7 +82,7 @@ Jupiter aggregator parity test**.
 | Phase | Verdict | Done | Missing |
 |---|---|---|---|
 | **P4** | **DONE** | indexer + SQLite DB + live poller, metrics, attribution, E1 gate, views, **interactive demo mode** | Next.js dApp (Stage 6) |
-| **P5** | **PASS (gate)** | 7 E7 bots + control, threat model, security checklist, E9/E10, bonds/slashing, timelock | `cargo-fuzz`, E8 real-pool data, live Jupiter parity |
+| **P5** | **PASS (gate)** | 7 E7 bots + control, threat model, security checklist, aggregator pricing + parity, E9/E10, bonds/slashing, timelock, E8 partial (real quote) | `cargo-fuzz` (proptest substitute), E8 fill data, Jupiter `Swap` variant |
 
 **Blunt version.** P5's *adversarial* gate is genuinely met and well documented.
 P4's *analytics* are real (metrics/attribution/parity), but its **product half —

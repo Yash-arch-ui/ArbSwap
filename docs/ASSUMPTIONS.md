@@ -386,3 +386,16 @@ Recorded because the p2 audit relies on these bindings to reject substitutions.
 Pyth receiver: `PriceUpdateV2::get_price_no_older_than(&clock, max_age, &feed_id)`
 returning `Price { price, conf, exponent, publish_time }` — VERIFIED by compile
 and the LiteSVM Pyth tests (see A-07).
+
+## A-23. Jupiter AMM interface (T5.4) — VERIFIED (2026-10-09)
+`jup-ag/jupiter-amm-interface` exposes the `Amm` trait
+(`from_keyed_account`, `label`, `program_id`, `key`, `get_reserve_mints`,
+`get_accounts_to_update`, `update`, `quote`, `get_swap_and_account_metas`, …)
+and a `test-kit` whose pattern is "snapshot the pool, run the SDK quote, execute
+the native swap in LiteSVM, assert parity". Latest on crates.io is
+`jupiter-amm-interface 1.0.0-beta.0`; `0.6.1` resolves with Rust 1.98.
+**Consequence:** our `arb-aggregator` implements the pricing half
+(`out_given_in`/`in_given_out`) and a LiteSVM parity test mirrors the test-kit
+pattern (`aggregator_quote_matches_onchain_swap`). A full Jupiter listing needs
+a matching variant in the interface's **closed `Swap` enum**, which is a
+Jupiter-side change we cannot supply; documented, not worked around.
