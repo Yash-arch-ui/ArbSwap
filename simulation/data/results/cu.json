@@ -1,16 +1,19 @@
 {
+  "build_method": "cargo build-sbf (no idl-build)",
   "instructions": {
-    "bond_keeper": 26541,
-    "claim_keeper_reward": 14026,
-    "claim_withdraw": 24189,
-    "crank_epoch": 5182,
-    "deposit": 46533,
-    "request_withdraw": 19920,
-    "slash_keeper": 14153,
-    "swap": 61513,
-    "update_quote": 51296,
-    "update_quote_wide_conf_rejected": 17189
+    "bond_keeper": 24628,
+    "claim_keeper_reward": 13744,
+    "claim_withdraw": 23726,
+    "crank_epoch": 5078,
+    "deposit": 46573,
+    "request_withdraw": 19660,
+    "slash_keeper": 13899,
+    "swap": 59162,
+    "update_quote": 48079,
+    "update_quote_wide_conf_rejected": 15435
   },
-  "measured_date": "2026-10-09",
-  "source": "LiteSVM measure_instruction_compute_units (vault/program/tests/litesvm_lifecycle.rs)"
+  "note": "anchor build (idl-build) is ~3k CU higher for update_quote (51,296 vs 48,296); no source regression. See docs/PROGRESS.md B1.",
+  "so_bytes": 661264,
+  "so_sha256": "f13238707d8eced085d92e819edfb41cd6fe1d217ca912674c61a678da05dfa2",
+  "source": "cargo build-sbf + vault/program/tests/litesvm_lifecycle.rs::measure_instruction_compute_units"
 }

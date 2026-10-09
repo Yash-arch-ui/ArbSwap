@@ -102,3 +102,13 @@ README with no data and no API keys.
   `docs/AUDIT_ACHIEVED_VS_PLAN.md`; claims + banned-word scan CLEAN; fresh-clone
   reproduction PASS; tag `final-candidate-1`.
 - Gate: 133 Rust / 189 Python, fmt+clippy clean, anchor build OK.
+
+## Backend polish (B1-B10) — on `main`
+
+- **B1 CU regression — PASS (cause named).** `update_quote` 48,296 → 51,296 was a
+  **build-method artifact**, not a source regression: `cargo build-sbf`
+  (661 KB, no `idl-build`) = 48,296; `anchor build` (744 KB, `idl-build`) =
+  51,296. The program source in the measured path is byte-identical to `43002b3`
+  (diff of `update_quote`/`Config`/`QuoteState`/fixture/`quote_update` empty).
+  Fix: `scripts/measure_cu.sh` builds in a clean dedicated target dir and records
+  the `.so` hash; canonical `update_quote` **48,079**, `swap` **59,162**.

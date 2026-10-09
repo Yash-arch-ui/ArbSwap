@@ -246,9 +246,9 @@ measurement (2026-10-09, LiteSVM):
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | **51,296** |
+| `update_quote` | **48,079** (`cargo build-sbf`; ~51,296 with `anchor build`) |
 | `update_quote` (wide-conf rejected) | 17,189 |
-| `swap` | **61,513** |
+| `swap` | **59,162** |
 | `trip_breaker` | 12,377 |
 | `deposit` | 46,533 |
 | `request_withdraw` | 19,920 |
@@ -273,7 +273,7 @@ Profiled by ablation (LiteSVM, two-sided ladder, 12 levels):
 | level band binding (24 `price_from_sqrt`) | ≈0 | remove the binding loop |
 | keeper-bond PDA check | ≈2k | bonded vs unbonded |
 
-**Target <=40k is NOT met** (measured **51,296 CU**, `cu.json`). The remaining dominant cost is the ask-side
+**Target <=40k is NOT met** (measured **48,079 CU**, clean `cargo build-sbf`; `cu.json`). The remaining dominant cost is the ask-side
 `base_capacity` (`floor(L·Δ/(lo·hi))`, a 256-bit division per level), on top of
 the fixed account-validation + Pyth verification (~30k) that the program cannot
 remove without dropping the on-chain oracle check.
