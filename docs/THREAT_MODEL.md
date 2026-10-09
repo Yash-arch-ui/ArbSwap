@@ -94,12 +94,41 @@ trip); `malicious_keeper_edge_loss_trips_within_the_window` (keeper at max
 deviation trips at slot index 3; `realized_edge = −168,531` vs bound `150,000`);
 `deposits_and_withdrawals_do_not_move_the_edge_tracker`.
 
-**Open / provisional:** the window-level honest trip-rate table on the P1
-calm/trend/crash/stress replays is **not** produced — the simulator does not yet
-model the on-chain edge tracker, so the default `max_edge_loss_bps` is
-provisional (set to a loose 500 bps / 5% in tests). A legitimate loss to informed
-flow also reduces the edge, so this default must be set from the window replay
-before it is tightened.
+**Bound restated (S3.1):** the realized loss at the moment of a trip is
+`≤ threshold + largest single-swap adverse edge`, because the crossing swap is
+counted in full. The H3 test's `−168,531` vs threshold `150,000` is exactly this
+(one swap crossed the line). Per window the realized loss is therefore bounded
+by `threshold + max_single_swap_edge`, not by `threshold` alone.
+
+**Honest-replay trip rate (S3.2, simulator tracker — `python -m
+simulation.sim.edge_breaker`):** zero trips for an honest keeper across every
+window and stress case:
+
+| Window | Regime | Latency (s) | Injected jump | Trips | Trades |
+|---|---|---|---|---|---|
+| W2 | mid-vol up | 1.0 | 0 | 0 | 588 |
+| W3 | crash | 1.0 | 0 | 0 | 604 |
+| W4 | trend | 1.0 | 0 | 0 | 596 |
+| W5 | high-vol up | 1.0 | 0 | 0 | 602 |
+| W6 | calm | 1.0 | 0 | 0 | 585 |
+| W4 | trend | 1.0 | 50/100/300 bps | 0 | ~598 |
+| W4 | trend | 0.2 / 4.0 | 0 | 0 | ~590 |
+
+**Cause of every honest trip: none.** The tracker measures the edge against the
+**stored** oracle, and the honest keeper quotes *around that same oracle*, so
+every fill earns the half-spread (edge ≥ 0). It therefore detects **keeper
+mis-anchoring / a ladder stale relative to the stored oracle**, NOT
+oracle-lag LVR (which is handled by spread/throttle/expiry). This gives a
+**zero false-positive rate** on the real windows — the outage risk of a false
+trip is nil for an honest keeper — and the threshold can be tight.
+
+**Chosen defaults (S3.3):** `max_edge_loss_bps = 50` (0.5%; honest trips = 0, so
+no false positives; a keeper at `max_anchor_dev_bps = 100` trips within a few
+swaps), `edge_window_slots` ≈ 1 hour. `max_anchor_dev_bps` tightened to **25
+bps**: the honest replay passes at 10/25/50 (`honest_keeper_passes_at_tight_anchor_dev`,
+because the honest keeper sets `anchor == oracle`, dev = 0); 25 bps bounds the
+worst-case per-update loss to `u·d·V = 0.5 × 0.0025 × V = 0.125% of V` while
+leaving room for a real keeper's rounding.
 
 Solana-specific checklist (Build Plan §11): signer checks on every authority;
 owner/address checks on every account incl. the Pyth account (correct program +

@@ -227,7 +227,7 @@ def simulate(
 
         side, amount = _informed_trade(venue, reference, informed, informed_sizing) if quote_fresh else (None, 0.0)
         if side is not None and amount > 0:
-            trade, rejected = _apply(venue, side, amount, reference, index, trades)
+            trade, rejected = _apply(venue, side, amount, reference, index, trades, now)
             rejects += rejected
             if trade is not None:
                 cash_flow += trade.quote_amount
@@ -241,7 +241,7 @@ def simulate(
             else:
                 amount_in = quote_notional / reference if reference > 0 else 0.0
             if quote_fresh and amount_in > 0 and venue.base > 0 and venue.quote > 0:
-                trade, rejected = _apply(venue, side, amount_in, reference, index, trades)
+                trade, rejected = _apply(venue, side, amount_in, reference, index, trades, now)
                 rejects += rejected
                 if trade is not None:
                     cash_flow += trade.quote_amount
@@ -391,11 +391,15 @@ def _informed_trade(venue, reference: float, informed, sizing: str = "marginal")
 
 
 def _apply(venue, side: str, amount_in: float, reference: float,
-           second: int, trades: list[TradeRecord]) -> tuple[TradeRecord | None, int]:
+           second: int, trades: list[TradeRecord],
+           now: float = 0.0) -> tuple[TradeRecord | None, int]:
     if isinstance(venue, VaultVenue) and venue.quote_state is None:
         return None, 0
     try:
-        fill = venue.fill(side, amount_in)
+        if isinstance(venue, VaultVenue):
+            fill = venue.fill(side, amount_in, now)
+        else:
+            fill = venue.fill(side, amount_in)
     except HonestyRejected:
         return None, 1
     except (ValueError, ZeroDivisionError):

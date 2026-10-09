@@ -171,6 +171,18 @@ class VaultVenue:
     # recorded BEFORE the honesty decision, for the survivorship analysis.
     attempt_gaps: list = field(default_factory=list)
     _last_attempt_gap: tuple | None = None
+    # S3.2: realized-edge breaker, mirroring the on-chain tracker. The stored
+    # oracle is the price from the last refresh; the edge is signed quote units
+    # (positive = the vault traded better than the oracle). A window rolls on the
+    # simulation clock; a trip pauses the vault for the rest of the run.
+    edge_window_seconds: float = 1_000.0
+    max_edge_loss_bps: float = 500.0
+    last_oracle_price: float = 0.0
+    realized_edge: float = 0.0
+    edge_window_start: float | None = None
+    edge_trips: int = 0
+    edge_min: float = 0.0
+    tripped: bool = False
 
     @property
     def available_base(self) -> float:
@@ -182,10 +194,32 @@ class VaultVenue:
         """Quote reserve net of the tracked (LP-excluded) fee buckets."""
         return max(0.0, self.quote - self.fee_buckets_quote)
 
+    def _record_edge(self, side: str, amount_in: float, output: float, now: float) -> None:
+        """S3.2: accumulate the signed execution edge vs the stored oracle."""
+        oracle = self.last_oracle_price
+        if oracle <= 0 or self.tripped:
+            return
+        if side == "buy":  # vault sells base: receives quote, pays base
+            edge = amount_in - output * oracle
+        else:  # vault buys base: receives base, pays quote
+            edge = amount_in * oracle - output
+        if self.edge_window_start is None or now - self.edge_window_start >= self.edge_window_seconds:
+            self.edge_window_start = now
+            self.realized_edge = 0.0
+        self.realized_edge += edge
+        self.edge_min = min(self.edge_min, self.realized_edge)
+        available_value = self.available_base * oracle + self.available_quote
+        bound = self.max_edge_loss_bps / 10_000.0 * available_value
+        if self.realized_edge < -bound:
+            self.edge_trips += 1
+            self.tripped = True
+
     def refresh(self, *, price: float, confidence: float, age: float,
                 previous_price: float | None, depth_budget: float = 1.0) -> None:
         # The quote a trader could have read at the end of the previous slot.
         self.displayed_quote = self.quote_state
+        # S3.2: the verified oracle stored at this update, used by the edge tracker.
+        self.last_oracle_price = price
         # Item 3: capacity is sized from the LP-available reserves, excluding the
         # insurance/keeper/protocol fee buckets.
         base_avail = self.available_base
@@ -328,7 +362,10 @@ class VaultVenue:
         else:
             self.quote_state = replace(self.quote_state, bids=tuple(updated))
 
-    def fill(self, side: str, amount_in: float) -> Fill:
+    def fill(self, side: str, amount_in: float, now: float = 0.0) -> Fill:
+        if self.tripped:
+            # S3.2: the edge breaker has paused the vault.
+            raise ValueError("vault tripped by the realized-edge breaker")
         try:
             output, exec_price, gap_bps, quoted_out = self._preview_fill(side, amount_in)
             if self._last_attempt_gap is not None:
@@ -354,12 +391,14 @@ class VaultVenue:
             self.fee_buckets_quote += fee
             self.base -= output
             self.quote += amount_in
+            self._record_edge(side, amount_in, output, now)
             return Fill(side, amount_in, output, exec_price, amount_in,
                         -output, quoted_out, gap_bps)
         # sell: the fee is retained in base.
         self.fee_buckets_base += fee
         self.base += amount_in
         self.quote -= output
+        self._record_edge(side, amount_in, output, now)
         return Fill(side, amount_in, output, exec_price, -output, amount_in,
                     quoted_out, gap_bps)
 

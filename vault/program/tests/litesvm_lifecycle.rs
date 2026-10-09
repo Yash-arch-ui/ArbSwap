@@ -3825,3 +3825,22 @@ fn unbond_does_not_affect_keeper_rewards() {
         "the accrued reward must still be paid"
     );
 }
+
+/// S3.3: the honest keeper sets `anchor == oracle` (deviation 0), so it passes
+/// even at a tight `max_anchor_dev_bps` of 10/25/50.
+#[test]
+fn honest_keeper_passes_at_tight_anchor_dev() {
+    for bound in [10u32, 25, 50] {
+        let keys = Keys::new();
+        let mut fixture = Fixture::new(&keys);
+        rewrite_config(&mut fixture, |c| c.max_anchor_dev_bps = bound);
+        fixture
+            .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+            .expect("deposit");
+        let update = keeper_two_sided_update(LP_BASE_DEPOSIT as u128, LP_QUOTE_DEPOSIT as u128);
+        let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+        fixture
+            .update_quote(&keys.keeper, honest, update)
+            .expect("honest keeper (anchor == oracle) must pass at a tight bound");
+    }
+}
