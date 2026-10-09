@@ -744,6 +744,51 @@ impl Fixture {
         send(&mut self.svm, &[admin], instruction)
     }
 
+    fn propose_admin(
+        &mut self,
+        admin: &Keypair,
+        new_admin: &Keypair,
+    ) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::ProposeAdmin {
+                new_admin: to_address(new_admin.pubkey()),
+            },
+            arbswap::accounts::ProposeAdmin {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+                config: self.config,
+            },
+        );
+        send(&mut self.svm, &[admin], instruction)
+    }
+
+    fn accept_admin(&mut self, new_admin: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::AcceptAdmin {},
+            arbswap::accounts::AcceptAdmin {
+                new_admin: to_address(new_admin.pubkey()),
+                vault: self.vault,
+                config: self.config,
+            },
+        );
+        send(&mut self.svm, &[new_admin], instruction)
+    }
+
+    fn cancel_admin(&mut self, admin: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::CancelAdmin {},
+            arbswap::accounts::CancelAdmin {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+                config: self.config,
+            },
+        );
+        send(&mut self.svm, &[admin], instruction)
+    }
+
     fn update_quote(
         &mut self,
         keeper: &Keypair,
@@ -1912,6 +1957,22 @@ fn measure_instruction_compute_units() {
     );
     let m = send(&mut fixture.svm, &[&keys.lp], claim).expect("claim_withdraw");
     println!("cu_claim_withdraw={}", m.compute_units_consumed);
+
+    // B4 admin rotation.
+    let new_admin = Keypair::new();
+    airdrop(&mut fixture.svm, &new_admin, 1_000_000_000);
+    let m = fixture
+        .propose_admin(&keys.admin, &new_admin)
+        .expect("propose_admin");
+    println!("cu_propose_admin={}", m.compute_units_consumed);
+    fixture.warp_to_slot(SLOT + 216_200);
+    let m = fixture.accept_admin(&new_admin).expect("accept_admin");
+    println!("cu_accept_admin={}", m.compute_units_consumed);
+    fixture
+        .propose_admin(&new_admin, &keys.admin)
+        .expect("propose2");
+    let m = fixture.cancel_admin(&new_admin).expect("cancel_admin");
+    println!("cu_cancel_admin={}", m.compute_units_consumed);
 }
 
 /// Item 1a (negative): the per-window cumulative one-sided flow cap rejects a
@@ -3985,4 +4046,103 @@ fn aggregator_quote_matches_onchain_swap() {
         quote.amount_out as u64,
         "on-chain swap output must equal the aggregator quote"
     );
+}
+
+// ---------------------------------------------------------------------------
+// B4: timelocked admin rotation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn admin_rotation_requires_timelock_and_acceptance() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    let new_admin = Keypair::new();
+    airdrop(&mut fixture.svm, &new_admin, 1_000_000_000);
+    fixture
+        .propose_admin(&keys.admin, &new_admin)
+        .expect("propose");
+    // Accepting before the timelock elapses is rejected.
+    assert_anchor_error(fixture.accept_admin(&new_admin), "TimelockNotElapsed");
+    // After the timelock, the proposed admin accepts and becomes admin.
+    fixture.warp_to_slot(SLOT + 216_001);
+    fixture
+        .accept_admin(&new_admin)
+        .expect("accept after timelock");
+    // The old admin is locked out; the new admin governs.
+    assert_anchor_error(
+        fixture.set_params(
+            &keys.admin,
+            arbswap::ParamsUpdate {
+                fee_bps: 5,
+                ..Default::default()
+            },
+        ),
+        "Unauthorized",
+    );
+    fixture
+        .set_params(
+            &new_admin,
+            arbswap::ParamsUpdate {
+                fee_bps: 5,
+                ..Default::default()
+            },
+        )
+        .expect("new admin governs");
+}
+
+#[test]
+fn admin_rotation_wrong_signer_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    let new_admin = Keypair::new();
+    let impostor = Keypair::new();
+    airdrop(&mut fixture.svm, &new_admin, 1_000_000_000);
+    airdrop(&mut fixture.svm, &impostor, 1_000_000_000);
+    // A non-admin cannot propose.
+    assert_anchor_error(fixture.propose_admin(&impostor, &new_admin), "Unauthorized");
+    fixture
+        .propose_admin(&keys.admin, &new_admin)
+        .expect("propose");
+    fixture.warp_to_slot(SLOT + 216_001);
+    // Only the proposed admin may accept.
+    assert_anchor_error(fixture.accept_admin(&impostor), "Unauthorized");
+}
+
+#[test]
+fn admin_rotation_can_be_cancelled() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    let new_admin = Keypair::new();
+    airdrop(&mut fixture.svm, &new_admin, 1_000_000_000);
+    fixture
+        .propose_admin(&keys.admin, &new_admin)
+        .expect("propose");
+    fixture.cancel_admin(&keys.admin).expect("cancel");
+    fixture.warp_to_slot(SLOT + 216_001);
+    // After cancellation the successor cannot accept, and nothing is pending.
+    assert_anchor_error(fixture.accept_admin(&new_admin), "Unauthorized");
+    assert_anchor_error(fixture.cancel_admin(&keys.admin), "NoPendingAdmin");
+}
+
+#[test]
+fn admin_rotation_rejects_a_config_from_another_vault() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    let new_admin = Keypair::new();
+    airdrop(&mut fixture.svm, &new_admin, 1_000_000_000);
+    // A config account that is not this vault's `[b"config", vault]` PDA fails
+    // the seeds constraint (cross-vault substitution).
+    let instruction = ix(
+        fixture.program_id,
+        arbswap::instruction::ProposeAdmin {
+            new_admin: to_address(new_admin.pubkey()),
+        },
+        arbswap::accounts::ProposeAdmin {
+            admin: to_address(keys.admin.pubkey()),
+            vault: fixture.vault,
+            config: fixture.quote_state,
+        },
+    );
+    let result = send(&mut fixture.svm, &[&keys.admin], instruction);
+    assert!(result.is_err(), "a foreign config account must be rejected");
 }

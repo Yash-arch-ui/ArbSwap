@@ -106,7 +106,7 @@ at the real source via `[workspace] members = ["vault/program"]`.
 Toolchain used at setup: solana-cli 4.1.2, anchor 1.1.2, rust 1.98.0
 (pinned in `rust-toolchain.toml`), node 24, python 3.12.
 
-Current suite: **133 Rust / 189 Python** tests (single source of truth:
+Current suite: **137 Rust / 189 Python** tests (single source of truth:
 `simulation/data/results/artifacts.json`).
 
 ```bash

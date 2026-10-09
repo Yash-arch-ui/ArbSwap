@@ -112,3 +112,9 @@ README with no data and no API keys.
   (diff of `update_quote`/`Config`/`QuoteState`/fixture/`quote_update` empty).
   Fix: `scripts/measure_cu.sh` builds in a clean dedicated target dir and records
   the `.so` hash; canonical `update_quote` **48,079**, `swap` **59,162**.
+
+- **B4 timelocked admin rotation — PASS.** `propose_admin` / `accept_admin` /
+  `cancel_admin` (Config gains `pending_admin` + `admin_activate_slot`; successor
+  must sign; timelocked `TIMELOCK_SLOTS`). Tests: `admin_rotation_*` (4) incl.
+  wrong-signer, cancel, cross-vault config. Mutation rows S4.2. Squads v4 id
+  VERIFIED (A-25). CU: propose/accept/cancel = 8,009 / 9,316 / 7,504.

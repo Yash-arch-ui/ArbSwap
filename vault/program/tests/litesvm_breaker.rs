@@ -175,6 +175,8 @@ fn expired_quote_can_trip_breaker_and_live_quote_cannot() {
         max_anchor_dev_bps: 100,
         flow_window_slots: 100,
         max_window_flow_bps: 10_000,
+        pending_admin: anchor_lang::prelude::Pubkey::default(),
+        admin_activate_slot: 0,
         bump: config_bump,
     };
     svm.set_account(
@@ -293,6 +295,8 @@ fn update_quote_executes_only_with_full_pyth_account() {
         max_anchor_dev_bps: 100,
         flow_window_slots: 100,
         max_window_flow_bps: 10_000,
+        pending_admin: anchor_lang::prelude::Pubkey::default(),
+        admin_activate_slot: 0,
         bump: config_bump,
     };
     let quote_state = QuoteState {

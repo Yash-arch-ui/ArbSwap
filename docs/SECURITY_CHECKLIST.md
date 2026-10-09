@@ -246,9 +246,9 @@ measurement (2026-10-09, LiteSVM):
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | **48,079** (`cargo build-sbf`; ~51,296 with `anchor build`) |
+| `update_quote` | **48,158** (`cargo build-sbf`) |
 | `update_quote` (wide-conf rejected) | 17,189 |
-| `swap` | **59,162** |
+| `swap` | **59,258** |
 | `trip_breaker` | 12,377 |
 | `deposit` | 46,533 |
 | `request_withdraw` | 19,920 |
@@ -256,6 +256,7 @@ measurement (2026-10-09, LiteSVM):
 | `crank_epoch` | 5,182 |
 | `bond_keeper` / `slash_keeper` / `claim_keeper_reward` | 26,541 / 14,153 / 14,026 |
 | `unbond_keeper` (queue / release) | 16,242 / 18,379 |
+| `propose_admin` / `accept_admin` / `cancel_admin` (B4) | 8,009 / 9,316 / 7,504 |
 
 `update_quote` exceeds the keeper's former 60k limit, so
 `MAX_UPDATE_COMPUTE_UNITS` is 80,000. All instructions remain inside the
@@ -300,3 +301,17 @@ keeps `a_ladder_deeper_than_the_reserves_is_rejected` and
 `buckets_are_excluded_from_available_reserves` green. The H2 measurement was a
 build/staleness artifact. The single-division form is mathematically equal
 (`floor(floor(x/lo)/hi) == floor(x/(lo·hi))`) and is a legitimate S2 optimization.
+
+### S4.2 — B4 admin-rotation mutation (2026-10-09)
+
+| Guard | Mutation (guard relaxed) | Test that caught it | Result |
+|---|---|---|---|
+| B4 acceptance signer | `new_admin == pending_admin` require → `true` | `admin_rotation_wrong_signer_is_rejected` | caught |
+| B4 timelock | `now >= admin_activate_slot` require → `true` | `admin_rotation_requires_timelock_and_acceptance` | caught |
+| B4 cross-vault config | drop `seeds=[b"config", vault]` binding | `admin_rotation_rejects_a_config_from_another_vault` | caught |
+
+Admin rotation is timelocked (`TIMELOCK_SLOTS = 216,000` ≈ 1 day) and requires the
+successor to sign acceptance; the current admin may cancel. A Squads multisig
+(VERIFIED on devnet: `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf` (v4, mainnet+devnet)) can hold the admin key at the
+wallet level; only the program side is implemented here (no on-chain CPI to
+Squads).

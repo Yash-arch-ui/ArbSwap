@@ -126,6 +126,8 @@ pub mod arbswap {
         config.max_anchor_dev_bps = params.max_anchor_dev_bps;
         config.flow_window_slots = params.flow_window_slots;
         config.max_window_flow_bps = params.max_window_flow_bps;
+        config.pending_admin = Pubkey::default();
+        config.admin_activate_slot = 0;
         config.bump = ctx.bumps.config;
 
         ctx.accounts.quote_state.bump = ctx.bumps.quote_state;
@@ -1131,6 +1133,67 @@ pub mod arbswap {
         Ok(())
     }
 
+    /// B4: the current admin proposes a successor. It takes effect only when the
+    /// successor signs `accept_admin`, at least `TIMELOCK_SLOTS` later. The old
+    /// admin cannot be locked out by a typo: acceptance is required.
+    pub fn propose_admin(ctx: Context<ProposeAdmin>, new_admin: Pubkey) -> Result<()> {
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.vault.admin,
+            ErrorCode::Unauthorized
+        );
+        require!(new_admin != Pubkey::default(), ErrorCode::InvalidParams);
+        let now = Clock::get()?.slot;
+        let config = &mut ctx.accounts.config;
+        config.pending_admin = new_admin;
+        config.admin_activate_slot = now.saturating_add(TIMELOCK_SLOTS);
+        emit!(AdminProposed {
+            slot: now,
+            new_admin,
+            activate_slot: config.admin_activate_slot,
+        });
+        Ok(())
+    }
+
+    /// B4: the proposed successor accepts; the timelock must have elapsed.
+    pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
+        require!(
+            ctx.accounts.config.pending_admin != Pubkey::default()
+                && ctx.accounts.new_admin.key() == ctx.accounts.config.pending_admin,
+            ErrorCode::Unauthorized
+        );
+        let now = Clock::get()?.slot;
+        require!(
+            now >= ctx.accounts.config.admin_activate_slot,
+            ErrorCode::TimelockNotElapsed
+        );
+        ctx.accounts.vault.admin = ctx.accounts.new_admin.key();
+        let config = &mut ctx.accounts.config;
+        config.admin = ctx.accounts.new_admin.key();
+        config.pending_admin = Pubkey::default();
+        config.admin_activate_slot = 0;
+        emit!(AdminChanged {
+            slot: now,
+            new_admin: ctx.accounts.new_admin.key(),
+        });
+        Ok(())
+    }
+
+    /// B4: the current admin cancels a pending rotation.
+    pub fn cancel_admin(ctx: Context<CancelAdmin>) -> Result<()> {
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.vault.admin,
+            ErrorCode::Unauthorized
+        );
+        let config = &mut ctx.accounts.config;
+        require!(
+            config.pending_admin != Pubkey::default(),
+            ErrorCode::NoPendingAdmin
+        );
+        config.pending_admin = Pubkey::default();
+        config.admin_activate_slot = 0;
+        Ok(())
+    }
+
     /// T3.4: the keeper locks a bond in the quote token. The bond is held in a
     /// vault-owned PDA token account, so no external key can move it.
     pub fn bond_keeper(ctx: Context<BondKeeper>, amount: u64) -> Result<()> {
@@ -1583,6 +1646,10 @@ pub struct Config {
     /// Item 1a: flow window length (slots) and one-sided cap (bps of base reserve).
     pub flow_window_slots: u64,
     pub max_window_flow_bps: u32,
+    /// B4: timelocked admin rotation. `pending_admin` is the proposed successor
+    /// (default = none); it must sign `accept_admin` after `admin_activate_slot`.
+    pub pending_admin: Pubkey,
+    pub admin_activate_slot: u64,
     pub bump: u8,
 }
 /// Pending timelocked parameter change (F-17), seeded `[b"pending", vault]`.
@@ -1681,7 +1748,7 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8 + 4 + 8 + 4)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8 + 4 + 8 + 4 + 32 + 8)]
     pub config: Box<Account<'info, Config>>,
     #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + 16 + 8 + 16 + (4+4+16+16+16)*LEVELS + (4+4+16+16+16)*LEVELS + 1)]
     pub quote_state: Box<Account<'info, QuoteState>>,
@@ -2017,6 +2084,37 @@ pub struct ApplyParams<'info> {
     pub pending_config: Box<Account<'info, PendingConfig>>,
 }
 
+/// B4: the current admin proposes a successor (timelocked).
+#[derive(Accounts)]
+pub struct ProposeAdmin<'info> {
+    pub admin: Signer<'info>,
+    #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(mut, seeds=[b"config", vault.key().as_ref()], bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+}
+
+/// B4: the proposed successor accepts (must sign; timelock elapsed).
+#[derive(Accounts)]
+pub struct AcceptAdmin<'info> {
+    #[account(mut)]
+    pub new_admin: Signer<'info>,
+    #[account(mut, seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(mut, seeds=[b"config", vault.key().as_ref()], bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+}
+
+/// B4: the current admin cancels a pending rotation.
+#[derive(Accounts)]
+pub struct CancelAdmin<'info> {
+    pub admin: Signer<'info>,
+    #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(mut, seeds=[b"config", vault.key().as_ref()], bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+}
+
 /// Item 5: create/refresh a timelocked treasury fee-claim proposal.
 #[derive(Accounts)]
 pub struct ProposeFeeClaim<'info> {
@@ -2155,6 +2253,21 @@ pub struct ParamsApplied {
     pub slot: u64,
 }
 
+/// B4: admin rotation proposed (timelocked).
+#[event]
+pub struct AdminProposed {
+    pub slot: u64,
+    pub new_admin: Pubkey,
+    pub activate_slot: u64,
+}
+
+/// B4: admin rotation accepted; the new admin is active.
+#[event]
+pub struct AdminChanged {
+    pub slot: u64,
+    pub new_admin: Pubkey,
+}
+
 #[event]
 pub struct ProgramInitialized {
     pub admin: Pubkey,
@@ -2204,6 +2317,8 @@ pub struct FeeClaimed {
 pub enum ErrorCode {
     #[msg("Unauthorized")]
     Unauthorized,
+    #[msg("No pending admin rotation")]
+    NoPendingAdmin,
     #[msg("Invalid mint")]
     InvalidMint,
     #[msg("Invalid params")]

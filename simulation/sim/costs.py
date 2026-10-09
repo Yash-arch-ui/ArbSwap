@@ -28,8 +28,8 @@ BASE_FEE_LAMPORTS = 5_000
 # numbers; C1.1). B1 (2026-10-09): `cargo build-sbf` (no idl-build) gives ~48k; `anchor build`
 # (idl-build) is ~3k higher (~51k). The historical 48,296 -> 51,296 was a stale
 # `.so` (build-method artifact), not a source regression; use scripts/measure_cu.sh.
-CU_UPDATE_QUOTE = 48_079
-CU_SWAP = 59_162
+CU_UPDATE_QUOTE = 48_158
+CU_SWAP = 59_258
 
 # Heuristic: a mid-priority keeper lands inside one or two slots most of the
 # time, with a thin tail when the network is congested. Probabilities sum to 1.

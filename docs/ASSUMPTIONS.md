@@ -423,3 +423,11 @@ and test `admin_can_be_rotated_via_the_timelock`. Until then, a compromised
 deployer key cannot be replaced (DoS risk). Pause-only kill switch semantics are
 unchanged (`wind_down`/`reset_breaker`). Handoff: rotate the deployer keypair to
 a Squads multisig at the wallet level (external, no program change needed).
+
+## A-25. Squads multisig (B4/C4.3) — VERIFIED (2026-10-09)
+Squads Protocol v4 program id **`SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`**,
+deployed to Solana mainnet-beta **and** devnet (Squads docs / `Squads-Protocol/v4`
+README). A multisig can hold the program admin key at the wallet level; ArbSwap's
+`propose_admin`/`accept_admin` are the program-side rotation. No on-chain CPI to
+Squads is implemented (wallet-level custody is sufficient and avoids a cross-program
+dependency).
