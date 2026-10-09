@@ -1,0 +1,16 @@
+{
+  "instructions": {
+    "bond_keeper": 26541,
+    "claim_keeper_reward": 14026,
+    "claim_withdraw": 24189,
+    "crank_epoch": 5182,
+    "deposit": 46533,
+    "request_withdraw": 19920,
+    "slash_keeper": 14153,
+    "swap": 61513,
+    "update_quote": 51296,
+    "update_quote_wide_conf_rejected": 17189
+  },
+  "measured_date": "2026-10-09",
+  "source": "LiteSVM measure_instruction_compute_units (vault/program/tests/litesvm_lifecycle.rs)"
+}

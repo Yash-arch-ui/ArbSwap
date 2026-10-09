@@ -35,6 +35,8 @@ jobs:
         run: |
           python -m simulation.reference.golden
           git diff --exit-code -- vault/math/tests/golden_vectors.txt
+      - name: Docs numbers match the artifact bundle (C1)
+        run: python scripts/check_docs_consistency.py
 
   anchor:
     runs-on: ubuntu-latest

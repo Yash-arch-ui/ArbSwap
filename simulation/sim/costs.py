@@ -22,12 +22,14 @@ from dataclasses import dataclass
 LAMPORTS_PER_SOL = 1_000_000_000.0
 BASE_FEE_LAMPORTS = 5_000
 
-# Measured on LiteSVM against the built program (docs/SECURITY_CHECKLIST.md).
-# Re-measured 2026-10-07 after the D-07 bond account was added to `update_quote`
-# (the extra unchecked account costs ~5k CU even on the allowlist path) and the
-# F-04 anchor ladder changed the swap walk. The swap CU is ladder-dependent.
-CU_UPDATE_QUOTE = 17_962
-CU_SWAP = 71_518
+# Measured on LiteSVM against the built program by
+# `vault/program/tests/litesvm_lifecycle.rs::measure_instruction_compute_units`,
+# committed to `simulation/data/results/cu.json` (the single source of truth for
+# numbers; C1.1). Re-measured 2026-10-09: a full two-sided ladder update is
+# ~51k CU (an early-rejected update is ~17k; the old 17,962 figure was the
+# rejected/short path). The swap CU is ladder-dependent.
+CU_UPDATE_QUOTE = 51_296
+CU_SWAP = 61_513
 
 # Heuristic: a mid-priority keeper lands inside one or two slots most of the
 # time, with a thin tail when the network is congested. Probabilities sum to 1.
