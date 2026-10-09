@@ -82,10 +82,21 @@ Still owed before demo: full read + row in the comparison table.
 Still open: historical-data availability for backtests (T0.4).
 Decision: start Core (P0), evaluate Lazer at P3.
 
-## A-08. On-chain priority-fee introspection (decision D-08) — OPEN
-No precedent found in the papers or docs read for cheaply reading the tx priority
-fee inside the program. Fallback per Build Plan: no priority penalty component
-(a4-style), rely on spread/throttle/expiry.
+## A-08. On-chain priority-fee introspection (decision D-08) — CLOSED-BY-DECISION
+**Feasibility VERIFIED (2026-10-09).** The Solana **Instructions sysvar**
+(`Sysvar1nstructions1111111111111111111111111`) + `load_instruction_at_checked`
+lets a program read the top-level ComputeBudget instruction; `SetComputeUnitPrice`
+(discriminator `3`, `u64` micro-lamports) is therefore readable on-chain
+(solana.com/docs/core/instructions/instruction-introspection;
+solana.com/docs/core/fees/compute-budget).
+
+**Decision: not implemented.** Reason: the per-window cumulative one-sided flow
+cap (F-04) and the 2 bps spread floor already bound pick-off loss
+(`window_flow_cap_stops_one_sided_flow`, `test_anchor_loss_bound.py`), while a
+priority-fee-dependent penalty adds swap CU and UX complexity with no measured
+benefit. The Build Plan fallback (no priority penalty; rely on spread/throttle/
+expiry) stands. Limits: a high-priority-fee arbitrageur is not additionally
+penalized; bounded by the flow cap.
 
 ## A-09. Jupiter aggregator interface — VERIFIED (shape), integration OPEN
 `jup-ag/jupiter-amm-interface` is a Cargo workspace: DEXs implement the `Amm`
@@ -399,3 +410,16 @@ the native swap in LiteSVM, assert parity". Latest on crates.io is
 pattern (`aggregator_quote_matches_onchain_swap`). A full Jupiter listing needs
 a matching variant in the interface's **closed `Swap` enum**, which is a
 Jupiter-side change we cannot supply; documented, not worked around.
+
+## A-24. Admin rotation / multisig (C4.3) — CLOSED-BY-DECISION (gap documented)
+**Keeper rotation IS supported** via the timelocked `ParamsUpdate.keeper`
+(`apply_params`; test `keeper_can_be_rotated_via_the_timelock`). **Admin rotation
+is NOT supported**: `ParamsUpdate` has no `admin` field, so `vault.admin` cannot
+be changed after `initialize_vault`. Required change (specified, not
+implemented): add `admin: Option<Pubkey>` to `ParamsUpdate`, apply it in
+`apply_params` when `Some`, grow the `PendingConfig` space accordingly
+(same-commit sync of account space + `account_spaces_match_serialized_sizes`),
+and test `admin_can_be_rotated_via_the_timelock`. Until then, a compromised
+deployer key cannot be replaced (DoS risk). Pause-only kill switch semantics are
+unchanged (`wind_down`/`reset_breaker`). Handoff: rotate the deployer keypair to
+a Squads multisig at the wallet level (external, no program change needed).

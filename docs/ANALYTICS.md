@@ -51,3 +51,16 @@ artifacts exported here.
 **Limits:** markout, quiet half-spread and the informed/noise mix are **model
 outputs**, not measurements of live order flow. The 0x "39% identical / 1.08 bps
 worse" observation is Base/Flashblocks and must not be presented as a Solana result.
+
+## Performance fee and insurance buffer (C4.4)
+
+`simulation/analytics/performance_fee.py` computes the **roadmap** fee on
+**hedged** profit with a **high-water mark** (charged only on new profit above
+the prior peak) as an off-chain attribution report; the on-chain MVP takes a
+fixed share of trading fees only. Tests: `tests/test_performance_fee.py`.
+Moving the HWM fee on-chain is roadmap (**CLOSED-BY-DECISION**).
+
+The insurance buffer's accounting invariant (never negative, capped, not
+treasury-claimable) is tested here and program-side by
+`insurance_bucket_cannot_be_claimed_to_treasury`. LP-compensation governance is
+**design only** (documented, not implemented).
