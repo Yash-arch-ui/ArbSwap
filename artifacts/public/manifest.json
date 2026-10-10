@@ -1,5 +1,5 @@
 {
-  "commit": "b2a937c35330882a26df2c38b7e64fca2b83e9fd",
+  "commit": "4d859e1d398eef06dc333c99541449dd11555a62",
   "data_sha256": {
     "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
     "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -29,7 +29,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "8d4920b955637b81d56501e56d2c593b07de3b1b4ff2f757efc7a93b486e2745"
+      "sha256": "861c243cd6e2cdaef18ffce7a81f9ddba430ab4e2e4cf76948822fe429c83c48"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -37,7 +37,7 @@
     },
     "mutation.json": {
       "schema": "../schema/mutation.json",
-      "sha256": "180f1634ebd5fdfd39ce6a9bc305af35c11ce04b8a16624be01bfb255e8a189d"
+      "sha256": "bccc745650ba4cb895f4d0705e90a8b053395dee6f07c39de247a17db228648d"
     },
     "routed_world.json": {
       "schema": "../schema/routed_world.json",
@@ -45,16 +45,16 @@
     },
     "test_counts.json": {
       "schema": "../schema/test_counts.json",
-      "sha256": "88e2267884af6be3faf9daf03f8ba470d54e3921e1f72b0592edcb05e00cf0d1"
+      "sha256": "27e0ee5e96f911ef55d0316673cde832bf9839f7e1c92455af69bd6e2b469090"
     },
     "thesis.json": {
       "schema": "../schema/thesis.json",
-      "sha256": "2d7dbab6f77c5fb0eff4775799a43cfa9a8a378c95a9c4482cec2a909f1d6983"
+      "sha256": "407a84754f6584f4db18bd45432210e39ae3dce1acfbb30b2f5f5eb97efc7f31"
     }
   },
   "flow_type": "synthetic (real price path)",
-  "generated": "2026-10-09",
+  "generated": "2026-10-10",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "b2a937c"
+  "short": "4d859e1"
 }

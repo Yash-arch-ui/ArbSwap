@@ -22,7 +22,7 @@ The routed chart is `docs/headline_chart.svg` (`./scripts/headline.sh`).
 
 <!-- BEGIN GENERATED NUMBERS -->
 
-_Generated from `simulation/data/results/artifacts.json` (commit `b2a937c`, 2026-10-09, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
+_Generated from `simulation/data/results/artifacts.json` (commit `4d859e1`, 2026-10-10, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
 
 **Calibration (W1):** B1 best 2s markout **-0.02 bps** (target -0.2, accept [-0.5, 0.1]); quiet half-spread **2.409 bps** (target 2.6, accept [1.8, 3.4]).
 
@@ -38,9 +38,27 @@ _Generated from `simulation/data/results/artifacts.json` (commit `b2a937c`, 2026
 
 **Retail execution (E4):** ArbSwap quiet half-spread W2 8.26, W3 8.05, W4 8.32, W5 8.29, W6 7.89 bps; B1 2.26, 2.17, 2.21, 2.05, 1.99 bps.
 
-**Cost (E10, source: `cargo build-sbf + vault/program/tests/litesvm_lifecycle.rs::measure_instruction_compute_units`):** `update_quote` **48158 CU**, `swap` **59258 CU**; cost/update 0.00076 quote @ SOL=150.
+**Cost (E10, source: `cargo build-sbf + vault/program/tests/litesvm_lifecycle.rs::measure_instruction_compute_units`):** `update_quote` **48,158 CU**, `swap` **59,258 CU**; cost/update 0.00076 quote @ SOL=150.
 
-**Tests:** 137 Rust / 192 Python. **Guard mutations:** 47 caught (docs/SECURITY_CHECKLIST.md).
+**Compute units (single source: `artifacts/public/cu.json`; build `cargo build-sbf (no idl-build)`; `.so` sha256 `b98dfd73df0c…`).**
+
+| Instruction | CU |
+|---|---|
+| `accept_admin` | 9,316 |
+| `bond_keeper` | 24,630 |
+| `cancel_admin` | 7,504 |
+| `claim_keeper_reward` | 13,838 |
+| `claim_withdraw` | 23,745 |
+| `crank_epoch` | 5,155 |
+| `deposit` | 43,663 |
+| `propose_admin` | 8,009 |
+| `request_withdraw` | 21,162 |
+| `slash_keeper` | 13,901 |
+| `swap` | 59,258 |
+| `update_quote` | 48,158 |
+| `update_quote_wide_conf_rejected` | 15,514 |
+
+**Tests:** 148 Rust / 193 Python. **Guard mutations:** 51 caught (docs/SECURITY_CHECKLIST.md).
 
 <!-- END GENERATED NUMBERS -->
 

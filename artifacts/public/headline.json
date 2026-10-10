@@ -83,7 +83,7 @@
     }
   },
   "meta": {
-    "commit": "b2a937c35330882a26df2c38b7e64fca2b83e9fd",
+    "commit": "4d859e1d398eef06dc333c99541449dd11555a62",
     "data_sha256": {
       "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
       "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -98,11 +98,11 @@
       "binance_USDCUSDT_1s_SA.csv": "e2102887cd7a95e4885b38d08e07e14df6c9b2f01f890ffd151f066fef65f67d",
       "binance_USDCUSDT_1s_SB.csv": "8dbad68d40499f903103f764fd1f710b4701d92e22446e3f0259ef000c886e03"
     },
-    "date": "2026-10-09",
+    "date": "2026-10-10",
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "b2a937c"
+    "short": "4d859e1"
   },
   "routed_world": {
     "rows": [

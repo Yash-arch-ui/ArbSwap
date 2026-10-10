@@ -31,6 +31,6 @@ Applying the table above:
 - **B8 keeper robustness** — **PASS (offline).** Implemented: offline
   pre-validation (`arbswap_keeper::prevalidate_quote`) mirroring the on-chain
   knowable bounds, plus failure-injection tests (dropped tx, blockhash expiry,
-  duplicate send, out-of-order slot, stale/wide oracle, clock skew, safe
-  failure). Live-devnet injection remains **SKIPPED** (no keypair).
+  duplicate send, out-of-order slot, stale/wide oracle, clock skew, and fail-closed
+  expiry). Live-devnet injection remains **SKIPPED** (no keypair).
 - **Independent audit** — **EXTERNAL.**
