@@ -1,7 +1,0 @@
-# ArbSwap research dependencies (Build Plan §4 stack).
-# Python is the high-precision source of truth for `arb-math` (T1.1/T1.2).
-numpy
-pandas
-matplotlib
-mpmath
-pytest

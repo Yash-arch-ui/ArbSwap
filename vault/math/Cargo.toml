@@ -1,0 +1,10 @@
+[package]
+name = "arb-math"
+version = "0.1.0"
+description = "ArbSwap pure fixed-point math: ladder, spread, depth throttle, vault accounting (Build Plan Section 5)"
+edition = "2021"
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1"

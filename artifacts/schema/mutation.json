@@ -1,0 +1,19 @@
+{
+  "properties": {
+    "caught": {
+      "type": "integer"
+    },
+    "source": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "total",
+    "caught",
+    "source"
+  ],
+  "type": "object"
+}

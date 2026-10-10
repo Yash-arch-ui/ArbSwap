@@ -1,0 +1,25 @@
+{
+  "properties": {
+    "change_rate": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "kind": {
+      "type": "string"
+    },
+    "ok": {
+      "type": "integer"
+    },
+    "samples": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "kind",
+    "samples",
+    "ok"
+  ],
+  "type": "object"
+}

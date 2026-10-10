@@ -8,21 +8,20 @@ __pycache__/
 .DS_Store
 *.log
 # Raw market data never enters git (Build Plan §4: data/ holds scripts only)
-research/data/raw/
+simulation/data/raw/
 .ENV
 *.csv
 *.parquet
 *.json.gz
 # Program keypair is generated locally by `anchor keys` / keygen
 target/deploy/*.json
-# Keep only README.md and MATH.md tracked; all other markdown is ignored
-*.md
-!/README.md
-!/MATH.md
-
+# Markdown (spec, plan, audit, docs) is tracked. Only generated analytics
+# output is ignored.
 # Generated analytics output (dashboard, event dumps)
+simulation/analytics/out/
 analytics/out/
 
 # Frontend build artifacts
 dist/
 app/dist/
+frontend/dist/

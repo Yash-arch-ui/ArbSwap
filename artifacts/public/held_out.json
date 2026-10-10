@@ -1,0 +1,267 @@
+{
+  "W2": {
+    "dates": "2026-08-31 .. 2026-09-06",
+    "log_return_7d": 0.04645041799072523,
+    "regime": "unlabelled",
+    "sigma_per_sqrt_s": 0.00010068018768636568,
+    "venues": {
+      "ArbSwap": {
+        "fill_rate": 0.5633991816621937,
+        "gap_bps": -2.2732133904241847,
+        "hedged_pnl": 4895.323462454369,
+        "markout_2s_bps": 5.611291244644694,
+        "quiet_half_spread_bps": 8.26301303247171,
+        "rejects": 79388,
+        "trades": 102444
+      },
+      "B1_passive": {
+        "fill_rate": 1.0,
+        "gap_bps": 0.0,
+        "hedged_pnl": 622.0865269994788,
+        "markout_2s_bps": 0.23750620691815202,
+        "quiet_half_spread_bps": 2.2551506742648058,
+        "rejects": 0,
+        "trades": 273356
+      },
+      "B2_fixed_spread": {
+        "fill_rate": 0.5103721060211956,
+        "gap_bps": -2.1475047188442633,
+        "hedged_pnl": -10341.814634237613,
+        "markout_2s_bps": -1.7557143966476476,
+        "quiet_half_spread_bps": 1.1482651189895114,
+        "rejects": 91108,
+        "trades": 94968
+      },
+      "B3_no_throttle": {
+        "fill_rate": 0.5633404649679077,
+        "gap_bps": -2.634052756095607,
+        "hedged_pnl": 5393.412802576805,
+        "markout_2s_bps": 6.204588277513386,
+        "quiet_half_spread_bps": 9.294948001359186,
+        "rejects": 79393,
+        "trades": 102426
+      },
+      "B4_no_honesty": {
+        "fill_rate": 1.0,
+        "gap_bps": -0.3232213178313824,
+        "hedged_pnl": 10005.802718723588,
+        "markout_2s_bps": 6.025402286506272,
+        "quiet_half_spread_bps": 9.341262676288531,
+        "rejects": 0,
+        "trades": 182016
+      }
+    }
+  },
+  "W3": {
+    "dates": "2026-09-07 .. 2026-09-13",
+    "log_return_7d": -0.07078874270250002,
+    "regime": "crash",
+    "sigma_per_sqrt_s": 9.466860912567406e-05,
+    "venues": {
+      "ArbSwap": {
+        "fill_rate": 0.563384155061272,
+        "gap_bps": -2.28214242923561,
+        "hedged_pnl": 4356.92444216467,
+        "markout_2s_bps": 4.659846261193999,
+        "quiet_half_spread_bps": 8.045703696634988,
+        "rejects": 79382,
+        "trades": 102430
+      },
+      "B1_passive": {
+        "fill_rate": 1.0,
+        "gap_bps": 0.0,
+        "hedged_pnl": 764.4866351299789,
+        "markout_2s_bps": 0.319261136638786,
+        "quiet_half_spread_bps": 2.1682623240373124,
+        "rejects": 0,
+        "trades": 263546
+      },
+      "B2_fixed_spread": {
+        "fill_rate": 0.5081545064377683,
+        "gap_bps": -2.3714655832971823,
+        "hedged_pnl": -8561.001341813417,
+        "markout_2s_bps": -1.6464267996790602,
+        "quiet_half_spread_bps": 1.2622068069254173,
+        "rejects": 91107,
+        "trades": 94128
+      },
+      "B3_no_throttle": {
+        "fill_rate": 0.5633234858862427,
+        "gap_bps": -2.150462244941822,
+        "hedged_pnl": 5580.156751418118,
+        "markout_2s_bps": 6.263671018256588,
+        "quiet_half_spread_bps": 9.626282236971573,
+        "rejects": 79376,
+        "trades": 102397
+      },
+      "B4_no_honesty": {
+        "fill_rate": 1.0,
+        "gap_bps": -0.2311970285137591,
+        "hedged_pnl": 9314.617138658721,
+        "markout_2s_bps": 5.095251290473551,
+        "quiet_half_spread_bps": 9.243846401748492,
+        "rejects": 0,
+        "trades": 182014
+      }
+    }
+  },
+  "W4": {
+    "dates": "2026-09-14 .. 2026-09-20",
+    "log_return_7d": 0.11275289022526189,
+    "regime": "trend",
+    "sigma_per_sqrt_s": 0.00010831236176066861,
+    "venues": {
+      "ArbSwap": {
+        "fill_rate": 0.5651196164356447,
+        "gap_bps": -2.0756860406723066,
+        "hedged_pnl": 3960.750302193607,
+        "markout_2s_bps": 4.000139301854481,
+        "quiet_half_spread_bps": 8.324113760201133,
+        "rejects": 79093,
+        "trades": 102780
+      },
+      "B1_passive": {
+        "fill_rate": 1.0,
+        "gap_bps": 0.0,
+        "hedged_pnl": 479.43817613898113,
+        "markout_2s_bps": 0.17760920857143883,
+        "quiet_half_spread_bps": 2.2143431089871304,
+        "rejects": 0,
+        "trades": 278503
+      },
+      "B2_fixed_spread": {
+        "fill_rate": 0.51158229582543,
+        "gap_bps": -2.2004845615032718,
+        "hedged_pnl": -12034.389883261329,
+        "markout_2s_bps": -1.8073884987200395,
+        "quiet_half_spread_bps": 1.130258506815593,
+        "rejects": 90896,
+        "trades": 95207
+      },
+      "B3_no_throttle": {
+        "fill_rate": 0.5650308806626005,
+        "gap_bps": -2.287154097192026,
+        "hedged_pnl": 5390.083119279081,
+        "markout_2s_bps": 5.912804840095702,
+        "quiet_half_spread_bps": 9.470076252858185,
+        "rejects": 79090,
+        "trades": 102739
+      },
+      "B4_no_honesty": {
+        "fill_rate": 1.0,
+        "gap_bps": -0.3425125250751744,
+        "hedged_pnl": 9656.164068657463,
+        "markout_2s_bps": 5.4662595166377566,
+        "quiet_half_spread_bps": 9.630192283716394,
+        "rejects": 0,
+        "trades": 182067
+      }
+    }
+  },
+  "W5": {
+    "dates": "2026-09-21 .. 2026-09-27",
+    "log_return_7d": 0.09269862444548833,
+    "regime": "unlabelled",
+    "sigma_per_sqrt_s": 0.00010978496418464858,
+    "venues": {
+      "ArbSwap": {
+        "fill_rate": 0.5649373153705242,
+        "gap_bps": -2.2380303215277118,
+        "hedged_pnl": 4859.8827559850415,
+        "markout_2s_bps": 6.0266367900556,
+        "quiet_half_spread_bps": 8.292449592691572,
+        "rejects": 79087,
+        "trades": 102696
+      },
+      "B1_passive": {
+        "fill_rate": 1.0,
+        "gap_bps": 0.0,
+        "hedged_pnl": 193.88799372720752,
+        "markout_2s_bps": 0.031286278412084166,
+        "quiet_half_spread_bps": 2.0494304992266894,
+        "rejects": 0,
+        "trades": 279304
+      },
+      "B2_fixed_spread": {
+        "fill_rate": 0.505045181132055,
+        "gap_bps": -1.7987756004404563,
+        "hedged_pnl": -4023.4225323208457,
+        "markout_2s_bps": -0.7183052913660332,
+        "quiet_half_spread_bps": 1.4473883616767658,
+        "rejects": 91090,
+        "trades": 92947
+      },
+      "B3_no_throttle": {
+        "fill_rate": 0.5647965752897027,
+        "gap_bps": -2.1766599478267343,
+        "hedged_pnl": 6238.410668177927,
+        "markout_2s_bps": 7.606224711510198,
+        "quiet_half_spread_bps": 10.218340412565462,
+        "rejects": 79093,
+        "trades": 102645
+      },
+      "B4_no_honesty": {
+        "fill_rate": 1.0,
+        "gap_bps": -0.13189668699954338,
+        "hedged_pnl": 9928.517979070897,
+        "markout_2s_bps": 6.270295284230311,
+        "quiet_half_spread_bps": 9.469694997377362,
+        "rejects": 0,
+        "trades": 181942
+      }
+    }
+  },
+  "W6": {
+    "dates": "2026-09-28 .. 2026-10-04",
+    "log_return_7d": -0.0031621102277902572,
+    "regime": "calm",
+    "sigma_per_sqrt_s": 9.295509523401315e-05,
+    "venues": {
+      "ArbSwap": {
+        "fill_rate": 0.5644333159067771,
+        "gap_bps": -2.09521580255675,
+        "hedged_pnl": 4960.447562034714,
+        "markout_2s_bps": 6.810460824744286,
+        "quiet_half_spread_bps": 7.8892699302445894,
+        "rejects": 79149,
+        "trades": 102566
+      },
+      "B1_passive": {
+        "fill_rate": 1.0,
+        "gap_bps": 0.0,
+        "hedged_pnl": 583.2479981566338,
+        "markout_2s_bps": 0.17520015962362204,
+        "quiet_half_spread_bps": 1.9947931719003411,
+        "rejects": 0,
+        "trades": 267494
+      },
+      "B2_fixed_spread": {
+        "fill_rate": 0.5041763277776262,
+        "gap_bps": -1.8229688039990823,
+        "hedged_pnl": -2004.45313125452,
+        "markout_2s_bps": -0.9151865082739578,
+        "quiet_half_spread_bps": 1.6231699933637587,
+        "rejects": 90882,
+        "trades": 92413
+      },
+      "B3_no_throttle": {
+        "fill_rate": 0.564348534381226,
+        "gap_bps": -2.3620947290403724,
+        "hedged_pnl": 5655.893645773721,
+        "markout_2s_bps": 7.229528841983352,
+        "quiet_half_spread_bps": 9.552272734425996,
+        "rejects": 79157,
+        "trades": 102541
+      },
+      "B4_no_honesty": {
+        "fill_rate": 1.0,
+        "gap_bps": -0.1961368702629803,
+        "hedged_pnl": 10546.621928926512,
+        "markout_2s_bps": 8.079946692877437,
+        "quiet_half_spread_bps": 9.261292957296217,
+        "rejects": 0,
+        "trades": 181772
+      }
+    }
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "overall_dominant_term": "volatility",
+  "overall_term_means_bps": {
+    "age": 0.01590778855322571,
+    "confidence": 1.5000000000000002,
+    "floor": 2.0,
+    "inventory": 0.9177552763100021,
+    "jump": 0.0,
+    "volatility": 3.2238397089372013
+  },
+  "routed_without_propamm": {
+    "b1_fee_bps": 1.0,
+    "insensitive_share": 0.2,
+    "per_venue_mean": {
+      "ArbSwap": {
+        "informed_volume_share": 0.0,
+        "noise_volume_share": 0.2747433337194003,
+        "quiet_half_spread_bps": 2.578155133183069,
+        "volume_share": 0.2747433337194003
+      },
+      "B1_passive": {
+        "informed_volume_share": 0.022416770321668517,
+        "noise_volume_share": 0.7028398959589355,
+        "quiet_half_spread_bps": 6.939516292716924,
+        "volume_share": 0.7252566662805996
+      }
+    },
+    "price_sensitive_share": 0.8,
+    "slippage_tolerance_bps": 1.0
+  },
+  "simulator_flaw": {
+    "fix": "simulation/sim/router.py now uses filled notional for volume_share; attempt_share is reported separately",
+    "found": true,
+    "regression": "simulation/sim/test_router.py::test_volume_share_counts_filled_not_attempted_notional",
+    "what": "router volume_share counted attempted notional (including rejected orders), inflating ArbSwap's share"
+  },
+  "windows": [
+    {
+      "directional_mean_bps": 1.2312477458242062,
+      "dominant_share": 0.40944390234666433,
+      "dominant_term": "volatility",
+      "quiet_refreshes": 341988,
+      "raw_sum_bps": 7.883328436698598,
+      "realized_quiet_half_spread_bps": 8.486229616202918,
+      "term_means_bps": {
+        "age": 0.015994947191447905,
+        "confidence": 1.5000000000000002,
+        "floor": 1.9999999999999998,
+        "inventory": 1.1395527309048474,
+        "jump": 0.0,
+        "volatility": 3.227780758602303
+      },
+      "total_refreshes": 604800,
+      "window": "W2"
+    },
+    {
+      "directional_mean_bps": 1.2229266600481101,
+      "dominant_share": 0.43100132494441357,
+      "dominant_term": "volatility",
+      "quiet_refreshes": 377199,
+      "raw_sum_bps": 7.363646716085988,
+      "realized_quiet_half_spread_bps": 7.920793033948011,
+      "term_means_bps": {
+        "age": 0.01591838790697064,
+        "confidence": 1.5000000000000002,
+        "floor": 2.0,
+        "inventory": 0.6739868371233766,
+        "jump": 0.0,
+        "volatility": 3.1737414910556407
+      },
+      "total_refreshes": 604800,
+      "window": "W3"
+    },
+    {
+      "directional_mean_bps": 1.2466564385341639,
+      "dominant_share": 0.4312874723768937,
+      "dominant_term": "volatility",
+      "quiet_refreshes": 330991,
+      "raw_sum_bps": 7.589009850254465,
+      "realized_quiet_half_spread_bps": 8.16535300606081,
+      "term_means_bps": {
+        "age": 0.01590127828280343,
+        "confidence": 1.5000000000000002,
+        "floor": 2.0,
+        "inventory": 0.8000636958120646,
+        "jump": 0.0,
+        "volatility": 3.2730448761595965
+      },
+      "total_refreshes": 604800,
+      "window": "W4"
+    },
+    {
+      "directional_mean_bps": 1.2484110298453974,
+      "dominant_share": 0.4173136315345973,
+      "dominant_term": "volatility",
+      "quiet_refreshes": 348204,
+      "raw_sum_bps": 7.880203645621566,
+      "realized_quiet_half_spread_bps": 8.471147641417392,
+      "term_means_bps": {
+        "age": 0.015849731766766968,
+        "confidence": 1.5000000000000002,
+        "floor": 2.0,
+        "inventory": 1.0758375132682905,
+        "jump": 0.0,
+        "volatility": 3.2885164005865084
+      },
+      "total_refreshes": 604800,
+      "window": "W5"
+    },
+    {
+      "directional_mean_bps": 1.218801062940531,
+      "dominant_share": 0.4168510698500404,
+      "dominant_term": "volatility",
+      "quiet_refreshes": 383342,
+      "raw_sum_bps": 7.571325220341531,
+      "realized_quiet_half_spread_bps": 8.139202689136587,
+      "term_means_bps": {
+        "age": 0.015874597618139613,
+        "confidence": 1.5000000000000002,
+        "floor": 2.0,
+        "inventory": 0.8993356044414315,
+        "jump": 0.0,
+        "volatility": 3.15611501828196
+      },
+      "total_refreshes": 604800,
+      "window": "W6"
+    }
+  ]
+}

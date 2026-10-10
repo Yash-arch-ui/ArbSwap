@@ -1,0 +1,1546 @@
+{
+  "S1": {
+    "W2@0.1": {
+      "step_seconds": 0.1,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 18155.1412011821,
+          "rejects": 52104,
+          "step_seconds": 0.1,
+          "trades": 67960,
+          "turnover_quote": 11068868.906107584,
+          "update_cost_quote": 311.10864437528056,
+          "updates": 604800
+        },
+        "B1_passive": {
+          "hedged_pnl": 3761.3459823901053,
+          "rejects": 0,
+          "step_seconds": 0.1,
+          "trades": 293370,
+          "turnover_quote": 39579978.63983638,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W2"
+    },
+    "W2@1.0": {
+      "step_seconds": 1.0,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 18432.159059167243,
+          "rejects": 52360,
+          "step_seconds": 1.0,
+          "trades": 67362,
+          "turnover_quote": 10781626.452086233,
+          "update_cost_quote": 311.1075717901792,
+          "updates": 604798
+        },
+        "B1_passive": {
+          "hedged_pnl": 3756.332823541029,
+          "rejects": 0,
+          "step_seconds": 1.0,
+          "trades": 282893,
+          "turnover_quote": 39459346.796650395,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W2"
+    },
+    "W3@0.1": {
+      "step_seconds": 0.1,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 17736.017039379825,
+          "rejects": 52053,
+          "step_seconds": 0.1,
+          "trades": 68025,
+          "turnover_quote": 11068048.692874843,
+          "update_cost_quote": 310.2286366150761,
+          "updates": 604800
+        },
+        "B1_passive": {
+          "hedged_pnl": 3779.520680386529,
+          "rejects": 0,
+          "step_seconds": 0.1,
+          "trades": 285681,
+          "turnover_quote": 39472504.06089205,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W3"
+    },
+    "W3@1.0": {
+      "step_seconds": 1.0,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 18254.39635537843,
+          "rejects": 52158,
+          "step_seconds": 1.0,
+          "trades": 67565,
+          "turnover_quote": 10783754.198463643,
+          "update_cost_quote": 310.2276077853835,
+          "updates": 604798
+        },
+        "B1_passive": {
+          "hedged_pnl": 3767.380208100453,
+          "rejects": 0,
+          "step_seconds": 1.0,
+          "trades": 276556,
+          "turnover_quote": 39372008.44360499,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W3"
+    },
+    "W4@0.1": {
+      "step_seconds": 0.1,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 18161.15948920697,
+          "rejects": 52153,
+          "step_seconds": 0.1,
+          "trades": 67763,
+          "turnover_quote": 10935685.449679632,
+          "update_cost_quote": 315.8751105775029,
+          "updates": 604800
+        },
+        "B1_passive": {
+          "hedged_pnl": 3746.599568154702,
+          "rejects": 0,
+          "step_seconds": 0.1,
+          "trades": 299092,
+          "turnover_quote": 39665512.71760745,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W4"
+    },
+    "W4@1.0": {
+      "step_seconds": 1.0,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 18661.068807852604,
+          "rejects": 52401,
+          "step_seconds": 1.0,
+          "trades": 67223,
+          "turnover_quote": 10681962.710299056,
+          "update_cost_quote": 315.87405486674214,
+          "updates": 604798
+        },
+        "B1_passive": {
+          "hedged_pnl": 3742.0223367531053,
+          "rejects": 0,
+          "step_seconds": 1.0,
+          "trades": 287500,
+          "turnover_quote": 39529031.99141594,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W4"
+    },
+    "W5@0.1": {
+      "step_seconds": 0.1,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 18192.651529735587,
+          "rejects": 52130,
+          "step_seconds": 0.1,
+          "trades": 67865,
+          "turnover_quote": 10996541.463449372,
+          "update_cost_quote": 358.81449966815296,
+          "updates": 604800
+        },
+        "B1_passive": {
+          "hedged_pnl": 3725.758795774611,
+          "rejects": 0,
+          "step_seconds": 0.1,
+          "trades": 300110,
+          "turnover_quote": 39731071.713652514,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W5"
+    },
+    "W5@1.0": {
+      "step_seconds": 1.0,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 18629.798878501257,
+          "rejects": 52426,
+          "step_seconds": 1.0,
+          "trades": 67250,
+          "turnover_quote": 10733317.32812501,
+          "update_cost_quote": 358.8132769086047,
+          "updates": 604798
+        },
+        "B1_passive": {
+          "hedged_pnl": 3698.4825191675045,
+          "rejects": 0,
+          "step_seconds": 1.0,
+          "trades": 288382,
+          "turnover_quote": 39580643.58061305,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W5"
+    },
+    "W6@0.1": {
+      "step_seconds": 0.1,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 17756.28985141674,
+          "rejects": 52219,
+          "step_seconds": 0.1,
+          "trades": 67780,
+          "turnover_quote": 11009567.92351778,
+          "update_cost_quote": 362.48561812936185,
+          "updates": 604800
+        },
+        "B1_passive": {
+          "hedged_pnl": 3766.5570953711826,
+          "rejects": 0,
+          "step_seconds": 0.1,
+          "trades": 290257,
+          "turnover_quote": 39531930.37644426,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W6"
+    },
+    "W6@1.0": {
+      "step_seconds": 1.0,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 18190.846171277728,
+          "rejects": 52516,
+          "step_seconds": 1.0,
+          "trades": 67122,
+          "turnover_quote": 10731852.579522539,
+          "update_cost_quote": 362.4843879236316,
+          "updates": 604798
+        },
+        "B1_passive": {
+          "hedged_pnl": 3761.3390801419714,
+          "rejects": 0,
+          "step_seconds": 1.0,
+          "trades": 280333,
+          "turnover_quote": 39406379.66852747,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W6"
+    }
+  },
+  "S2": {
+    "W3@0.4": {
+      "reports": {
+        "ArbSwap": {
+          "cost_per_update_quote": 0.0005039920431324552,
+          "fill_rate": 0.5794573643410853,
+          "gap_bps": -9.385829739961492,
+          "hedged_pnl": 26.286937347451342,
+          "markout_2s_bps": 3.1979347002280183,
+          "name": "ArbSwap",
+          "quiet_half_spread_bps": 7.632964647330378,
+          "rejects": 434,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.30445706711149717,
+          "trades": 598,
+          "turnover_quote": 86310.60333778783,
+          "update_cost_quote": 1.8143713552768386,
+          "update_count": 3600,
+          "update_gas_quote": 1.8078767388800858,
+          "update_priority_quote": 0.006494616396752819
+        },
+        "B1_passive": {
+          "cost_per_update_quote": 0.0,
+          "fill_rate": 1.0,
+          "gap_bps": 0.0,
+          "hedged_pnl": -32.882653754406654,
+          "markout_2s_bps": -1.662965654761174,
+          "name": "B1_passive",
+          "quiet_half_spread_bps": 2.3605237901043448,
+          "rejects": 0,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 1.0814234773725584,
+          "trades": 2126,
+          "turnover_quote": 260093.5936652923,
+          "update_cost_quote": 0.0,
+          "update_count": 0,
+          "update_gas_quote": 0.0,
+          "update_priority_quote": 0.0
+        },
+        "B2_fixed_spread": {
+          "cost_per_update_quote": 0.0005039920431324552,
+          "fill_rate": 0.5442238267148014,
+          "gap_bps": -2.214331724890483,
+          "hedged_pnl": -525.0282011863621,
+          "markout_2s_bps": -2.569885780931826,
+          "name": "B2_fixed_spread",
+          "quiet_half_spread_bps": 0.9020469678716315,
+          "rejects": 505,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.3068724091551726,
+          "trades": 603,
+          "turnover_quote": 1639685.322573132,
+          "update_cost_quote": 1.8143713552768386,
+          "update_count": 3600,
+          "update_gas_quote": 1.8078767388800858,
+          "update_priority_quote": 0.006494616396752819
+        },
+        "B3_no_throttle": {
+          "cost_per_update_quote": 0.0005039920431324552,
+          "fill_rate": 0.581081081081081,
+          "gap_bps": -5.733877032696276,
+          "hedged_pnl": -160.54297448987217,
+          "markout_2s_bps": -6.261200994459088,
+          "name": "B3_no_throttle",
+          "quiet_half_spread_bps": 7.93846033828143,
+          "rejects": 434,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.30646341132853544,
+          "trades": 602,
+          "turnover_quote": 602739.1112709359,
+          "update_cost_quote": 1.8143713552768386,
+          "update_count": 3600,
+          "update_gas_quote": 1.8078767388800858,
+          "update_priority_quote": 0.006494616396752819
+        },
+        "B4_no_honesty": {
+          "cost_per_update_quote": 0.0005039920431324552,
+          "fill_rate": 1.0,
+          "gap_bps": 0.12548199918944483,
+          "hedged_pnl": 41.46213175864133,
+          "markout_2s_bps": 4.047409816940941,
+          "name": "B4_no_honesty",
+          "quiet_half_spread_bps": 8.747063745196957,
+          "rejects": 0,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.5266635322372865,
+          "trades": 1034,
+          "turnover_quote": 150361.2313817476,
+          "update_cost_quote": 1.8143713552768386,
+          "update_count": 3600,
+          "update_gas_quote": 1.8078767388800858,
+          "update_priority_quote": 0.006494616396752819
+        }
+      },
+      "slot_seconds": 0.4,
+      "step_seconds": 0.2,
+      "window": "W3"
+    },
+    "W3@0.6": {
+      "reports": {
+        "ArbSwap": {
+          "cost_per_update_quote": 0.0005039925398372976,
+          "fill_rate": 0.5699029126213592,
+          "gap_bps": -7.286892524263911,
+          "hedged_pnl": 28.300441691180936,
+          "markout_2s_bps": 4.081722067266297,
+          "name": "ArbSwap",
+          "quiet_half_spread_bps": 7.614262176271772,
+          "rejects": 443,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.2989123875377609,
+          "trades": 587,
+          "turnover_quote": 66838.60022270423,
+          "update_cost_quote": 1.8138691508744338,
+          "update_count": 3599,
+          "update_gas_quote": 1.807376332138858,
+          "update_priority_quote": 0.006492818735575643
+        },
+        "B1_passive": {
+          "cost_per_update_quote": 0.0,
+          "fill_rate": 1.0,
+          "gap_bps": 0.0,
+          "hedged_pnl": -32.882653754406654,
+          "markout_2s_bps": -1.662965654761174,
+          "name": "B1_passive",
+          "quiet_half_spread_bps": 2.3605237901043448,
+          "rejects": 0,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 1.0814234773725584,
+          "trades": 2126,
+          "turnover_quote": 260093.5936652923,
+          "update_cost_quote": 0.0,
+          "update_count": 0,
+          "update_gas_quote": 0.0,
+          "update_priority_quote": 0.0
+        },
+        "B2_fixed_spread": {
+          "cost_per_update_quote": 0.0005039925398372976,
+          "fill_rate": 0.5468331846565566,
+          "gap_bps": -3.544486552245188,
+          "hedged_pnl": -822.9725894397945,
+          "markout_2s_bps": -5.515054761466126,
+          "name": "B2_fixed_spread",
+          "quiet_half_spread_bps": 1.7039491391324824,
+          "rejects": 508,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.3119898634839012,
+          "trades": 613,
+          "turnover_quote": 1982972.5391032537,
+          "update_cost_quote": 1.8138691508744338,
+          "update_count": 3599,
+          "update_gas_quote": 1.807376332138858,
+          "update_priority_quote": 0.006492818735575643
+        },
+        "B3_no_throttle": {
+          "cost_per_update_quote": 0.0005039925398372976,
+          "fill_rate": 0.5707364341085271,
+          "gap_bps": -2.4370125185572733,
+          "hedged_pnl": -52.0051259790725,
+          "markout_2s_bps": -3.7576444392321204,
+          "name": "B3_no_throttle",
+          "quiet_half_spread_bps": 4.481678119909473,
+          "rejects": 443,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.2999309449690008,
+          "trades": 589,
+          "turnover_quote": 460647.67802364554,
+          "update_cost_quote": 1.8138691508744338,
+          "update_count": 3599,
+          "update_gas_quote": 1.807376332138858,
+          "update_priority_quote": 0.006492818735575643
+        },
+        "B4_no_honesty": {
+          "cost_per_update_quote": 0.0005039925398372976,
+          "fill_rate": 1.0,
+          "gap_bps": -4.008453901129001,
+          "hedged_pnl": -1.177288519425387,
+          "markout_2s_bps": 0.618796951466141,
+          "name": "B4_no_honesty",
+          "quiet_half_spread_bps": 9.036732183591976,
+          "rejects": 0,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.531775206603109,
+          "trades": 1044,
+          "turnover_quote": 253726.8739394247,
+          "update_cost_quote": 1.8138691508744338,
+          "update_count": 3599,
+          "update_gas_quote": 1.807376332138858,
+          "update_priority_quote": 0.006492818735575643
+        }
+      },
+      "slot_seconds": 0.6,
+      "step_seconds": 0.2,
+      "window": "W3"
+    },
+    "W3@1.0": {
+      "reports": {
+        "ArbSwap": {
+          "cost_per_update_quote": 0.000503990948575783,
+          "fill_rate": 0.577560975609756,
+          "gap_bps": -2.1810563975818735,
+          "hedged_pnl": 33.05535465774577,
+          "markout_2s_bps": 7.549501761620494,
+          "name": "ArbSwap",
+          "quiet_half_spread_bps": 7.59927096742348,
+          "rejects": 433,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.30150347253259957,
+          "trades": 592,
+          "turnover_quote": 51220.85349475865,
+          "update_cost_quote": 1.8138634239242428,
+          "update_count": 3599,
+          "update_gas_quote": 1.8073706256885194,
+          "update_priority_quote": 0.006492798235723452
+        },
+        "B1_passive": {
+          "cost_per_update_quote": 0.0,
+          "fill_rate": 1.0,
+          "gap_bps": 0.0,
+          "hedged_pnl": -32.882653754406654,
+          "markout_2s_bps": -1.662965654761174,
+          "name": "B1_passive",
+          "quiet_half_spread_bps": 2.3605237901043448,
+          "rejects": 0,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 1.0814234773725584,
+          "trades": 2126,
+          "turnover_quote": 260093.5936652923,
+          "update_cost_quote": 0.0,
+          "update_count": 0,
+          "update_gas_quote": 0.0,
+          "update_priority_quote": 0.0
+        },
+        "B2_fixed_spread": {
+          "cost_per_update_quote": 0.000503990948575783,
+          "fill_rate": 0.5349682107175295,
+          "gap_bps": -2.5502435594565593,
+          "hedged_pnl": -787.3084154755556,
+          "markout_2s_bps": -2.788522676251982,
+          "name": "B2_fixed_spread",
+          "quiet_half_spread_bps": 1.1501367637508322,
+          "rejects": 512,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.29983390134601956,
+          "trades": 589,
+          "turnover_quote": 1535586.5803127328,
+          "update_cost_quote": 1.8138634239242428,
+          "update_count": 3599,
+          "update_gas_quote": 1.8073706256885194,
+          "update_priority_quote": 0.006492798235723452
+        },
+        "B3_no_throttle": {
+          "cost_per_update_quote": 0.000503990948575783,
+          "fill_rate": 0.578383641674781,
+          "gap_bps": -10.56918885981981,
+          "hedged_pnl": -133.08199779038532,
+          "markout_2s_bps": -4.356026680630141,
+          "name": "B3_no_throttle",
+          "quiet_half_spread_bps": 7.887216482728005,
+          "rejects": 433,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.30252658815091343,
+          "trades": 594,
+          "turnover_quote": 342414.48815760715,
+          "update_cost_quote": 1.8138634239242428,
+          "update_count": 3599,
+          "update_gas_quote": 1.8073706256885194,
+          "update_priority_quote": 0.006492798235723452
+        },
+        "B4_no_honesty": {
+          "cost_per_update_quote": 0.000503990948575783,
+          "fill_rate": 1.0,
+          "gap_bps": -0.8623480839539854,
+          "hedged_pnl": 65.84264425962424,
+          "markout_2s_bps": 5.946617801015439,
+          "name": "B4_no_honesty",
+          "quiet_half_spread_bps": 8.669382118177046,
+          "rejects": 0,
+          "sigma": 0.00022984214140037745,
+          "swap_cost_quote": 0.5246164943603453,
+          "trades": 1030,
+          "turnover_quote": 94063.57768844513,
+          "update_cost_quote": 1.8138634239242428,
+          "update_count": 3599,
+          "update_gas_quote": 1.8073706256885194,
+          "update_priority_quote": 0.006492798235723452
+        }
+      },
+      "slot_seconds": 1.0,
+      "step_seconds": 0.2,
+      "window": "W3"
+    },
+    "W4@0.4": {
+      "reports": {
+        "ArbSwap": {
+          "cost_per_update_quote": 0.0005055902391628969,
+          "fill_rate": 0.5885214007782101,
+          "gap_bps": -2.928686145784456,
+          "hedged_pnl": 11.263493158735676,
+          "markout_2s_bps": 1.349844566532261,
+          "name": "ArbSwap",
+          "quiet_half_spread_bps": 7.84333591977842,
+          "rejects": 423,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.3091206997731817,
+          "trades": 605,
+          "turnover_quote": 81569.16896104782,
+          "update_cost_quote": 1.820124860986429,
+          "update_count": 3600,
+          "update_gas_quote": 1.813609649680915,
+          "update_priority_quote": 0.006515211305513712
+        },
+        "B1_passive": {
+          "cost_per_update_quote": 0.0,
+          "fill_rate": 1.0,
+          "gap_bps": 0.0,
+          "hedged_pnl": 0.48174998055126217,
+          "markout_2s_bps": 0.1535922054290992,
+          "name": "B1_passive",
+          "quiet_half_spread_bps": 2.554780441263783,
+          "rejects": 0,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.9049183641012826,
+          "trades": 1771,
+          "turnover_quote": 168875.87200371327,
+          "update_cost_quote": 0.0,
+          "update_count": 0,
+          "update_gas_quote": 0.0,
+          "update_priority_quote": 0.0
+        },
+        "B2_fixed_spread": {
+          "cost_per_update_quote": 0.0005055902391628969,
+          "fill_rate": 0.5332708528584817,
+          "gap_bps": -1.9492261444444214,
+          "hedged_pnl": -131.41339299039205,
+          "markout_2s_bps": -2.38577300008403,
+          "name": "B2_fixed_spread",
+          "quiet_half_spread_bps": 1.0226852787060792,
+          "rejects": 498,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.29074035953998845,
+          "trades": 569,
+          "turnover_quote": 802471.9805864722,
+          "update_cost_quote": 1.820124860986429,
+          "update_count": 3600,
+          "update_gas_quote": 1.813609649680915,
+          "update_priority_quote": 0.006515211305513712
+        },
+        "B3_no_throttle": {
+          "cost_per_update_quote": 0.0005055902391628969,
+          "fill_rate": 0.5877192982456141,
+          "gap_bps": -1.421365205367643,
+          "hedged_pnl": 16.212145572111208,
+          "markout_2s_bps": 0.28794431143858845,
+          "name": "B3_no_throttle",
+          "quiet_half_spread_bps": 8.016980691402125,
+          "rejects": 423,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.3081026310618462,
+          "trades": 603,
+          "turnover_quote": 129218.49901140152,
+          "update_cost_quote": 1.820124860986429,
+          "update_count": 3600,
+          "update_gas_quote": 1.813609649680915,
+          "update_priority_quote": 0.006515211305513712
+        },
+        "B4_no_honesty": {
+          "cost_per_update_quote": 0.0005055902391628969,
+          "fill_rate": 1.0,
+          "gap_bps": 1.1103661293634393,
+          "hedged_pnl": 31.02537736056509,
+          "markout_2s_bps": 2.864277433657756,
+          "name": "B4_no_honesty",
+          "quiet_half_spread_bps": 9.145715407576704,
+          "rejects": 0,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.5298049474317048,
+          "trades": 1037,
+          "turnover_quote": 208956.24282310673,
+          "update_cost_quote": 1.820124860986429,
+          "update_count": 3600,
+          "update_gas_quote": 1.813609649680915,
+          "update_priority_quote": 0.006515211305513712
+        }
+      },
+      "slot_seconds": 0.4,
+      "step_seconds": 0.2,
+      "window": "W4"
+    },
+    "W4@0.6": {
+      "reports": {
+        "ArbSwap": {
+          "cost_per_update_quote": 0.0005055909172415618,
+          "fill_rate": 0.5686465433300877,
+          "gap_bps": -1.7892999117938775,
+          "hedged_pnl": 25.07711525296456,
+          "markout_2s_bps": 5.250896302574697,
+          "name": "ArbSwap",
+          "quiet_half_spread_bps": 8.069275350815102,
+          "rejects": 443,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.29838710683304553,
+          "trades": 584,
+          "turnover_quote": 69065.53895758899,
+          "update_cost_quote": 1.819621711152381,
+          "update_count": 3599,
+          "update_gas_quote": 1.8131083008922555,
+          "update_priority_quote": 0.006513410260125329
+        },
+        "B1_passive": {
+          "cost_per_update_quote": 0.0,
+          "fill_rate": 1.0,
+          "gap_bps": 0.0,
+          "hedged_pnl": 0.48174998055126217,
+          "markout_2s_bps": 0.1535922054290992,
+          "name": "B1_passive",
+          "quiet_half_spread_bps": 2.554780441263783,
+          "rejects": 0,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.9049183641012826,
+          "trades": 1771,
+          "turnover_quote": 168875.87200371327,
+          "update_cost_quote": 0.0,
+          "update_count": 0,
+          "update_gas_quote": 0.0,
+          "update_priority_quote": 0.0
+        },
+        "B2_fixed_spread": {
+          "cost_per_update_quote": 0.0005055909172415618,
+          "fill_rate": 0.5214552238805971,
+          "gap_bps": -4.027243981224608,
+          "hedged_pnl": -110.53878299564487,
+          "markout_2s_bps": -1.2086628065816007,
+          "name": "B2_fixed_spread",
+          "quiet_half_spread_bps": 1.0089913065190537,
+          "rejects": 513,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.2856054326793738,
+          "trades": 559,
+          "turnover_quote": 885564.3189077887,
+          "update_cost_quote": 1.819621711152381,
+          "update_count": 3599,
+          "update_gas_quote": 1.8131083008922555,
+          "update_priority_quote": 0.006513410260125329
+        },
+        "B3_no_throttle": {
+          "cost_per_update_quote": 0.0005055909172415618,
+          "fill_rate": 0.5672514619883041,
+          "gap_bps": -2.6296667117889303,
+          "hedged_pnl": -3.6000604033568973,
+          "markout_2s_bps": 1.3366038194589096,
+          "name": "B3_no_throttle",
+          "quiet_half_spread_bps": 8.209043439568433,
+          "rejects": 444,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.2973633422385548,
+          "trades": 582,
+          "turnover_quote": 191737.51791317147,
+          "update_cost_quote": 1.819621711152381,
+          "update_count": 3599,
+          "update_gas_quote": 1.8131083008922555,
+          "update_priority_quote": 0.006513410260125329
+        },
+        "B4_no_honesty": {
+          "cost_per_update_quote": 0.0005055909172415618,
+          "fill_rate": 1.0,
+          "gap_bps": -0.7993604433863241,
+          "hedged_pnl": 51.20472459038315,
+          "markout_2s_bps": 5.181339559823715,
+          "name": "B4_no_honesty",
+          "quiet_half_spread_bps": 8.959165370780214,
+          "rejects": 0,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.525736316456688,
+          "trades": 1029,
+          "turnover_quote": 116157.1594344534,
+          "update_cost_quote": 1.819621711152381,
+          "update_count": 3599,
+          "update_gas_quote": 1.8131083008922555,
+          "update_priority_quote": 0.006513410260125329
+        }
+      },
+      "slot_seconds": 0.6,
+      "step_seconds": 0.2,
+      "window": "W4"
+    },
+    "W4@1.0": {
+      "reports": {
+        "ArbSwap": {
+          "cost_per_update_quote": 0.0005055911914482586,
+          "fill_rate": 0.5785365853658536,
+          "gap_bps": -2.9216985997518696,
+          "hedged_pnl": 26.215581926170692,
+          "markout_2s_bps": 5.857276859350207,
+          "name": "ArbSwap",
+          "quiet_half_spread_bps": 7.868276265416128,
+          "rejects": 432,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.3029953998486713,
+          "trades": 593,
+          "turnover_quote": 50716.258436625925,
+          "update_cost_quote": 1.819622698022283,
+          "update_count": 3599,
+          "update_gas_quote": 1.8131092842296166,
+          "update_priority_quote": 0.0065134137926664525
+        },
+        "B1_passive": {
+          "cost_per_update_quote": 0.0,
+          "fill_rate": 1.0,
+          "gap_bps": 0.0,
+          "hedged_pnl": 0.48174998055126217,
+          "markout_2s_bps": 0.1535922054290992,
+          "name": "B1_passive",
+          "quiet_half_spread_bps": 2.554780441263783,
+          "rejects": 0,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.9049183641012826,
+          "trades": 1771,
+          "turnover_quote": 168875.87200371327,
+          "update_cost_quote": 0.0,
+          "update_count": 0,
+          "update_gas_quote": 0.0,
+          "update_priority_quote": 0.0
+        },
+        "B2_fixed_spread": {
+          "cost_per_update_quote": 0.0005055911914482586,
+          "fill_rate": 0.5271028037383177,
+          "gap_bps": -1.5167141153031047,
+          "hedged_pnl": -124.67034210315413,
+          "markout_2s_bps": -0.8825834149652196,
+          "name": "B2_fixed_spread",
+          "quiet_half_spread_bps": 0.7282798513568017,
+          "rejects": 506,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.28818873346010543,
+          "trades": 564,
+          "turnover_quote": 707816.4781352751,
+          "update_cost_quote": 1.819622698022283,
+          "update_count": 3599,
+          "update_gas_quote": 1.8131092842296166,
+          "update_priority_quote": 0.0065134137926664525
+        },
+        "B3_no_throttle": {
+          "cost_per_update_quote": 0.0005055911914482586,
+          "fill_rate": 0.578125,
+          "gap_bps": -2.373030444912192,
+          "hedged_pnl": 31.481774357265564,
+          "markout_2s_bps": 8.124028119989084,
+          "name": "B3_no_throttle",
+          "quiet_half_spread_bps": 7.816846225208452,
+          "rejects": 432,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.3024872396334057,
+          "trades": 592,
+          "turnover_quote": 40716.24727070234,
+          "update_cost_quote": 1.819622698022283,
+          "update_count": 3599,
+          "update_gas_quote": 1.8131092842296166,
+          "update_priority_quote": 0.0065134137926664525
+        },
+        "B4_no_honesty": {
+          "cost_per_update_quote": 0.0005055911914482586,
+          "fill_rate": 1.0,
+          "gap_bps": 0.08689484421587164,
+          "hedged_pnl": 40.37327415286171,
+          "markout_2s_bps": 4.279650412897807,
+          "name": "B4_no_honesty",
+          "quiet_half_spread_bps": 9.430425261365992,
+          "rejects": 0,
+          "sigma": 0.00012335707520413574,
+          "swap_cost_quote": 0.5292894341499684,
+          "trades": 1036,
+          "turnover_quote": 172612.0473446506,
+          "update_cost_quote": 1.819622698022283,
+          "update_count": 3599,
+          "update_gas_quote": 1.8131092842296166,
+          "update_priority_quote": 0.0065134137926664525
+        }
+      },
+      "slot_seconds": 1.0,
+      "step_seconds": 0.2,
+      "window": "W4"
+    },
+    "W6@0.4": {
+      "reports": {
+        "ArbSwap": {
+          "cost_per_update_quote": 0.0005905509901181076,
+          "fill_rate": 0.5756097560975609,
+          "gap_bps": -2.0910982073295927,
+          "hedged_pnl": 27.521516043012255,
+          "markout_2s_bps": 5.362025745755618,
+          "name": "ArbSwap",
+          "quiet_half_spread_bps": 7.261052881660203,
+          "rejects": 435,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.35213752141434473,
+          "trades": 590,
+          "turnover_quote": 58672.18916911447,
+          "update_cost_quote": 2.1259835644251877,
+          "update_count": 3600,
+          "update_gas_quote": 2.1183735193941162,
+          "update_priority_quote": 0.007610045031071435
+        },
+        "B1_passive": {
+          "cost_per_update_quote": 0.0,
+          "fill_rate": 1.0,
+          "gap_bps": 0.0,
+          "hedged_pnl": 5.362761792854506,
+          "markout_2s_bps": 0.3487164678008493,
+          "name": "B1_passive",
+          "quiet_half_spread_bps": 1.7881058145394833,
+          "rejects": 0,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.9011905418349364,
+          "trades": 1510,
+          "turnover_quote": 140228.08634008194,
+          "update_cost_quote": 0.0,
+          "update_count": 0,
+          "update_gas_quote": 0.0,
+          "update_priority_quote": 0.0
+        },
+        "B2_fixed_spread": {
+          "cost_per_update_quote": 0.0005905509901181076,
+          "fill_rate": 0.5244956772334294,
+          "gap_bps": -1.2746496725704997,
+          "hedged_pnl": -17.956232062985897,
+          "markout_2s_bps": -1.2378016311901103,
+          "name": "B2_fixed_spread",
+          "quiet_half_spread_bps": 1.2584108894062658,
+          "rejects": 495,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.32588725137314617,
+          "trades": 546,
+          "turnover_quote": 334642.87092185137,
+          "update_cost_quote": 2.1259835644251877,
+          "update_count": 3600,
+          "update_gas_quote": 2.1183735193941162,
+          "update_priority_quote": 0.007610045031071435
+        },
+        "B3_no_throttle": {
+          "cost_per_update_quote": 0.0005905509901181076,
+          "fill_rate": 0.5751953125,
+          "gap_bps": -2.151823177571132,
+          "hedged_pnl": 28.122273036434734,
+          "markout_2s_bps": 7.313366453902156,
+          "name": "B3_no_throttle",
+          "quiet_half_spread_bps": 7.25515185229846,
+          "rejects": 435,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.35154083346730886,
+          "trades": 589,
+          "turnover_quote": 41625.273794582565,
+          "update_cost_quote": 2.1259835644251877,
+          "update_count": 3600,
+          "update_gas_quote": 2.1183735193941162,
+          "update_priority_quote": 0.007610045031071435
+        },
+        "B4_no_honesty": {
+          "cost_per_update_quote": 0.0005905509901181076,
+          "fill_rate": 1.0,
+          "gap_bps": -0.19508001124368854,
+          "hedged_pnl": 55.37163469796499,
+          "markout_2s_bps": 8.313915990478854,
+          "name": "B4_no_honesty",
+          "quiet_half_spread_bps": 8.249421215960844,
+          "rejects": 0,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.6111807525265542,
+          "trades": 1024,
+          "turnover_quote": 69741.66060614593,
+          "update_cost_quote": 2.1259835644251877,
+          "update_count": 3600,
+          "update_gas_quote": 2.1183735193941162,
+          "update_priority_quote": 0.007610045031071435
+        }
+      },
+      "slot_seconds": 0.4,
+      "step_seconds": 0.2,
+      "window": "W6"
+    },
+    "W6@0.6": {
+      "reports": {
+        "ArbSwap": {
+          "cost_per_update_quote": 0.000590550501958099,
+          "fill_rate": 0.5732421875,
+          "gap_bps": -2.0595446188285997,
+          "hedged_pnl": 26.84493028255975,
+          "markout_2s_bps": 7.305508064699428,
+          "name": "ArbSwap",
+          "quiet_half_spread_bps": 7.294682750119756,
+          "rejects": 437,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.35036684588398026,
+          "trades": 587,
+          "turnover_quote": 39831.943162475254,
+          "update_cost_quote": 2.125391256547198,
+          "update_count": 3599,
+          "update_gas_quote": 2.1177833317063763,
+          "update_priority_quote": 0.00760792484082199
+        },
+        "B1_passive": {
+          "cost_per_update_quote": 0.0,
+          "fill_rate": 1.0,
+          "gap_bps": 0.0,
+          "hedged_pnl": 5.362761792854506,
+          "markout_2s_bps": 0.3487164678008493,
+          "name": "B1_passive",
+          "quiet_half_spread_bps": 1.7881058145394833,
+          "rejects": 0,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.9011905418349364,
+          "trades": 1510,
+          "turnover_quote": 140228.08634008194,
+          "update_cost_quote": 0.0,
+          "update_count": 0,
+          "update_gas_quote": 0.0,
+          "update_priority_quote": 0.0
+        },
+        "B2_fixed_spread": {
+          "cost_per_update_quote": 0.000590550501958099,
+          "fill_rate": 0.527831094049904,
+          "gap_bps": -1.5149656212118963,
+          "hedged_pnl": -275.4864028652804,
+          "markout_2s_bps": -5.07924566405494,
+          "name": "B2_fixed_spread",
+          "quiet_half_spread_bps": 0.8798212650982898,
+          "rejects": 492,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.3282822911000284,
+          "trades": 550,
+          "turnover_quote": 634892.6929292808,
+          "update_cost_quote": 2.125391256547198,
+          "update_count": 3599,
+          "update_gas_quote": 2.1177833317063763,
+          "update_priority_quote": 0.00760792484082199
+        },
+        "B3_no_throttle": {
+          "cost_per_update_quote": 0.000590550501958099,
+          "fill_rate": 0.5740740740740741,
+          "gap_bps": -1.8933269102111512,
+          "hedged_pnl": 26.05688157030048,
+          "markout_2s_bps": 3.962959830641673,
+          "name": "B3_no_throttle",
+          "quiet_half_spread_bps": 7.360855599636526,
+          "rejects": 437,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.3515602277432016,
+          "trades": 589,
+          "turnover_quote": 74401.965251322,
+          "update_cost_quote": 2.125391256547198,
+          "update_count": 3599,
+          "update_gas_quote": 2.1177833317063763,
+          "update_priority_quote": 0.00760792484082199
+        },
+        "B4_no_honesty": {
+          "cost_per_update_quote": 0.000590550501958099,
+          "fill_rate": 1.0,
+          "gap_bps": -0.14564952786531396,
+          "hedged_pnl": 55.26620250463882,
+          "markout_2s_bps": 8.298643051035842,
+          "name": "B4_no_honesty",
+          "quiet_half_spread_bps": 8.245096247702383,
+          "rejects": 0,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.6111807525265542,
+          "trades": 1024,
+          "turnover_quote": 69742.23030545362,
+          "update_cost_quote": 2.125391256547198,
+          "update_count": 3599,
+          "update_gas_quote": 2.1177833317063763,
+          "update_priority_quote": 0.00760792484082199
+        }
+      },
+      "slot_seconds": 0.6,
+      "step_seconds": 0.2,
+      "window": "W6"
+    },
+    "W6@1.0": {
+      "reports": {
+        "ArbSwap": {
+          "cost_per_update_quote": 0.000590550975032508,
+          "fill_rate": 0.572265625,
+          "gap_bps": -2.039983242626265,
+          "hedged_pnl": 27.38684506921403,
+          "markout_2s_bps": 7.263446656879082,
+          "name": "ArbSwap",
+          "quiet_half_spread_bps": 7.302701007915458,
+          "rejects": 438,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.34976694871809577,
+          "trades": 586,
+          "turnover_quote": 40740.433757619474,
+          "update_cost_quote": 2.125392959141996,
+          "update_count": 3599,
+          "update_gas_quote": 2.1177850282066664,
+          "update_priority_quote": 0.007607930935329651
+        },
+        "B1_passive": {
+          "cost_per_update_quote": 0.0,
+          "fill_rate": 1.0,
+          "gap_bps": 0.0,
+          "hedged_pnl": 5.362761792854506,
+          "markout_2s_bps": 0.3487164678008493,
+          "name": "B1_passive",
+          "quiet_half_spread_bps": 1.7881058145394833,
+          "rejects": 0,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.9011905418349364,
+          "trades": 1510,
+          "turnover_quote": 140228.08634008194,
+          "update_cost_quote": 0.0,
+          "update_count": 0,
+          "update_gas_quote": 0.0,
+          "update_priority_quote": 0.0
+        },
+        "B2_fixed_spread": {
+          "cost_per_update_quote": 0.000590550975032508,
+          "fill_rate": 0.5169082125603864,
+          "gap_bps": -1.4287389704624927,
+          "hedged_pnl": -11.372083845676196,
+          "markout_2s_bps": -1.3037503860456514,
+          "name": "B2_fixed_spread",
+          "quiet_half_spread_bps": 1.475417435911787,
+          "rejects": 500,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.3193233618755539,
+          "trades": 535,
+          "turnover_quote": 266815.70827381656,
+          "update_cost_quote": 2.125392959141996,
+          "update_count": 3599,
+          "update_gas_quote": 2.1177850282066664,
+          "update_priority_quote": 0.007607930935329651
+        },
+        "B3_no_throttle": {
+          "cost_per_update_quote": 0.000590550975032508,
+          "fill_rate": 0.572265625,
+          "gap_bps": -2.0397977464060513,
+          "hedged_pnl": 27.37663110333648,
+          "markout_2s_bps": 7.260938297594598,
+          "name": "B3_no_throttle",
+          "quiet_half_spread_bps": 7.300995690048947,
+          "rejects": 438,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.34976694871809577,
+          "trades": 586,
+          "turnover_quote": 40740.43858269122,
+          "update_cost_quote": 2.125392959141996,
+          "update_count": 3599,
+          "update_gas_quote": 2.1177850282066664,
+          "update_priority_quote": 0.007607930935329651
+        },
+        "B4_no_honesty": {
+          "cost_per_update_quote": 0.000590550975032508,
+          "fill_rate": 1.0,
+          "gap_bps": -0.12331390514717781,
+          "hedged_pnl": 55.440334674975944,
+          "markout_2s_bps": 8.32371913012167,
+          "name": "B4_no_honesty",
+          "quiet_half_spread_bps": 8.220225237392961,
+          "rejects": 0,
+          "sigma": 8.601171305624784e-05,
+          "swap_cost_quote": 0.6111807525265542,
+          "trades": 1024,
+          "turnover_quote": 69741.42197520036,
+          "update_cost_quote": 2.125392959141996,
+          "update_count": 3599,
+          "update_gas_quote": 2.1177850282066664,
+          "update_priority_quote": 0.007607930935329651
+        }
+      },
+      "slot_seconds": 1.0,
+      "step_seconds": 0.2,
+      "window": "W6"
+    }
+  },
+  "S3": {
+    "W3@0.05": {
+      "day": "2026-09-10",
+      "latency_seconds": 0.05,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 110.56183352985958,
+          "rejects": 286,
+          "trades": 399,
+          "turnover_quote": 70271.71450911205,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 19.818095515504716,
+          "rejects": 0,
+          "trades": 3058,
+          "turnover_quote": 281785.47239792,
+          "updates": 0
+        }
+      },
+      "window": "W3"
+    },
+    "W3@0.2": {
+      "day": "2026-09-10",
+      "latency_seconds": 0.2,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 105.62857715083611,
+          "rejects": 291,
+          "trades": 393,
+          "turnover_quote": 64478.7107603798,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 19.818095515504716,
+          "rejects": 0,
+          "trades": 3058,
+          "turnover_quote": 281785.47239792,
+          "updates": 0
+        }
+      },
+      "window": "W3"
+    },
+    "W3@0.4": {
+      "day": "2026-09-10",
+      "latency_seconds": 0.4,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 105.04910139080488,
+          "rejects": 308,
+          "trades": 377,
+          "turnover_quote": 64061.27605093305,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 19.818095515504716,
+          "rejects": 0,
+          "trades": 3058,
+          "turnover_quote": 281785.47239792,
+          "updates": 0
+        }
+      },
+      "window": "W3"
+    },
+    "W3@1.0": {
+      "day": "2026-09-10",
+      "latency_seconds": 1.0,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 120.00182920480947,
+          "rejects": 289,
+          "trades": 397,
+          "turnover_quote": 72668.85211213291,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 19.818095515504716,
+          "rejects": 0,
+          "trades": 3058,
+          "turnover_quote": 281785.47239792,
+          "updates": 0
+        }
+      },
+      "window": "W3"
+    },
+    "W4@0.05": {
+      "day": "2026-09-17",
+      "latency_seconds": 0.05,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 93.68141780508361,
+          "rejects": 310,
+          "trades": 374,
+          "turnover_quote": 60282.764201580256,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 22.40490299470246,
+          "rejects": 0,
+          "trades": 1974,
+          "turnover_quote": 268396.56349206815,
+          "updates": 0
+        }
+      },
+      "window": "W4"
+    },
+    "W4@0.2": {
+      "day": "2026-09-17",
+      "latency_seconds": 0.2,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 95.69090149400431,
+          "rejects": 309,
+          "trades": 375,
+          "turnover_quote": 62590.87469580742,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 22.40490299470246,
+          "rejects": 0,
+          "trades": 1974,
+          "turnover_quote": 268396.56349206815,
+          "updates": 0
+        }
+      },
+      "window": "W4"
+    },
+    "W4@0.4": {
+      "day": "2026-09-17",
+      "latency_seconds": 0.4,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 104.47900362356555,
+          "rejects": 299,
+          "trades": 385,
+          "turnover_quote": 67446.71226604727,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 22.40490299470246,
+          "rejects": 0,
+          "trades": 1974,
+          "turnover_quote": 268396.56349206815,
+          "updates": 0
+        }
+      },
+      "window": "W4"
+    },
+    "W4@1.0": {
+      "day": "2026-09-17",
+      "latency_seconds": 1.0,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 106.26199606530474,
+          "rejects": 295,
+          "trades": 390,
+          "turnover_quote": 65723.27695850168,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 22.40490299470246,
+          "rejects": 0,
+          "trades": 1974,
+          "turnover_quote": 268396.56349206815,
+          "updates": 0
+        }
+      },
+      "window": "W4"
+    },
+    "W6@0.05": {
+      "day": "2026-10-01",
+      "latency_seconds": 0.05,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 104.61236399726926,
+          "rejects": 309,
+          "trades": 375,
+          "turnover_quote": 71808.64787145052,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 22.949210327964707,
+          "rejects": 0,
+          "trades": 1664,
+          "turnover_quote": 253854.8110196919,
+          "updates": 0
+        }
+      },
+      "window": "W6"
+    },
+    "W6@0.2": {
+      "day": "2026-10-01",
+      "latency_seconds": 0.2,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 97.23052754080257,
+          "rejects": 314,
+          "trades": 370,
+          "turnover_quote": 66187.22485638704,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 22.949210327964707,
+          "rejects": 0,
+          "trades": 1664,
+          "turnover_quote": 253854.8110196919,
+          "updates": 0
+        }
+      },
+      "window": "W6"
+    },
+    "W6@0.4": {
+      "day": "2026-10-01",
+      "latency_seconds": 0.4,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 95.9999171522927,
+          "rejects": 319,
+          "trades": 365,
+          "turnover_quote": 65776.65998420905,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 22.949210327964707,
+          "rejects": 0,
+          "trades": 1664,
+          "turnover_quote": 253854.8110196919,
+          "updates": 0
+        }
+      },
+      "window": "W6"
+    },
+    "W6@1.0": {
+      "day": "2026-10-01",
+      "latency_seconds": 1.0,
+      "reference": "Binance SOLUSDT aggTrades, 100 ms last-trade bin",
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 90.4835175622106,
+          "rejects": 306,
+          "trades": 378,
+          "turnover_quote": 63475.42262321168,
+          "updates": 3600
+        },
+        "B1_passive": {
+          "hedged_pnl": 22.949210327964707,
+          "rejects": 0,
+          "trades": 1664,
+          "turnover_quote": 253854.8110196919,
+          "updates": 0
+        }
+      },
+      "window": "W6"
+    }
+  },
+  "S4": {
+    "20261006": {
+      "seed": 20261006,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 17863.58087425812,
+          "rejects": 52107,
+          "step_seconds": 0.4,
+          "trades": 67948,
+          "turnover_quote": 11071131.593078015,
+          "update_cost_quote": 311.10864437528056,
+          "updates": 604800
+        },
+        "B1_passive": {
+          "hedged_pnl": 3755.655526085026,
+          "rejects": 0,
+          "step_seconds": 0.4,
+          "trades": 289545,
+          "turnover_quote": 39498980.51098542,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W2"
+    },
+    "20261007": {
+      "seed": 20261007,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 9968.540414638675,
+          "rejects": 53111,
+          "step_seconds": 0.4,
+          "trades": 68609,
+          "turnover_quote": 11494454.386239612,
+          "update_cost_quote": 311.10809569730804,
+          "updates": 604799
+        },
+        "B1_passive": {
+          "hedged_pnl": 3790.1096688668426,
+          "rejects": 0,
+          "step_seconds": 0.4,
+          "trades": 291512,
+          "turnover_quote": 39928234.26853883,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W2"
+    },
+    "20261008": {
+      "seed": 20261008,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 15985.476552623555,
+          "rejects": 52775,
+          "step_seconds": 0.4,
+          "trades": 68079,
+          "turnover_quote": 11154344.481057912,
+          "update_cost_quote": 311.1081428956334,
+          "updates": 604799
+        },
+        "B1_passive": {
+          "hedged_pnl": 3759.0208060707173,
+          "rejects": 0,
+          "step_seconds": 0.4,
+          "trades": 290336,
+          "turnover_quote": 39522485.3728736,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W2"
+    },
+    "20261009": {
+      "seed": 20261009,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 11098.027122279738,
+          "rejects": 52516,
+          "step_seconds": 0.4,
+          "trades": 68699,
+          "turnover_quote": 11517815.478830151,
+          "update_cost_quote": 311.1080831703378,
+          "updates": 604799
+        },
+        "B1_passive": {
+          "hedged_pnl": 3784.417262299508,
+          "rejects": 0,
+          "step_seconds": 0.4,
+          "trades": 290446,
+          "turnover_quote": 39803123.31202592,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W2"
+    },
+    "20261010": {
+      "seed": 20261010,
+      "venues": {
+        "ArbSwap": {
+          "hedged_pnl": 11914.83315231572,
+          "rejects": 53094,
+          "step_seconds": 0.4,
+          "trades": 68423,
+          "turnover_quote": 11351878.961288916,
+          "update_cost_quote": 311.1081139087542,
+          "updates": 604799
+        },
+        "B1_passive": {
+          "hedged_pnl": 3772.1234176597936,
+          "rejects": 0,
+          "step_seconds": 0.4,
+          "trades": 291601,
+          "turnover_quote": 39761340.45030365,
+          "update_cost_quote": 0.0,
+          "updates": 0
+        }
+      },
+      "window": "W2"
+    }
+  },
+  "S5": "rendered from window_results.json (per-window E1 summary)",
+  "elapsed_seconds": 1025.0,
+  "frozen_params": {
+    "age_coeff": 1e-05,
+    "age_grace": 2.0,
+    "confidence_coeff": 1.0,
+    "confidence_max_ratio": 0.001,
+    "directional_coeff": 1.0,
+    "expiry_slots": 10.0,
+    "grace_slots": 2.0,
+    "inventory_coeff": 0.001,
+    "jump_cooldown_factor": 0.5,
+    "jump_extra": 0.0005,
+    "max_anchor_step": 0.005,
+    "max_staleness": 2.0,
+    "offsets_bps": [
+      2,
+      5,
+      10,
+      20,
+      40,
+      80
+    ],
+    "sigma_target": 0.0001,
+    "spread_floor": 0.0002,
+    "spread_max": 0.005,
+    "spread_min": 5e-05,
+    "utilization_max": 0.5,
+    "volatility_coeff": 2.0,
+    "weights_bps": [
+      1000,
+      1500,
+      2000,
+      2000,
+      2000,
+      1500
+    ]
+  },
+  "note": "S1-S5 as registered in the pre-registration amendment, section 4."
+}

@@ -29,7 +29,7 @@ echo "== deploy =="
 anchor deploy --provider.cluster "$CLUSTER"
 
 PROGRAM_ID="$(solana address -k target/deploy/arbswap-keypair.json 2>/dev/null || \
-  sed -n 's/.*declare_id!("\(.*\)").*/\1/p' programs/arbswap/src/lib.rs | head -1)"
+  sed -n 's/.*declare_id!("\(.*\)").*/\1/p' vault/program/src/lib.rs | head -1)"
 echo
 echo "program id: $PROGRAM_ID"
 echo

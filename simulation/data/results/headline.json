@@ -1,0 +1,23 @@
+{
+  "source": "real",
+  "rows": [
+    {
+      "venue": "ArbSwap",
+      "volume_share": 0.0002914669047098132,
+      "fill_share": 0.015860116517364915,
+      "markout_2s_bps": 1.9887260190517495
+    },
+    {
+      "venue": "B1_passive",
+      "volume_share": 0.003251954369919267,
+      "fill_share": 0.16920461871297046,
+      "markout_2s_bps": -5.128355472790752
+    },
+    {
+      "venue": "PropAMM",
+      "volume_share": 0.996456578725371,
+      "fill_share": 0.8149352647696646,
+      "markout_2s_bps": -1.1919332346230471
+    }
+  ]
+}

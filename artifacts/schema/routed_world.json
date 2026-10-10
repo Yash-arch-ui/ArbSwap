@@ -1,0 +1,41 @@
+{
+  "properties": {
+    "rows": {
+      "items": {
+        "properties": {
+          "fill_share": {
+            "type": "number"
+          },
+          "markout_2s_bps": {
+            "type": "number"
+          },
+          "venue": {
+            "type": "string"
+          },
+          "volume_share": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "venue",
+          "volume_share",
+          "fill_share",
+          "markout_2s_bps"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "source": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "source",
+    "rows"
+  ],
+  "type": "object"
+}
