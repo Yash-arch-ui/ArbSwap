@@ -104,3 +104,27 @@ Status: **PARTIAL** (jump sensitivity done; real high-vol windows EXTERNAL).
 
 The two selected days are held out from every calibration (calibration stays on
 W1 only); no coefficient is re-chosen here.
+
+## F4(d) — Amendment 5 (committed before the re-choice)
+
+**Registered 2026-10-10, before the coefficient re-choice was run.**
+
+The F4 diagnosis finds the **inventory term dominates** the ArbSwap quiet
+half-spread (~55% of the raw spread), so the dominant term is coefficient-driven.
+This amendment re-chooses **one coefficient** on the calibration window only.
+
+- **Data:** the 12 pre-registered one-hour calibration blocks of **W1** (never a
+  headline row), headline clock, seed 20261006.
+- **Grid:** `inventory_coeff ∈ {0.0, 0.0001, 0.00025, 0.0004, 0.0005}`; every
+  other frozen parameter unchanged.
+- **Per candidate, per block:** the routed world **without a propAMM**
+  (`b1_fee=1` bps, insensitive share 0.2, slippage 1 bp) gives ArbSwap's volume
+  share; a separate ArbSwap-vs-B1 pair run gives ArbSwap hedged PnL and the
+  ArbSwap/B1 quiet half-spreads.
+- **Feasible** iff mean ArbSwap hedged PnL ≥ 0 **and** mean ArbSwap quiet
+  half-spread ≤ mean B1 quiet half-spread.
+- **Objective:** among feasible candidates, maximise mean ArbSwap volume share;
+  tie-break on the smaller `inventory_coeff`.
+- **If no candidate is feasible**, the frozen parameters are retained and the
+  decision rule leaves the thesis unchanged.
+- The winner (if any) is frozen with a hash and used unchanged for W2–W6.
