@@ -129,7 +129,7 @@ def calibration_residual() -> dict:
         "accept_half_spread_bps": b1.get("accept_half_spread"),
         "fit_half_spread_bps": best.get("half_spread_bps"),
         "real_flow_residual": {"markout_bps": -7.9, "half_spread_bps": 13.1,
-                               "source": "docs/AUDIT_FULL.md (real flow saturates)"},
+                               "source": "F-08 calibration residual (docs/RESULTS.md)"},
         "status": "CLOSED-BY-DECISION",
         "reason": "synthetic W1 fit is within tolerance (-0.02/2.41); real-flow "
                   "adverse selection saturates at ~-7.9/13.1 bps (~40x/5x the "

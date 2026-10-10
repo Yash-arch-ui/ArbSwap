@@ -1424,7 +1424,7 @@ pub mod arbswap {
         // Item 1c: the insurance bucket is NOT claimable to the treasury. It is
         // the loss buffer; only protocol fees may be withdrawn. (A separate
         // governance rule for using the buffer to compensate LPs is design-only;
-        // see docs/AUDIT_FULL.md.)
+        // see docs/SECURITY_CHECKLIST.md.)
         require!(kind == FeeKind::Protocol, ErrorCode::InsuranceNotClaimable);
         let now = Clock::get()?.slot;
         let pending = &mut ctx.accounts.pending_claim;

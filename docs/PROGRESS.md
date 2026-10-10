@@ -133,7 +133,7 @@ README with no data and no API keys.
   (needs a written technical reason + evidence). B2 (compute redesign) and B6
   (one-hour E8 proxy) are relabelled **NOT DONE** (effort only); high-volatility
   windows are no longer EXTERNAL (they are run, F5); B8 is **PASS (offline)**.
-  `CLOSURE_REPORT.md`, `AUDIT_ACHIEVED_VS_PLAN.md`, `CLAIMS.md` updated.
+  `AUDIT_ACHIEVED_VS_PLAN.md`, `CLAIMS.md` updated.
 - **F2 CU single source — PASS.** All CU rendered from `artifacts/public/cu.json`;
   `scripts/check_docs_consistency.py` scans every doc and bans stale tokens.
   Canonical `update_quote` **48,209**, `swap` **59,327** (`cargo build-sbf`).

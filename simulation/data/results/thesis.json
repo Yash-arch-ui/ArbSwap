@@ -183,7 +183,7 @@
     "real_flow_residual": {
       "half_spread_bps": 13.1,
       "markout_bps": -7.9,
-      "source": "docs/AUDIT_FULL.md (real flow saturates)"
+      "source": "F-08 calibration residual (docs/RESULTS.md)"
     },
     "reason": "synthetic W1 fit is within tolerance (-0.02/2.41); real-flow adverse selection saturates at ~-7.9/13.1 bps (~40x/5x the paper), a venue/flow-definition gap that parameter tuning cannot close. Bounded impact: all headline numbers are model outputs and labelled so.",
     "status": "CLOSED-BY-DECISION"
