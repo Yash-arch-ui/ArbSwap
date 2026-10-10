@@ -1,22 +1,22 @@
 {
   "build_method": "cargo build-sbf (no idl-build)",
   "instructions": {
-    "accept_admin": 9316,
-    "bond_keeper": 24630,
-    "cancel_admin": 7504,
-    "claim_keeper_reward": 13838,
-    "claim_withdraw": 23745,
-    "crank_epoch": 5155,
-    "deposit": 43663,
-    "propose_admin": 8009,
-    "request_withdraw": 21162,
+    "accept_admin": 9367,
+    "bond_keeper": 26130,
+    "cancel_admin": 7555,
+    "claim_keeper_reward": 13828,
+    "claim_withdraw": 23728,
+    "crank_epoch": 5162,
+    "deposit": 43653,
+    "propose_admin": 8060,
+    "request_withdraw": 18162,
     "slash_keeper": 13901,
-    "swap": 59258,
-    "update_quote": 48158,
-    "update_quote_wide_conf_rejected": 15514
+    "swap": 59344,
+    "update_quote": 49709,
+    "update_quote_wide_conf_rejected": 17018
   },
   "note": "anchor build (idl-build) is ~3k CU higher for update_quote (51,296 vs 48,296); no source regression. See docs/PROGRESS.md B1.",
-  "so_bytes": 681592,
-  "so_sha256": "b98dfd73df0c2a9cc08600d34d464a939181dc43be244f5fc9877fc53fcd5b45",
+  "so_bytes": 683680,
+  "so_sha256": "c5ba3d1fba5acfae1c8118141be79afff6f03e83f0e4812e58990b7ae9bb954b",
   "source": "cargo build-sbf + vault/program/tests/litesvm_lifecycle.rs::measure_instruction_compute_units"
 }

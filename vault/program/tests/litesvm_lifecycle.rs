@@ -248,6 +248,7 @@ impl Fixture {
             max_staleness_seconds: 30,
             max_conf_bps: 10,
             max_anchor_step_bps: 100,
+        max_spread_step_bps: 10,
             min_spread_bps: 2,
             max_spread_bps: 50,
             max_quote_size: MAX_QUOTE_SIZE,
@@ -1441,6 +1442,119 @@ fn update_quote_requires_a_keeper_bond() {
     fixture
         .update_quote(&keys.keeper, honest, quote_update(SLOT))
         .expect("a bonded keeper may quote");
+}
+
+/// M7: when a minimum bond is configured, quoting is permissionless — a keeper
+/// that was never allowlisted may quote once bonded, and is rejected before it
+/// bonds. The allowlist only applies to the `min_bond == 0` MVP path.
+#[test]
+fn permissionless_bonded_keeper_may_quote_when_min_bond_is_set() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::with_min_bond(&keys, 1_000);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    // A brand-new keeper that is not `config.keeper`.
+    let keeper2 = Keypair::new();
+    fixture
+        .svm
+        .airdrop(&to_address(keeper2.pubkey()), 2_000_000_000)
+        .unwrap();
+    let keeper2_quote = Address::new_unique();
+    set_token_account(
+        &mut fixture.svm,
+        keeper2_quote,
+        fixture.quote_mint,
+        keeper2.pubkey(),
+        10_000_000_000,
+    );
+
+    // Before bonding it cannot quote (the bond account does not exist).
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert!(
+        fixture
+            .update_quote(&keeper2, honest, quote_update(SLOT))
+            .is_err(),
+        "an unbonded keeper must not be able to quote"
+    );
+
+    let bond = ix(
+        fixture.program_id,
+        arbswap::instruction::BondKeeper { amount: 1_000 },
+        arbswap::accounts::BondKeeper {
+            keeper: to_address(keeper2.pubkey()),
+            vault: fixture.vault,
+            quote_mint: fixture.quote_mint,
+            keeper_quote: keeper2_quote,
+            bond_vault: fixture.bond_vault(),
+            keeper_bond: fixture.keeper_bond(&keeper2),
+            token_program: token_program_id(),
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    send(&mut fixture.svm, &[&keeper2], bond).expect("keeper2 bonds");
+
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keeper2, honest, quote_update(SLOT))
+        .expect("a permissionless bonded keeper may quote");
+}
+
+/// Spec §7.3: the half-spread cannot jump more than `max_spread_step_bps` in one
+/// update (the lifecycle fixture sets it to 10 bps).
+#[test]
+fn spread_step_is_bounded_per_update() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("first quote (spread 5 bps)");
+    fixture.warp_to_slot(SLOT + 3);
+    let mut jump = quote_update(SLOT + 2);
+    jump.half_spread_bps = 25; // +20 bps > 10 bps step, still inside [2, 50]
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, honest, jump),
+        "SpreadStepTooLarge",
+    );
+}
+
+/// Spec §5.9: the flow accumulator records signed net base sold and resets on
+/// every quote update.
+#[test]
+fn flow_accumulator_tracks_net_base_and_resets() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("quote");
+    assert_eq!(fixture.quote_state_value().flow_n, 0);
+
+    // A trader buy lifts the ask: the vault sells base, so flow_n > 0.
+    fixture
+        .swap(&keys.trader, AMOUNT_IN, 0, 1)
+        .expect("trader buys base");
+    assert!(
+        fixture.quote_state_value().flow_n > 0,
+        "vault sold base on net -> flow_n must be positive"
+    );
+
+    // Re-quoting resets the accumulator.
+    fixture.warp_to_slot(SLOT + 3);
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT + 2))
+        .expect("re-quote");
+    assert_eq!(fixture.quote_state_value().flow_n, 0);
 }
 
 /// Token-2022 owned accounts must be rejected by the classic `Program<Token>`

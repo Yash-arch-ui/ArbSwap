@@ -327,6 +327,7 @@ fn setup(
         max_staleness_seconds: 60,
         max_conf_bps: 50,
         max_anchor_step_bps: 100,
+        max_spread_step_bps: 100,
         min_spread_bps: 2,
         max_spread_bps: 50,
         max_quote_size: 1_000_000_000,

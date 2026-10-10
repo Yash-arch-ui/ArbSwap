@@ -113,6 +113,7 @@ pub mod arbswap {
         config.pyth_feed_id = params.pyth_feed_id;
         config.max_conf_bps = params.max_conf_bps;
         config.max_anchor_step_bps = params.max_anchor_step_bps;
+        config.max_spread_step_bps = params.max_spread_step_bps;
         config.min_spread_bps = params.min_spread_bps;
         config.max_spread_bps = params.max_spread_bps;
         config.max_quote_size = params.max_quote_size;
@@ -137,6 +138,7 @@ pub mod arbswap {
         ctx.accounts.quote_state.window_start_slot = 0;
         ctx.accounts.quote_state.window_base_sold = 0;
         ctx.accounts.quote_state.window_base_bought = 0;
+        ctx.accounts.quote_state.flow_n = 0;
         ctx.accounts.quote_state.ask_levels = [Level::default(); LEVELS];
         ctx.accounts.quote_state.bid_levels = [Level::default(); LEVELS];
         emit!(VaultInitialized {
@@ -435,10 +437,17 @@ pub mod arbswap {
 
     pub fn update_quote(ctx: Context<UpdateQuote>, update: QuoteUpdate) -> Result<()> {
         require!(ctx.accounts.vault.status == ACTIVE, ErrorCode::Paused);
-        require!(
-            ctx.accounts.keeper.key() == ctx.accounts.config.keeper,
-            ErrorCode::NotKeeper
-        );
+        // M7 open keeper network: when a minimum bond is configured, quoting is
+        // **permissionless** — any bond-qualified keeper may update (the bond and
+        // the monotonic-slot guard below make updates accountable and
+        // first-writer-per-slot). The allowlist is the MVP path only
+        // (`min_bond == 0`).
+        if ctx.accounts.config.min_bond == 0 {
+            require!(
+                ctx.accounts.keeper.key() == ctx.accounts.config.keeper,
+                ErrorCode::NotKeeper
+            );
+        }
         // D-07: when a minimum bond is configured, the keeper must be bonded.
         // The PDA derivation only runs when bonding is enabled, so the MVP
         // allowlist path keeps the update CU low (the `keeper_bond` account is
@@ -537,6 +546,18 @@ pub mod arbswap {
                 && update.half_spread_bps <= ctx.accounts.config.max_spread_bps,
             ErrorCode::SpreadOutOfBounds
         );
+        // Honest-execution §7.3: bound the per-update spread *step* (not only the
+        // absolute band) so a keeper cannot jump the spread in a single update.
+        // `0` disables the step guard (used by tests and the permissive default).
+        if ctx.accounts.quote_state.version > 0 && ctx.accounts.config.max_spread_step_bps > 0 {
+            let spread_step = update
+                .half_spread_bps
+                .abs_diff(ctx.accounts.quote_state.half_spread_bps);
+            require!(
+                spread_step <= ctx.accounts.config.max_spread_step_bps,
+                ErrorCode::SpreadStepTooLarge
+            );
+        }
         if ctx.accounts.quote_state.anchor_sqrt_price > 0 {
             let old = ctx.accounts.quote_state.anchor_sqrt_price;
             let diff = update.anchor_sqrt_price.abs_diff(old);
@@ -725,6 +746,8 @@ pub mod arbswap {
             .ok_or(ErrorCode::MathOverflow)?;
         let version = quote.version;
         quote.update_slot = update.update_slot;
+        // Spec §5.9: the flow accumulator resets on every quote update.
+        quote.flow_n = 0;
         quote.expiry_slot = clock
             .slot
             .checked_add(ctx.accounts.config.expiry_slots)
@@ -850,6 +873,19 @@ pub mod arbswap {
                 && ctx.accounts.quote_state.window_base_bought <= flow_cap,
             ErrorCode::FlowCapExceeded
         );
+        // Spec §5.9: maintain the signed net-base-sold accumulator since the last
+        // quote update (positive = the vault sold base on net). Reset in
+        // `update_quote`; readable by the keeper/indexer for flow-aware pricing.
+        match side {
+            SwapSide::BuyBase => {
+                ctx.accounts.quote_state.flow_n =
+                    ctx.accounts.quote_state.flow_n.saturating_add(out as i128);
+            }
+            SwapSide::SellBase => {
+                ctx.accounts.quote_state.flow_n =
+                    ctx.accounts.quote_state.flow_n.saturating_sub(net as i128);
+            }
+        }
         let insurance =
             (fee as u128).saturating_mul(ctx.accounts.config.insurance_bps as u128) / 10_000;
         let keeper = (fee as u128).saturating_mul(ctx.accounts.config.keeper_bps as u128) / 10_000;
@@ -1110,6 +1146,7 @@ pub mod arbswap {
         config.max_staleness_seconds = update.max_staleness_seconds;
         config.max_conf_bps = update.max_conf_bps;
         config.max_anchor_step_bps = update.max_anchor_step_bps;
+        config.max_spread_step_bps = update.max_spread_step_bps;
         config.min_spread_bps = update.min_spread_bps;
         config.max_spread_bps = update.max_spread_bps;
         config.max_quote_size = update.max_quote_size;
@@ -1492,6 +1529,8 @@ pub struct ParamsUpdate {
     pub max_staleness_seconds: i64,
     pub max_conf_bps: u32,
     pub max_anchor_step_bps: u32,
+    /// Spec §7.3: max change in `half_spread_bps` per update (step guard).
+    pub max_spread_step_bps: u32,
     pub min_spread_bps: u32,
     pub max_spread_bps: u32,
     pub max_quote_size: u64,
@@ -1535,6 +1574,8 @@ pub struct InitParams {
     pub max_staleness_seconds: i64,
     pub max_conf_bps: u32,
     pub max_anchor_step_bps: u32,
+    /// Spec §7.3: max change in `half_spread_bps` per update (step guard).
+    pub max_spread_step_bps: u32,
     pub min_spread_bps: u32,
     pub max_spread_bps: u32,
     pub max_quote_size: u64,
@@ -1630,6 +1671,8 @@ pub struct Config {
     pub max_staleness_seconds: i64,
     pub max_conf_bps: u32,
     pub max_anchor_step_bps: u32,
+    /// Spec §7.3: max change in `half_spread_bps` per update (step guard).
+    pub max_spread_step_bps: u32,
     pub min_spread_bps: u32,
     pub max_spread_bps: u32,
     pub max_quote_size: u64,
@@ -1712,6 +1755,9 @@ pub struct QuoteState {
     /// h3: rolling realized-edge tracker (quote atoms; positive = vault gained).
     pub edge_window_start_slot: u64,
     pub realized_edge: i128,
+    /// Spec §5.9: signed net base sold since the last `update_quote`
+    /// (positive = the vault sold base on net); reset to 0 on every update.
+    pub flow_n: i128,
     pub ask_levels: [Level; LEVELS],
     pub bid_levels: [Level; LEVELS],
     pub bump: u8,
@@ -1748,9 +1794,9 @@ pub struct InitializeVault<'info> {
     pub program_config: Account<'info, ProgramConfig>,
     #[account(seeds = [b"vault", params.base_mint.as_ref(), params.quote_mint.as_ref()], bump, init, payer = admin, space = 8 + 32*7 + 8*9 + 2)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8 + 4 + 8 + 4 + 32 + 8)]
+    #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8 + 4 + 8 + 4 + 32 + 8 + 4)]
     pub config: Box<Account<'info, Config>>,
-    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + 16 + 8 + 16 + (4+4+16+16+16)*LEVELS + (4+4+16+16+16)*LEVELS + 1)]
+    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + 16 + 8 + 16 + (4+4+16+16+16)*LEVELS + (4+4+16+16+16)*LEVELS + 1 + 16)]
     pub quote_state: Box<Account<'info, QuoteState>>,
     #[account(address = params.base_mint)]
     pub base_mint: Box<Account<'info, Mint>>,
@@ -2068,7 +2114,7 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+129+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(init_if_needed, payer=admin, space=8+32+8+133+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }
@@ -2371,6 +2417,8 @@ pub enum ErrorCode {
     NotBonded,
     #[msg("Spread out of bounds")]
     SpreadOutOfBounds,
+    #[msg("Half-spread changed by more than the per-update step bound")]
+    SpreadStepTooLarge,
     #[msg("Quote expired")]
     QuoteExpired,
     #[msg("Version too old")]

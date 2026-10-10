@@ -90,5 +90,5 @@ code differ, see "Code vs picture" below.
 | `flow_n` netting accumulator | **removed** (was dead state); the per-window one-sided flow cap is the live control |
 | `depth_mult_bps` depth control | indexer hint only; on-chain depth = level `liquidity` + `utilization_max_bps` capacity bound |
 | dashboard demo mode (split-screen, attacks) | **not built**; only a static generated HTML (`simulation/analytics/out/dashboard.html`) |
-| open bonded keeper network | bond/slash/reward + two-phase `unbond_keeper` exist; the MVP still allowlists `config.keeper` |
+| open bonded keeper network | **permissionless when `min_bond > 0`** (any bond-qualified keeper may quote; bond/slash/reward + two-phase `unbond_keeper`); the `min_bond == 0` MVP path stays allowlisted |
 | live devnet loop | code present, never deployed |

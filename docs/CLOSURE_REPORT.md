@@ -110,20 +110,20 @@ superseded and live only in the historical stage reports.
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | **48,158** |
-| `update_quote_wide_conf_rejected` | 15,514 |
-| `swap` | **59,258** |
-| `deposit` | 43,663 |
-| `request_withdraw` | 21,162 |
-| `claim_withdraw` | 23,745 |
-| `crank_epoch` | 5,155 |
-| `bond_keeper` | 24,630 |
+| `update_quote` | **49,709** |
+| `update_quote_wide_conf_rejected` | 17,018 |
+| `swap` | **59,344** |
+| `deposit` | 43,653 |
+| `request_withdraw` | 18,162 |
+| `claim_withdraw` | 23,728 |
+| `crank_epoch` | 5,162 |
+| `bond_keeper` | 26,130 |
 | `slash_keeper` | 13,901 |
-| `claim_keeper_reward` | 13,838 |
+| `claim_keeper_reward` | 13,828 |
 | `unbond_keeper` (queue / release) | 16,242 / 18,379 |
-| `propose_admin` | 8,009 |
-| `accept_admin` | 9,316 |
-| `cancel_admin` | 7,504 |
+| `propose_admin` | 8,060 |
+| `accept_admin` | 9,367 |
+| `cancel_admin` | 7,555 |
 
 Devnet CU: **not measured** (needs a funded run). The ≤40k target is **not met**.
 
@@ -170,7 +170,7 @@ Definition of the status words is now in `docs/STATUS.md`. Applying it:
   **PASS (offline)**.
 - **F2 CU single source:** every CU number in every doc is generated from
   `artifacts/public/cu.json`; `scripts/check_docs_consistency.py` scans all docs
-  and bans stale tokens. Canonical: `update_quote` **48,158**, `swap` **59,258**
+  and bans stale tokens. Canonical: `update_quote` **49,709**, `swap` **59,344**
   (`cargo build-sbf`; `.so` sha256 `b98dfd7…`).
 - **F3 bundle freshness:** the bundle is regenerated at HEAD and
   `scripts/check_bundle_freshness.py` (in CI) fails if the manifest drifts.

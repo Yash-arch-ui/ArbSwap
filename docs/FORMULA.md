@@ -525,3 +525,45 @@ independent oracle.
 7. **LVR budget dropped from claims** (p2-T8): `R` and `g_gas` are undefined business inputs, so the depth rule is a *keeper-side policy bounded by on-chain caps* (spread/anchor/capacity), not an enforced on-chain budget.
 8. **Fix the keeper decimals bug** (F-03) and bind the on-chain ladder to the
    anchor (F-04) before any devnet run.
+
+## M7 — open bonded keeper network
+
+`update_quote` is **permissionless when `config.min_bond > 0`**: any keeper whose
+bond PDA (`[b"keeper", vault, keeper]`) exists and whose *effective* bond
+(`bond - unbond_amount`) is at least `min_bond` may quote. The `keeper ==
+config.keeper` allowlist is enforced **only** in the `min_bond == 0` MVP path.
+Accountability comes from the bond plus the monotonic-slot guard
+(`update_slot > stored && <= clock.slot`), so the first sufficiently-fresh valid
+update wins and a stale one cannot overwrite a newer quote.
+
+## §7.3 — per-update spread step
+
+When `config.max_spread_step_bps > 0` and a quote already exists,
+`|update.half_spread_bps - stored.half_spread_bps| <= max_spread_step_bps`.
+`0` disables the step guard. This bounds how fast a keeper can widen/narrow the
+book in one update, in addition to the absolute `[min_spread_bps, max_spread_bps]`
+band.
+
+## §5.9 — flow accumulator
+
+`QuoteState.flow_n: i128` is the signed net base sold since the last quote:
+`+out` on a trader **buy** (the vault sells base) and `-net` on a trader **sell**
+(the vault buys base). It is **reset to 0 on every `update_quote`** and is
+readable by the keeper/indexer for flow-aware pricing. It is separate from the
+rolling window flow cap (`window_base_sold` / `window_base_bought`), which rolls
+on the slot clock and is not reset by re-quoting.
+
+## §5.10 / R16 — LVR-budget depth and M9 volatility kill-switch (off-chain)
+
+The keeper (and the Python reference) cap active depth by the LVR budget:
+
+    allowed_value = 8 (R - gas) / sigma^2          (lvr_budget_value)
+    lvr_budget    = min(1, allowed_value / vault_value)
+
+`depth = min(sigma-target factor, confidence factor, 1 - jump factor, depth_budget,
+lvr_budget)`. Doubling `sigma` quarters `lvr_budget`; `R <= gas` gives `0`. The
+**volatility kill-switch** sets `depth = 0` whenever `sigma > max_vol_q64`, i.e.
+the vault stops quoting (fail-closed) on a spike. `lvr_budget = 1` and
+`max_vol = infinity` are the neutral defaults, so historical study numbers are
+unchanged. Rounding: all steps use the shared `mul_q64` (round down) and the
+vault-favouring convention in §5.2.

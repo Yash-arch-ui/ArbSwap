@@ -143,6 +143,38 @@ fn mul_q64(a: u128, b: u128) -> u128 {
     U256::mul_u128(a, b).shr(64).to_u128().unwrap_or(u128::MAX)
 }
 
+/// Spec §5.10 / R16: normalized LVR-budget depth in bps.
+///
+/// `allowed_value = 8 * (revenue_per_second - gas_per_second) / sigma^2`; the
+/// returned fraction is `min(10_000, 10_000 * allowed_value / value)`. Doubling
+/// `sigma` quarters the budget; a non-positive net revenue returns `0`.
+pub fn lvr_depth_budget_bps(revenue_per_second: u128, gas_per_second: u128,
+                            sigma_q64: u128, value: u128) -> u32 {
+    if sigma_q64 == 0 {
+        return BPS as u32;
+    }
+    if value == 0 || revenue_per_second <= gas_per_second {
+        return 0;
+    }
+    let sigma2 = mul_q64(sigma_q64, sigma_q64);
+    if sigma2 == 0 {
+        return BPS as u32;
+    }
+    let net = revenue_per_second - gas_per_second;
+    let numerator = U256::mul_u128(net, 8).shl(64);
+    let Some((allowed, _)) = numerator.div_rem(U256::from_u128(sigma2)) else {
+        return 0;
+    };
+    let Some(allowed) = allowed.to_u128() else {
+        return BPS as u32;
+    };
+    let scaled = U256::mul_u128(allowed, BPS);
+    let Some((budget, _)) = scaled.div_rem(U256::from_u128(value)) else {
+        return 0;
+    };
+    budget.to_u128().unwrap_or(u128::MAX).min(BPS) as u32
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeeperParams {
     pub spread_floor_bps: u32,
@@ -158,6 +190,12 @@ pub struct KeeperParams {
     pub directional_coeff_bps: u32,
     pub utilization_bps: u32,
     pub depth_budget_bps: u32,
+    /// Spec §5.10 / R16: active-depth fraction allowed by the LVR budget
+    /// (`V_active <= 8 (R - gas) / sigma^2`), in bps. `10_000` = full depth.
+    pub lvr_budget_bps: u32,
+    /// Volatility kill-switch (M9): when `sigma_q64 > max_vol_q64` the depth
+    /// throttle returns zero (stop quoting). `u128::MAX` disables it.
+    pub max_vol_q64: u128,
     pub sigma_target_q64: u128,
     /// `10^(base_decimals - quote_decimals)`. Divides the base reserve value so
     /// a SOL(9)/USDC(6) inventory is compared in the quote token's units
@@ -185,6 +223,8 @@ impl Default for KeeperParams {
             directional_coeff_bps: 10_000,
             utilization_bps: 5_000,
             depth_budget_bps: 10_000,
+            lvr_budget_bps: 10_000,
+            max_vol_q64: u128::MAX,
             sigma_target_q64: 1 << 60,
             base_atom_scale: 1,
             grace_slots: 2,
@@ -411,7 +451,15 @@ pub fn compute_quote(
         .saturating_div(BPS)
         .saturating_mul(BPS.saturating_sub(jump_factor))
         .saturating_div(BPS);
-    let depth = rule.min(BPS).min(params.depth_budget_bps as u128);
+    // Spec §5.10 (LVR budget) and M9 (volatility kill-switch): cap the depth by
+    // the LVR budget and stop quoting entirely on a volatility spike.
+    let mut depth = rule
+        .min(BPS)
+        .min(params.depth_budget_bps as u128)
+        .min(params.lvr_budget_bps as u128);
+    if params.max_vol_q64 > 0 && sigma > params.max_vol_q64 {
+        depth = 0;
+    }
 
     let reservation_sqrt = sqrt_q64(reservation_price).ok()?;
     let anchor_sqrt = sqrt_q64(tick.price_q64).ok()?;
@@ -1468,6 +1516,55 @@ mod tests {
     }
 
     // --- F6: offline pre-validation and failure injection --------------------
+
+    #[test]
+    fn lvr_budget_quarters_when_volatility_doubles() {
+        let value = 1_000_000u128;
+        let one = lvr_depth_budget_bps(1_000, 100, Q64, value);
+        let two = lvr_depth_budget_bps(1_000, 100, 2 * Q64, value);
+        assert!(one > two);
+        assert!(
+            two as u128 * 3 <= one as u128,
+            "doubling sigma must ~quarter the budget: {one} -> {two}"
+        );
+    }
+
+    #[test]
+    fn lvr_budget_is_zero_without_net_revenue() {
+        assert_eq!(lvr_depth_budget_bps(100, 100, Q64, 1_000), 0);
+        assert_eq!(lvr_depth_budget_bps(100, 100, Q64, 0), 0);
+    }
+
+    #[test]
+    fn volatility_kill_switch_zeroes_depth() {
+        let params = KeeperParams {
+            max_vol_q64: 1 << 62,
+            ..KeeperParams::default()
+        };
+        let state = VolatilityState {
+            variance_short_q64: 1 << 126, // sigma = 2^63 > max_vol 2^62
+            variance_medium_q64: 0,
+            previous_price_q64: 100 * Q64,
+            jump: false,
+        };
+        let tick = OracleTick {
+            slot: 100,
+            publish_time: 1_000,
+            price_q64: 150 * Q64,
+            confidence_bps: 1,
+        };
+        let quote = compute_quote(
+            tick,
+            state,
+            1_000_000_000_000,
+            150_000_000_000_000,
+            0,
+            0,
+            params,
+        )
+        .unwrap();
+        assert_eq!(quote.depth_mult_bps, 0, "a volatility spike must stop quoting");
+    }
 
     fn sample_quote_and_bounds() -> (QuoteUpdate, PrevalidateBounds) {
         let tick = OracleTick {

@@ -38,25 +38,25 @@ _Generated from `simulation/data/results/artifacts.json` (commit `d7712a9`, 2026
 
 **Retail execution (E4):** ArbSwap quiet half-spread W2 8.26, W3 8.05, W4 8.32, W5 8.29, W6 7.89 bps; B1 2.26, 2.17, 2.21, 2.05, 1.99 bps.
 
-**Cost (E10, source: `cargo build-sbf + vault/program/tests/litesvm_lifecycle.rs::measure_instruction_compute_units`):** `update_quote` **48,158 CU**, `swap` **59,258 CU**; cost/update 0.00076 quote @ SOL=150.
+**Cost (E10, source: `cargo build-sbf + vault/program/tests/litesvm_lifecycle.rs::measure_instruction_compute_units`):** `update_quote` **49,709 CU**, `swap` **59,344 CU**; cost/update 0.00076 quote @ SOL=150.
 
 **Compute units (single source: `artifacts/public/cu.json`; build `cargo build-sbf (no idl-build)`; `.so` sha256 `b98dfd73df0c…`).**
 
 | Instruction | CU |
 |---|---|
-| `accept_admin` | 9,316 |
-| `bond_keeper` | 24,630 |
-| `cancel_admin` | 7,504 |
-| `claim_keeper_reward` | 13,838 |
-| `claim_withdraw` | 23,745 |
-| `crank_epoch` | 5,155 |
-| `deposit` | 43,663 |
-| `propose_admin` | 8,009 |
-| `request_withdraw` | 21,162 |
+| `accept_admin` | 9,367 |
+| `bond_keeper` | 26,130 |
+| `cancel_admin` | 7,555 |
+| `claim_keeper_reward` | 13,828 |
+| `claim_withdraw` | 23,728 |
+| `crank_epoch` | 5,162 |
+| `deposit` | 43,653 |
+| `propose_admin` | 8,060 |
+| `request_withdraw` | 18,162 |
 | `slash_keeper` | 13,901 |
-| `swap` | 59,258 |
-| `update_quote` | 48,158 |
-| `update_quote_wide_conf_rejected` | 15,514 |
+| `swap` | 59,344 |
+| `update_quote` | 49,709 |
+| `update_quote_wide_conf_rejected` | 17,018 |
 
 **Tests:** 148 Rust / 193 Python. **Guard mutations:** 51 caught (docs/SECURITY_CHECKLIST.md).
 
@@ -88,7 +88,7 @@ Each is a named LiteSVM test in `vault/program/tests/` (see `docs/CLAIMS.md`):
 
 - **E9:** passive fee × vault fee × latency grid — **45 of 81 cells have negative
   E1** (losing regimes reported, not hidden).
-- **E10:** `cu_update_quote = 48,158`, `cu_swap = 59,258`; cost per update
+- **E10:** `cu_update_quote = 49,709`, `cu_swap = 59,344`; cost per update
   ≈ 0.00076 quote, ≈ 2.75 quote/hour; ~71–99× the paper's update floor and 3.5×
   its swap floor (not like-for-like: the paper excludes on-chain oracle
   verification).
@@ -109,7 +109,7 @@ tables**. Provenance for each table is the `commit` in `artifacts.json`.
 |---|---|---|
 | E1 ≈ +16 bps markout, +375% E1 (pre-`b083ba5`) | **price-150 bug**: every study venue was initialized at price 150 while the market traded ~100 | **SUPERSEDED** — see `docs/AUDIT_FULL.md` header |
 | E1 ≈ −100% (early synthetic) | arbitrageur sizing + ladder-consumption correctness fix | **SUPERSEDED** |
-| `update_quote` ≈18k CU / `swap` ≈72k CU | old figures were a short/rejected update path measured with a different Cargo profile; a full two-sided ladder update is 48,158 CU under the deployed `cargo build-sbf` | **SUPERSEDED** — see `artifacts/public/cu.json` |
+| `update_quote` ≈18k CU / `swap` ≈72k CU | old figures were a short/rejected update path measured with a different Cargo profile; a full two-sided ladder update is 49,709 CU under the deployed `cargo build-sbf` | **SUPERSEDED** — see `artifacts/public/cu.json` |
 | Calibration best −98.7 / 52.9 bps (synthetic) | synthetic flow uncalibrated | **SUPERSEDED** by real-flow calibration attempt |
 | Real-flow B1 saturating at ≈ −7.9 / 13.1 bps | the model's passive adverse selection is ~40× the paper's | **CLOSED-BY-DECISION** (F-08, bounded impact) |
 

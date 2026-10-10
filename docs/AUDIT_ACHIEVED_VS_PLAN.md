@@ -112,7 +112,7 @@ data/keys. Commit: `0a9c44e`.
 | E7 safety | **PASS** | all contained |
 | E8 real-pool gap | CLOSED-BY-DECISION | proxy only (`e8_proxy.json`) |
 | E9 sensitivity | PASS | 45/81 negative cells; jump 0/27 |
-| E10 cost | PASS | 48,158 / 59,258 CU (`cargo build-sbf`) |
+| E10 cost | PASS | 49,709 / 59,344 CU (`cargo build-sbf`) |
 
 ---
 
@@ -156,7 +156,7 @@ push main" text). One status per item.
 
 | Item | Status | Evidence / commit |
 |---|---|---|
-| B1 CU regression | **PASS** | cause = build-method artifact (`cargo build-sbf` 48,158 vs `anchor build` idl-build ≈51.3k), not a source regression; `scripts/measure_cu.sh`; `86bacdc` |
+| B1 CU regression | **PASS** | cause = build-method artifact (`cargo build-sbf` 49,709 vs `anchor build` idl-build ≈51.3k), not a source regression; `scripts/measure_cu.sh`; `86bacdc` |
 | B2 compute redesign (verify-instead-of-compute) | **NOT DONE** | not implemented; exact capacity check retained. No technical reason exists (effort only), so it is NOT DONE, not CLOSED-BY-DECISION |
 | B3a mutation completeness | **PARTIAL** | B4 admin guards + F6 pre-validation guards mutated; inverse-sqrt guard N/A (B2 not done) |
 | B3b cargo-fuzz | **NOT DONE** | `cargo-fuzz` not installed; `proptest` used (`docs/SECURITY_CHECKLIST.md`) |

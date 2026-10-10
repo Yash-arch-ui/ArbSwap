@@ -57,7 +57,7 @@ Legend for bindings: **PDA** = seeds constraint; **addr** = `address = vault.*`;
 | | `user_base`/`user_quote` | `owner == user`, `mint == vault.*` | (owner/mint constraints) |
 | `crank_epoch` | `vault` | mut | — |
 | | `config` | PDA `[b"config", vault]` | — |
-| `update_quote` | `keeper` | Signer + body `keeper == config.keeper`; bond when `min_bond > 0` | `keeper_can_be_rotated_via_the_timelock`, `update_quote_requires_a_keeper_bond` |
+| `update_quote` | `keeper` | Signer; `keeper == config.keeper` only when `min_bond == 0` (allowlist MVP); otherwise permissionless with a valid bond when `min_bond > 0` | `keeper_can_be_rotated_via_the_timelock`, `update_quote_requires_a_keeper_bond`, `permissionless_bonded_keeper_may_quote_when_min_bond_is_set` |
 | | `vault` | (bound via `config`/`quote_state`) | — |
 | | `config` | PDA `[b"config", vault]` | `swap_rejects_a_config_from_another_vault` |
 | | `quote_state` | PDA `[b"quote", vault]` | — |
@@ -249,24 +249,24 @@ same build that produces the deployed binary; `.so` sha256
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | **48,158** |
-| `update_quote_wide_conf_rejected` | 15,514 |
-| `swap` | **59,258** |
+| `update_quote` | **49,709** |
+| `update_quote_wide_conf_rejected` | 17,018 |
+| `swap` | **59,344** |
 | `trip_breaker` | 12,377 |
-| `deposit` | 43,663 |
-| `request_withdraw` | 21,162 |
-| `claim_withdraw` | 23,745 |
-| `crank_epoch` | 5,155 |
-| `bond_keeper` | 24,630 |
+| `deposit` | 43,653 |
+| `request_withdraw` | 18,162 |
+| `claim_withdraw` | 23,728 |
+| `crank_epoch` | 5,162 |
+| `bond_keeper` | 26,130 |
 | `slash_keeper` | 13,901 |
-| `claim_keeper_reward` | 13,838 |
+| `claim_keeper_reward` | 13,828 |
 | `unbond_keeper` (queue / release) | 16,242 / 18,379 |
-| `propose_admin` | 8,009 |
-| `accept_admin` | 9,316 |
-| `cancel_admin` | 7,504 |
+| `propose_admin` | 8,060 |
+| `accept_admin` | 9,367 |
+| `cancel_admin` | 7,555 |
 
-The `anchor build` (idl-build) path is ~3k CU higher on `update_quote`
-(≈51.3k); it is **not** the deployed binary and is not cited as the CU number.
+The `anchor build` (idl-build) path is ~3k CU higher on `update_quote`; it is
+**not** the deployed binary and is not cited as the CU number.
 `update_quote` exceeds the keeper's former 60k limit, so
 `MAX_UPDATE_COMPUTE_UNITS` is 80,000. All instructions remain inside the
 200,000 CU transaction default. We do **not** claim a "cheap" update.
@@ -283,7 +283,7 @@ Profiled by ablation (LiteSVM, two-sided ladder, 12 levels):
 | level band binding (24 `price_from_sqrt`) | ≈0 | remove the binding loop |
 | keeper-bond PDA check | ≈2k | bonded vs unbonded |
 
-**Target <=40k is NOT met** (measured **48,158 CU**, clean `cargo build-sbf`;
+**Target <=40k is NOT met** (measured **49,709 CU**, clean `cargo build-sbf`;
 `artifacts/public/cu.json`). The remaining dominant cost is the ask-side
 `base_capacity` (`floor(L·Δ/(lo·hi))`, a 256-bit division per level), on top of
 the fixed account-validation + Pyth verification (~30k) that the program cannot
@@ -338,3 +338,18 @@ scripts/mutation_keeper.py` (edits the file, runs the test, restores it).
 | F6 capacity/utilization | delete the ask+bid capacity requires | `prevalidate_rejects_an_oversized_ladder` | caught |
 | F6 anchor-step | `|anchor - prev| > step` require → `false` | `prevalidate_rejects_an_anchor_step` | caught |
 | F6 stale-oracle | `now - publish_time > max_staleness` require → `false` | `prevalidate_rejects_a_stale_oracle` | caught |
+
+### S4.4 — F-idea on-chain guard mutation (2026-10-10)
+
+Each new guard relaxed, the SBF program rebuilt, and the mapped LiteSVM test run;
+every mutation **caught**. Re-runnable: `python scripts/mutation_program.py`.
+
+| Guard | Mutation (guard relaxed) | Test that caught it | Result |
+|---|---|---|---|
+| M7 permissionless keeper gate | always require `keeper == config.keeper` | `permissionless_bonded_keeper_may_quote_when_min_bond_is_set` | caught |
+| §7.3 spread step | delete the per-update step require | `spread_step_is_bounded_per_update` | caught |
+| §5.9 flow accumulator reset | delete `quote.flow_n = 0` on update | `flow_accumulator_tracks_net_base_and_resets` | caught |
+
+Account-space: `Config` grows by 4 B (`max_spread_step_bps`) and `QuoteState` by
+16 B (`flow_n: i128`); the declared `space` expressions and
+`account_spaces_match_serialized_sizes` were updated in the same commit.

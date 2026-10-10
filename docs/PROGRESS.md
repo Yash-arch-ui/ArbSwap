@@ -89,8 +89,8 @@ README with no data and no API keys.
 ## Closure pass (C1-C6) — on `main` per instruction
 
 - C1 single source of truth: `scripts/export_artifacts.py` → `artifacts.json`;
-  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (48,158 /
-  59,258). PASS.
+  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (49,709 /
+  59,344). PASS.
 - C2 pre-registered thesis (Amendment 3): `docs/THESIS.md` — **Option 1 not
   shown**; T-A.iii no-propAMM share 27.9%; calibration CLOSED-BY-DECISION.
 - C3 NOT DONE (reciprocal-sqrt redesign is roadmap); CU re-measured.
@@ -107,18 +107,18 @@ README with no data and no API keys.
 
 - **B1 CU regression — PASS (cause named).** The `update_quote` difference was a
   **build-method artifact**, not a source regression: `cargo build-sbf`
-  (661 KB, no `idl-build`) = 48,158; `anchor build` (744 KB, `idl-build`) =
+  (661 KB, no `idl-build`) = 49,709; `anchor build` (744 KB, `idl-build`) =
   ≈51.3k. The program source in the measured path is byte-identical to `43002b3`
   (diff of `update_quote`/`Config`/`QuoteState`/fixture/`quote_update` empty).
   Fix: `scripts/measure_cu.sh` builds in a clean dedicated target dir and records
-  the `.so` hash; canonical `update_quote` **48,158**, `swap` **59,258**
+  the `.so` hash; canonical `update_quote` **49,709**, `swap` **59,344**
   (`artifacts/public/cu.json`).
 
 - **B4 timelocked admin rotation — PASS.** `propose_admin` / `accept_admin` /
   `cancel_admin` (Config gains `pending_admin` + `admin_activate_slot`; successor
   must sign; timelocked `TIMELOCK_SLOTS`). Tests: `admin_rotation_*` (4) incl.
   wrong-signer, cancel, cross-vault config. Mutation rows S4.2. Squads v4 id
-  VERIFIED (A-25). CU: propose/accept/cancel = 8,009 / 9,316 / 7,504.
+  VERIFIED (A-25). CU: propose/accept/cancel = 8,060 / 9,367 / 7,555.
 
 - **B9 data contract for the frontend — PASS (a/b/d), CLOSED-BY-DECISION (c).**
   `scripts/publish_artifacts.py` → `artifacts/public/*.json` + `artifacts/schema/*.json`
@@ -136,7 +136,7 @@ README with no data and no API keys.
   `CLOSURE_REPORT.md`, `AUDIT_ACHIEVED_VS_PLAN.md`, `CLAIMS.md` updated.
 - **F2 CU single source — PASS.** All CU rendered from `artifacts/public/cu.json`;
   `scripts/check_docs_consistency.py` scans every doc and bans stale tokens.
-  Canonical `update_quote` **48,158**, `swap` **59,258** (`cargo build-sbf`).
+  Canonical `update_quote` **49,709**, `swap` **59,344** (`cargo build-sbf`).
 - **F3 bundle freshness — PASS.** Bundle regenerated at HEAD;
   `scripts/check_bundle_freshness.py` added to CI. Re-ran suites: **148 Rust /
   193 Python**; mutation table **51** (47 + 4 new F6 rows).

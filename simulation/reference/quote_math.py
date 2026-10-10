@@ -163,15 +163,47 @@ def directional_addon(price: float, previous_price: float, *, coefficient: float
 
 
 def depth_multiplier(*, sigma_short: float, confidence: float, jump_flag: bool,
-                     depth_budget: float, params: QuoteParams) -> float:
-    """Apply the rule throttle and the normalized LVR budget cap."""
-    if min(sigma_short, confidence, depth_budget) < 0:
+                     depth_budget: float, params: QuoteParams,
+                     max_vol_short: float = math.inf,
+                     lvr_budget: float = 1.0) -> float:
+    """Apply the rule throttle, the normalized LVR budget cap and the
+    volatility kill-switch.
+
+    * ``lvr_budget`` is the active-depth fraction allowed by the LVR budget
+      ``V_active <= 8 (R - gas) / sigma^2`` (Spec §5.10); see
+      :func:`lvr_depth_budget`.
+    * ``max_vol_short`` is the volatility spike breaker: once sigma exceeds it
+      the vault quotes zero depth (stop quoting = fail-closed).
+    """
+    if min(sigma_short, confidence, depth_budget, lvr_budget) < 0:
         raise ValueError("throttle inputs must be non-negative")
+    if max_vol_short > 0 and sigma_short > max_vol_short:
+        return 0.0
     sigma_factor = 1.0 if sigma_short == 0 else min(1.0, params.sigma_target / sigma_short)
     confidence_factor = max(0.0, 1.0 - confidence / params.confidence_max_ratio)
     jump_factor = params.jump_cooldown_factor if jump_flag else 0.0
     rule = sigma_factor * confidence_factor * (1.0 - jump_factor)
-    return min(1.0, max(0.0, rule), max(0.0, depth_budget))
+    return min(1.0, max(0.0, rule), max(0.0, depth_budget), max(0.0, lvr_budget))
+
+
+def lvr_depth_budget(*, revenue_per_second: float, gas_per_second: float,
+                     sigma_short: float, value: float, cap: float = 1.0) -> float:
+    """Normalized LVR-budget depth cap in ``[0, cap]`` (Spec §5.10, R16).
+
+    ``V_active <= 8 (R - gas) / sigma^2`` divided by the vault value gives the
+    fraction of the vault that may be actively quoted. Doubling sigma quarters
+    the budget. A non-positive budget (revenue below gas) returns ``0``.
+    """
+    if min(revenue_per_second, gas_per_second, sigma_short) < 0 or value < 0:
+        raise ValueError("LVR budget inputs must be non-negative")
+    if value <= 0:
+        return 0.0
+    allowed = lvr_budget_value(revenue_per_second, gas_per_second, sigma_short)
+    if allowed == math.inf:
+        return cap
+    if allowed <= 0:
+        return 0.0
+    return min(cap, allowed / value)
 
 
 def age_penalty(age: float, params: QuoteParams) -> float:
@@ -257,7 +289,9 @@ def compute_quote(*, price: float, base_reserve: float, quote_reserve: float,
                   confidence: float, age: float, volatility: VolatilityState,
                   params: QuoteParams, previous_price: float | None = None,
                   depth_budget: float = 1.0, apply_throttle: bool = True,
-                  depth_override: float | None = None) -> Quote:
+                  depth_override: float | None = None,
+                  lvr_budget: float = 1.0,
+                  max_vol_short: float = math.inf) -> Quote:
     q = inventory_imbalance(base_reserve, quote_reserve, price)
     p_res = reservation_price(price, q, params.inventory_coeff)
     spread = compute_half_spread(sigma_short=volatility.sigma_short,
@@ -277,7 +311,8 @@ def compute_quote(*, price: float, base_reserve: float, quote_reserve: float,
         depth = depth_multiplier(sigma_short=volatility.sigma_short,
                                  confidence=confidence / price,
                                  jump_flag=volatility.jump_flag,
-                                 depth_budget=depth_budget, params=params)
+                                 depth_budget=depth_budget, params=params,
+                                 lvr_budget=lvr_budget, max_vol_short=max_vol_short)
     asks, bids = build_ladder(price=price, reservation=p_res,
                               half_spread=spread, ask_extra=ask_extra,
                               bid_extra=bid_extra, base_reserve=base_reserve,
