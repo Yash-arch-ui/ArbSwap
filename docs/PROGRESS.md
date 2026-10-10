@@ -243,8 +243,8 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   256-bit division. Differential: 1,000,000 random ladders agree/bound
   (`vault/math/tests/capacity_inverse.rs` + Python mirror). Mutation S4.4. Tests:
   `update_quote_rejects_an_under_estimated_inverse_sqrt`.
-- **CU:** `update_quote` **48,209 -> median 38,563** (range 37,063–41,563 over 5
-  runs) — the `<=40k` target is **met at the median**; `<1,000` is not.
+- **CU:** the quote update fell from ~48k to a median of 38,563 (range across 5
+  runs 37,063–41,563) — the `<=40k` target is **met at the median**; `<1,000` is not.
 - Docs synced: `FORMULA.md` (proof sketch + rounding rule), `SECURITY_CHECKLIST.md`
   §3/S4.4, `REMAINING_WORK.md`; bundle regenerated. 157 Rust / 204 Python, 55
   mutations.

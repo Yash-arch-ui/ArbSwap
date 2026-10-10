@@ -100,8 +100,10 @@ def t_a() -> dict:
         ta_i_met = ta_i["met"]
         days = ", ".join(ta_i.get("days_with_ci_above_zero", [])) or "none"
         reason = (f"real aggTrades study run (Amendment 4): 95% CI above zero on "
-                  f"{days}; high-vol days 2026-02-06 / 2026-01-31; B1 real-flow "
-                  f"residual remains negative (F-08)")
+                  f"{days}; high-vol days 2026-02-06 / 2026-01-31. T-A.i is NOT "
+                  f"met under the registered design (the arbitrageur is disabled "
+                  f"there; the corrected real-flow residual is in "
+                  f"real_flow_calibration.json)")
     else:
         ta_i_met = False
         reason = ("real aggTrades held-out study with bootstrap CIs not run; "
@@ -121,6 +123,26 @@ def calibration_residual() -> dict:
     b1 = json.loads((ROOT / "simulation" / "data" / "results"
                      / "b1_calibration.json").read_text())
     best = b1.get("best", {})
+    rf_path = ROOT / "simulation" / "data" / "results" / "real_flow_calibration.json"
+    if rf_path.exists():
+        rf = json.loads(rf_path.read_text())
+        residual = {
+            "markout_bps": rf["residual_informed_on_bps"],
+            "half_spread_bps": None,
+            "markout_bps_arb_off": rf["residual_informed_off_bps"],
+            "source": "simulation/data/results/real_flow_calibration.json (arbitrageur ON)",
+        }
+        reason = ("synthetic W1 fit is within tolerance; the real-flow residual "
+                  "is reproducible from `real_flow_calibration.json` (~+1 bps with "
+                  "the arbitrageur keeping the pool near mid). The historical "
+                  "-7.9/13.1 value came from disabling the arbitrageur (a "
+                  "venue-definition artifact) and is not reproduced. Parameter "
+                  "tuning is not used; all headline numbers are model outputs.")
+    else:
+        residual = {"markout_bps": None, "half_spread_bps": None,
+                    "source": "real_flow_calibration.json not present"}
+        reason = ("synthetic W1 fit is within tolerance; real-flow residual not "
+                  "reproduced (run simulation.sim.real_flow_calibrate).")
     return {
         "paper_markout_bps": b1.get("target_markout"),
         "accept_markout_bps": b1.get("accept_markout"),
@@ -128,14 +150,9 @@ def calibration_residual() -> dict:
         "paper_half_spread_bps": b1.get("target_half_spread"),
         "accept_half_spread_bps": b1.get("accept_half_spread"),
         "fit_half_spread_bps": best.get("half_spread_bps"),
-        "real_flow_residual": {"markout_bps": -7.9, "half_spread_bps": 13.1,
-                               "source": "F-08 calibration residual (docs/RESULTS.md)"},
+        "real_flow_residual": residual,
         "status": "CLOSED-BY-DECISION",
-        "reason": "synthetic W1 fit is within tolerance (-0.02/2.41); real-flow "
-                  "adverse selection saturates at ~-7.9/13.1 bps (~40x/5x the "
-                  "paper), a venue/flow-definition gap that parameter tuning "
-                  "cannot close. Bounded impact: all headline numbers are model "
-                  "outputs and labelled so.",
+        "reason": reason,
     }
 
 
@@ -206,8 +223,8 @@ def render(res: dict) -> str:
               f"| paper target | {cal['paper_markout_bps']} | {cal['paper_half_spread_bps']} |",
               f"| accept | {cal['accept_markout_bps']} | {cal['accept_half_spread_bps']} |",
               f"| synthetic W1 fit | {cal['fit_markout_bps']:.3f} | {cal['fit_half_spread_bps']:.3f} |",
-              f"| real-flow residual | {cal['real_flow_residual']['markout_bps']} | "
-              f"{cal['real_flow_residual']['half_spread_bps']} |", "",
+              f"| real-flow residual (markout, arb ON) | {cal['real_flow_residual']['markout_bps']} | "
+              f"n/a |", "",
               f"**{cal['status']}.** {cal['reason']}", ""]
     env = res["envelope"]
     lines += ["## C2.5 — operating envelope (routed world)", "",

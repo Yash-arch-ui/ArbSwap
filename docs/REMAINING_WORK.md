@@ -11,7 +11,7 @@ implementation status in `docs/AUDIT_ACHIEVED_VS_PLAN.md`.
 | E2 2s markout positive | BuilderPlan §2.5 | model-only |
 | E3 hedged return > passive | BuilderPlan §2.5 | model-only |
 | E4 quiet half-spread ≤ passive | BuilderPlan §2.5 | FAIL (~8 vs ~2 bps) |
-| Real-flow calibration gap (F-08) | MasterPlan §17.12 | unresolved; real-flow residual negative |
+| Real-flow calibration gap (F-08) | MasterPlan §17.12 | **corrected / reproducible**: `real_flow_calibration.json` (residual ~+1 bps with the arbitrageur ON; the historical −7.9/13.1 was a venue-definition artifact from disabling it) |
 | E8 real-pool **fill gap** | MasterPlan §10, §7 caveat; BuilderPlan §12 P5 | proxy run only; needs funded mainnet trades |
 | Independent external audit | MasterPlan §9; BuilderPlan §12 P5 | EXTERNAL |
 

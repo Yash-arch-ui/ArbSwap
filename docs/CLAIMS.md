@@ -44,7 +44,7 @@ APY or return projection.
 
 ```bash
 cargo test --workspace        # 157 Rust tests
-.venv/bin/pytest simulation -q # 204 Python tests
+.venv/bin/pytest simulation -q # 205 Python tests
 anchor build                  # SBF program
 ./scripts/headline.sh         # headline chart (no data/keys)
 ```

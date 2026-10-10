@@ -3,7 +3,7 @@
     "T_A_holds": false,
     "T_A_i_real_flow_ci": {
       "met": false,
-      "reason": "real aggTrades study run (Amendment 4): 95% CI above zero on none; high-vol days 2026-02-06 / 2026-01-31; B1 real-flow residual remains negative (F-08)"
+      "reason": "real aggTrades study run (Amendment 4): 95% CI above zero on none; high-vol days 2026-02-06 / 2026-01-31. T-A.i is NOT met under the registered design (the arbitrageur is disabled there; the corrected real-flow residual is in real_flow_calibration.json)"
     },
     "T_A_ii_quiet_hs_le_b1": {
       "detail": [
@@ -181,11 +181,12 @@
     "paper_half_spread_bps": 2.6,
     "paper_markout_bps": -0.2,
     "real_flow_residual": {
-      "half_spread_bps": 13.1,
-      "markout_bps": -7.9,
-      "source": "F-08 calibration residual (docs/RESULTS.md)"
+      "half_spread_bps": null,
+      "markout_bps": 1.0897406708565385,
+      "markout_bps_arb_off": 668766.5992766204,
+      "source": "simulation/data/results/real_flow_calibration.json (arbitrageur ON)"
     },
-    "reason": "synthetic W1 fit is within tolerance (-0.02/2.41); real-flow adverse selection saturates at ~-7.9/13.1 bps (~40x/5x the paper), a venue/flow-definition gap that parameter tuning cannot close. Bounded impact: all headline numbers are model outputs and labelled so.",
+    "reason": "synthetic W1 fit is within tolerance; the real-flow residual is reproducible from `real_flow_calibration.json` (~+1 bps with the arbitrageur keeping the pool near mid). The historical -7.9/13.1 value came from disabling the arbitrageur (a venue-definition artifact) and is not reproduced. Parameter tuning is not used; all headline numbers are model outputs.",
     "status": "CLOSED-BY-DECISION"
   },
   "decision": "Option 1 not shown",

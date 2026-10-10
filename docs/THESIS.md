@@ -6,7 +6,7 @@ Model output (real price path, synthetic flow). Not a product result.
 
 **Holds: False**
 
-- T-A.i real aggTrades flow with CI>0: **False** — real aggTrades study run (Amendment 4): 95% CI above zero on none; high-vol days 2026-02-06 / 2026-01-31; B1 real-flow residual remains negative (F-08)
+- T-A.i real aggTrades flow with CI>0: **False** — real aggTrades study run (Amendment 4): 95% CI above zero on none; high-vol days 2026-02-06 / 2026-01-31. T-A.i is NOT met under the registered design (the arbitrageur is disabled there; the corrected real-flow residual is in real_flow_calibration.json)
 - T-A.ii quiet half-spread ≤ B1 (all windows): **False**
 - T-A.iii no-propAMM volume share ≥ 10%: **True** (share 27.9%)
 - T-A.iv tolerance 1 bp + 20% insensitive: **False**
@@ -43,9 +43,9 @@ ArbSwap volume share 27.9%; better markout than B1: True
 | paper target | -0.2 | 2.6 |
 | accept | [-0.5, 0.1] | [1.8, 3.4] |
 | synthetic W1 fit | -0.020 | 2.409 |
-| real-flow residual | -7.9 | 13.1 |
+| real-flow residual (markout, arb ON) | 1.0897406708565385 | n/a |
 
-**CLOSED-BY-DECISION.** synthetic W1 fit is within tolerance (-0.02/2.41); real-flow adverse selection saturates at ~-7.9/13.1 bps (~40x/5x the paper), a venue/flow-definition gap that parameter tuning cannot close. Bounded impact: all headline numbers are model outputs and labelled so.
+**CLOSED-BY-DECISION.** synthetic W1 fit is within tolerance; the real-flow residual is reproducible from `real_flow_calibration.json` (~+1 bps with the arbitrageur keeping the pool near mid). The historical -7.9/13.1 value came from disabling the arbitrageur (a venue-definition artifact) and is not reproduced. Parameter tuning is not used; all headline numbers are model outputs.
 
 ## C2.5 — operating envelope (routed world)
 

@@ -1,0 +1,65 @@
+{
+  "days": [
+    "2026-09-10",
+    "2026-09-17",
+    "2026-10-01"
+  ],
+  "kind": "real-flow passive-pool (B1) calibration",
+  "note": "The arbitrageur keeps the pool near mid; disabling it inflates the residual (venue-definition artifact). The corrected residual is the `informed_on` column.",
+  "residual_informed_off_bps": 668766.5992766204,
+  "residual_informed_on_bps": 1.0897406708565385,
+  "residual_informed_on_half_spread_bps": 1272.9129475651043,
+  "rows": [
+    {
+      "day": "2026-09-10",
+      "informed_off": {
+        "day": "2026-09-10",
+        "informed": false,
+        "markout_2s_bps": 764288.0008497309,
+        "quiet_half_spread_bps": 8919.527523051856,
+        "trades": 5274
+      },
+      "informed_on": {
+        "day": "2026-09-10",
+        "informed": true,
+        "markout_2s_bps": 1.0798717694343818,
+        "quiet_half_spread_bps": 1373.8982644084424,
+        "trades": 7473
+      }
+    },
+    {
+      "day": "2026-09-17",
+      "informed_off": {
+        "day": "2026-09-17",
+        "informed": false,
+        "markout_2s_bps": 674221.9341946844,
+        "quiet_half_spread_bps": 9137.481337901108,
+        "trades": 5581
+      },
+      "informed_on": {
+        "day": "2026-09-17",
+        "informed": true,
+        "markout_2s_bps": 1.0901759370618647,
+        "quiet_half_spread_bps": 1410.6812132509476,
+        "trades": 8012
+      }
+    },
+    {
+      "day": "2026-10-01",
+      "informed_off": {
+        "day": "2026-10-01",
+        "informed": false,
+        "markout_2s_bps": 567789.862785446,
+        "quiet_half_spread_bps": 7996.586513973388,
+        "trades": 4651
+      },
+      "informed_on": {
+        "day": "2026-10-01",
+        "informed": true,
+        "markout_2s_bps": 1.099174306073369,
+        "quiet_half_spread_bps": 1034.159365035923,
+        "trades": 6924
+      }
+    }
+  ]
+}
