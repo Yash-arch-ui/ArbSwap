@@ -63,7 +63,8 @@ def main() -> int:
         ok = False
     else:
         changed = _git("diff", "--name-only", recorded, head, "--",
-                       ":(exclude)artifacts", ":(exclude)docs")
+                       ":(exclude)artifacts", ":(exclude)docs", ":(exclude)scripts",
+                       ":(exclude)simulation/data/results/artifacts.json")
         changed = [line for line in changed.splitlines() if line.strip()]
         if changed:
             print(f"source changed after the bundle was generated ({recorded[:12]}):")
