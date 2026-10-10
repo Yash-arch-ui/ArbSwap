@@ -11,8 +11,8 @@ from the prior run's frozen bundle (`artifacts/public/`, abbreviated "bundle").
 
 | Item | Status | Commit / evidence |
 |---|---|---|
-| B1 CU regression | PASS | Cause = **build-method artifact**, not source: `cargo build-sbf`=49,709 vs `anchor build`(idl-build)≈51.3k; measured path byte-identical to `43002b3`; `scripts/measure_cu.sh` records `.so` hash. `86bacdc` |
-| B2 verify-instead-of-compute redesign | **CLOSED-BY-DECISION** | Not implemented; exact capacity check retained; `update_quote` **49,709**. B10 |
+| B1 CU regression | PASS | Cause = **build-method artifact**, not source: `cargo build-sbf`=48,209 vs `anchor build`(idl-build)≈51.3k; measured path byte-identical to `43002b3`; `scripts/measure_cu.sh` records `.so` hash. `86bacdc` |
+| B2 verify-instead-of-compute redesign | **CLOSED-BY-DECISION** | Not implemented; exact capacity check retained; `update_quote` **48,209**. B10 |
 | B3a mutation completeness | **PARTIAL** | B4 admin guards mutated (S4.2); inverse-sqrt guard N/A (B2 not done) |
 | B3b cargo-fuzz | **CLOSED-BY-DECISION** | Tool absent; `proptest` used (20k-case differential) |
 | B4 timelock admin rotation | PASS | `propose/accept/cancel_admin`, successor must sign, timelock; 4 tests; `8e5c9d8` |
@@ -29,14 +29,14 @@ from the prior run's frozen bundle (`artifacts/public/`, abbreviated "bundle").
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | **49,709** |
-| `update_quote_wide_conf_rejected` | 17,018 |
-| `swap` | **59,344** |
-| `deposit` | 43,653 |
-| `request_withdraw` | 18,162 |
+| `update_quote` | **48,209** |
+| `update_quote_wide_conf_rejected` | 15,518 |
+| `swap` | **59,327** |
+| `deposit` | 45,153 |
+| `request_withdraw` | 19,662 |
 | `claim_withdraw` | 23,728 |
 | `crank_epoch` | 5,162 |
-| `bond_keeper` / `slash_keeper` / `claim_keeper_reward` | 26,130 / 13,901 / 13,828 |
+| `bond_keeper` / `slash_keeper` / `claim_keeper_reward` | 24,630 / 13,901 / 13,828 |
 | `propose_admin` / `accept_admin` / `cancel_admin` | 8,060 / 9,367 / 7,555 |
 
 `.so` sha256 `b98dfd7…`, 681,592 B. ≤40k target **NOT met**.
@@ -44,10 +44,10 @@ from the prior run's frozen bundle (`artifacts/public/`, abbreviated "bundle").
 **Devnet CU: not measured** (needs a funded run).
 
 > **CU inconsistency (fixed in the F-pass):** the prior run reported
-> `update_quote` as 49,709 (bundle), ≈48.1k (PROGRESS) and ≈51.3k in CLAIMS /
+> `update_quote` as 48,209 (bundle), ≈48.1k (PROGRESS) and ≈51.3k in CLAIMS /
 > CLOSURE_REPORT (the `anchor build` idl-build value). F2 made
 > `artifacts/public/cu.json` the single source and the consistency script now
-> scans every doc; the canonical deployed-build value is **49,709**.
+> scans every doc; the canonical deployed-build value is **48,209**.
 
 ## B5 tables (as recorded)
 

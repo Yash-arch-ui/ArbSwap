@@ -110,14 +110,14 @@ superseded and live only in the historical stage reports.
 
 | Instruction | CU |
 |---|---|
-| `update_quote` | **49,709** |
-| `update_quote_wide_conf_rejected` | 17,018 |
-| `swap` | **59,344** |
-| `deposit` | 43,653 |
-| `request_withdraw` | 18,162 |
+| `update_quote` | **48,209** |
+| `update_quote_wide_conf_rejected` | 15,518 |
+| `swap` | **59,327** |
+| `deposit` | 45,153 |
+| `request_withdraw` | 19,662 |
 | `claim_withdraw` | 23,728 |
 | `crank_epoch` | 5,162 |
-| `bond_keeper` | 26,130 |
+| `bond_keeper` | 24,630 |
 | `slash_keeper` | 13,901 |
 | `claim_keeper_reward` | 13,828 |
 | `unbond_keeper` (queue / release) | 16,242 / 18,379 |
@@ -170,7 +170,7 @@ Definition of the status words is now in `docs/STATUS.md`. Applying it:
   **PASS (offline)**.
 - **F2 CU single source:** every CU number in every doc is generated from
   `artifacts/public/cu.json`; `scripts/check_docs_consistency.py` scans all docs
-  and bans stale tokens. Canonical: `update_quote` **49,709**, `swap` **59,344**
+  and bans stale tokens. Canonical: `update_quote` **48,209**, `swap` **59,327**
   (`cargo build-sbf`; `.so` sha256 `b98dfd7…`).
 - **F3 bundle freshness:** the bundle is regenerated at HEAD and
   `scripts/check_bundle_freshness.py` (in CI) fails if the manifest drifts.

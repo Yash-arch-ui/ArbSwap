@@ -52,7 +52,7 @@ fn main() {
                 "arbswap-keeper live <rpc_url> <program_id> <vault> <config> <quote_state> \
                  <base_reserve> <quote_reserve> <price_feed> <keeper_bond> <keeper.json> \
                  <feed_id_hex> [max_staleness_s] [max_conf_bps] [base_atom_scale] \
-                 [priority_micro_lamports_per_cu] [run_seconds]"
+                 [priority_micro_lamports_per_cu] [run_seconds] [max_vol_bps] [lvr_budget_bps]"
             );
             println!("CSV: slot,publish_time,price_q64,confidence_bps,base_reserve,quote_reserve");
         }
@@ -465,10 +465,27 @@ fn live(args: Vec<String>) {
         .get(15)
         .map(|v| v.parse().expect("run_seconds"))
         .unwrap_or(0);
+    // P0/I2-I3: operator policy for the depth throttle. `max_vol_bps = 0`
+    // disables the volatility kill-switch; `lvr_budget_bps` is the active-depth
+    // cap from the LVR budget (10_000 = full depth, neutral default).
+    let max_vol_bps: u32 = args
+        .get(16)
+        .map(|v| v.parse().expect("max_vol_bps"))
+        .unwrap_or(0);
+    let lvr_budget_bps: u32 = args
+        .get(17)
+        .map(|v| v.parse().expect("lvr_budget_bps"))
+        .unwrap_or(10_000);
     let interval = Duration::from_millis(400);
 
     let params = KeeperParams {
         base_atom_scale,
+        max_vol_q64: if max_vol_bps == 0 {
+            u128::MAX
+        } else {
+            (max_vol_bps as u128) * arbswap_keeper::Q64 / 10_000
+        },
+        lvr_budget_bps,
         ..KeeperParams::default()
     };
     let mut core = KeeperCore::new(params);

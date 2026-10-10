@@ -464,6 +464,12 @@ pub fn compute_quote(
     if params.max_vol_q64 > 0 && sigma > params.max_vol_q64 {
         depth = 0;
     }
+    // Fail-closed: zero depth means "do not quote" (a zero-liquidity ladder
+    // would be rejected on-chain). Returning None lets the caller skip the
+    // update and let the previous quote expire.
+    if depth == 0 {
+        return None;
+    }
 
     let reservation_sqrt = sqrt_q64(reservation_price).ok()?;
     let anchor_sqrt = sqrt_q64(tick.price_q64).ok()?;
@@ -1565,11 +1571,10 @@ mod tests {
             0,
             0,
             params,
-        )
-        .unwrap();
-        assert_eq!(
-            quote.depth_mult_bps, 0,
-            "a volatility spike must stop quoting"
+        );
+        assert!(
+            quote.is_none(),
+            "a volatility spike must stop quoting (no quote)"
         );
     }
 

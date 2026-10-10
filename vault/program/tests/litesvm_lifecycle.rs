@@ -1547,6 +1547,9 @@ fn flow_accumulator_tracks_net_base_and_resets() {
         fixture.quote_state_value().flow_n > 0,
         "vault sold base on net -> flow_n must be positive"
     );
+    // The rolling window cap is a separate accumulator: it is NOT reset by
+    // re-quoting (only by the slot window rolling).
+    assert!(fixture.quote_state_value().window_base_sold > 0);
 
     // Re-quoting resets the accumulator.
     fixture.warp_to_slot(SLOT + 3);
@@ -1555,6 +1558,10 @@ fn flow_accumulator_tracks_net_base_and_resets() {
         .update_quote(&keys.keeper, honest, quote_update(SLOT + 2))
         .expect("re-quote");
     assert_eq!(fixture.quote_state_value().flow_n, 0);
+    assert!(
+        fixture.quote_state_value().window_base_sold > 0,
+        "the rolling window cap must not be reset by re-quoting"
+    );
 }
 
 /// Token-2022 owned accounts must be rejected by the classic `Program<Token>`
