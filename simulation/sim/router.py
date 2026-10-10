@@ -38,8 +38,11 @@ class Venue:
     trades: list = field(default_factory=list)
     orders: int = 0
     notional: float = 0.0
+    filled_notional: float = 0.0
     fills: int = 0
     rejects: int = 0
+    informed_notional: float = 0.0
+    noise_notional: float = 0.0
 
 
 def _build(kind, *, params, b1_fee, prop_hs, latency_steps, start_price, vault_fee_bps=1.0):
@@ -116,6 +119,7 @@ def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s
             _edge, v, side = max(edges, key=lambda e: e[0])
             amount_in = informed_max_notional if side == "buy" else informed_max_notional / ref
             _apply(v, side, amount_in, ref, prop_ref, record)
+            v.informed_notional += amount_in if side == "buy" else amount_in * ref
 
         # --- noise: price-insensitive share, else best exec within tolerance ---
         for side, size in orders_by_step.get(step, []):
@@ -135,8 +139,10 @@ def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s
                                  or (side == "sell" and quotes[v.name] >= tol))]
                 target = min(eligible, key=lambda v: quotes[v.name]) if side == "buy" else max(eligible, key=lambda v: quotes[v.name])
             _apply(target, side, amount_in, ref, prop_ref, record)
+            target.noise_notional += amount_in if side == "buy" else amount_in * ref
 
     total_notional = sum(v.notional for v in venues) or 1.0
+    total_filled_notional = sum(v.filled_notional for v in venues) or 1.0
     total_fills = sum(v.fills for v in venues) or 1
     rows = []
     for v in venues:
@@ -152,15 +158,19 @@ def route_window(prices, *, params=None, b1_fee=1.0, prop_hs=0.5, prop_latency_s
             "venue": v.name,
             "orders": v.orders,
             "notional_quote": v.notional,
-            "volume_share": v.notional / total_notional,
+            "filled_notional_quote": v.filled_notional,
+            "volume_share": v.filled_notional / total_filled_notional,
+            "attempt_share": v.notional / total_notional,
             "fill_share": v.fills / total_fills,
             "markout_2s_bps": mo,
-            "hedged_pnl_quote": mo * v.notional / 10_000.0,  # venue 2s PnL
+            "hedged_pnl_quote": mo * v.filled_notional / 10_000.0,  # venue 2s PnL
             "quiet_half_spread_bps": retail_half_spread_bps(trades, lookup, step_seconds=1.0),
             "half_spread_p50_bps": _pct(0.50),
             "half_spread_p95_bps": _pct(0.95),
             "gap_bps": notional_weighted_gap(trades),
             "rejection_rate": (v.rejects / v.orders) if v.orders else 0.0,
+            "informed_volume_share": v.informed_notional / total_notional,
+            "noise_volume_share": v.noise_notional / total_notional,
         })
     return rows
 
@@ -180,6 +190,7 @@ def _apply(v: Venue, side: str, amount_in: float, ref: float, prop_ref: float, r
             v.rejects += 1
             return
     v.fills += 1
+    v.filled_notional += notional
     record(v, side, amount_in, price)
 
 

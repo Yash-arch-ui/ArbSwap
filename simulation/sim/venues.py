@@ -31,7 +31,9 @@ from simulation.reference.quote_math import (
     Quote,
     QuoteParams,
     VolatilityState,
+    compute_half_spread,
     compute_quote,
+    inventory_imbalance,
     walk_ladder,
 )
 
@@ -183,6 +185,10 @@ class VaultVenue:
     edge_trips: int = 0
     edge_min: float = 0.0
     tripped: bool = False
+    # F4: optional per-refresh spread-term decomposition (diagnosis only; off by
+    # default so it never changes a run).
+    record_terms: bool = False
+    spread_terms: list = field(default_factory=list)
 
     @property
     def available_base(self) -> float:
@@ -215,7 +221,8 @@ class VaultVenue:
             self.tripped = True
 
     def refresh(self, *, price: float, confidence: float, age: float,
-                previous_price: float | None, depth_budget: float = 1.0) -> None:
+                previous_price: float | None, depth_budget: float = 1.0,
+                now: float = 0.0) -> None:
         # The quote a trader could have read at the end of the previous slot.
         self.displayed_quote = self.quote_state
         # S3.2: the verified oracle stored at this update, used by the edge tracker.
@@ -238,6 +245,10 @@ class VaultVenue:
                 apply_throttle=self.throttle_enabled,
                 depth_override=self.depth_override,
             )
+            if self.record_terms:
+                self.spread_terms.append(self._spread_terms(
+                    price, base_avail, quote_avail, confidence, age, previous_price,
+                    now))
         else:
             quote = compute_quote(
                 price=price,
@@ -263,6 +274,36 @@ class VaultVenue:
                 depth_override=self.depth_override,
             )
         self.quote_state = quote
+
+    def _spread_terms(self, price: float, base_avail: float, quote_avail: float,
+                      confidence: float, age: float,
+                      previous_price: float | None, now: float = 0.0) -> dict:
+        """F4 diagnosis: decompose the quoted half-spread into its Section 5.5
+        terms (floor, volatility, inventory, confidence, age, jump) plus the
+        Section 5.6 directional add-on. Pure; does not affect the run."""
+        q = inventory_imbalance(base_avail, quote_avail, price)
+        params = self.params
+        sigma = self.volatility.sigma_short
+        jump = self.volatility.jump_flag
+        floor = params.spread_floor
+        volatility = params.volatility_coeff * sigma
+        inventory = params.inventory_coeff * abs(q)
+        confidence_term = params.confidence_coeff * confidence / price
+        age_term = params.age_coeff * max(0.0, age - params.age_grace)
+        jump_term = params.jump_extra if jump else 0.0
+        raw = floor + volatility + inventory + confidence_term + age_term + jump_term
+        spread = compute_half_spread(sigma_short=sigma, inventory_q=q,
+                                     confidence=confidence, price=price, age=age,
+                                     jump_flag=jump, params=params)
+        ask_extra = bid_extra = 0.0
+        if previous_price is not None and previous_price > 0:
+            move = (price - previous_price) / previous_price
+            ask_extra = params.directional_coeff * max(0.0, move)
+            bid_extra = params.directional_coeff * max(0.0, -move)
+        return {"floor": floor, "volatility": volatility, "inventory": inventory,
+                "confidence": confidence_term, "age": age_term, "jump": jump_term,
+                "raw": raw, "spread": spread, "ask_extra": ask_extra,
+                "bid_extra": bid_extra, "now": now}
 
     def _preview_fill(self, side: str, amount_in: float
                       ) -> tuple[float, float, float, float | None]:

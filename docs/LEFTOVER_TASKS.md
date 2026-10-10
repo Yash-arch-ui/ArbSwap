@@ -1,3 +1,4 @@
+<!-- cu-scan: historical-snapshot -->
 # LEFTOVER TASKS — making the IDEA true (not just the code compile)
 
 ## 0. The intent (from MasterPlan §1-2, §7, §15; BuilderPlan §2-3, §15)

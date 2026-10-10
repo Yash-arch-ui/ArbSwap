@@ -1,3 +1,4 @@
+<!-- cu-scan: historical-snapshot -->
 # STAGE_REPORT.md — ArbSwap principal-engineer run (S0–S5)
 
 Consolidated report of the Stage 0–S5 run. Working branch **`main`** (per

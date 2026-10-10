@@ -23,7 +23,7 @@ APY or return projection.
 | 5b | Open keeper network (permissionless, competing keepers) | **NOT CLAIMED** | — | the MVP allowlists `config.keeper`; no competing keepers |
 | 6 | Two-sided quoting (bid + ask) | **SUPPORTED** | `keeper_two_sided_quote_executes_both_directions`, `two_sided_ladder_is_mirrored_at_zero_skew` (`fdc97c7`); Python parity ask+bid (`test_keeper_parity.py`) | the keeper emits both sides; on-chain stores both |
 | 7 | Automatic realized-loss breaker | **SUPPORTED (on-chain + simulator)** | on-chain: `malicious_keeper_edge_loss_trips_within_the_window`, `honest_flow_does_not_trip_the_edge_breaker`, `deposits_and_withdrawals_do_not_move_the_edge_tracker` (`32f870c`); simulator trip-rate: `python -m simulation.sim.edge_breaker` (0 honest trips across W2–W6, 50/100/300 bps jumps, 0.2/1.0/4.0 s latency) | **detects keeper mis-anchoring against the stored oracle; does NOT detect oracle-lag losses.** The zero honest trip count follows **partly by construction** (the honest keeper quotes around the same stored oracle, so every fill earns the spread, edge ≥ 0). Realized loss at a trip ≤ threshold + largest single-swap edge |
-| 8 | Update/swap compute units (honest) | **SUPPORTED (measurement)** | `measure_instruction_compute_units`; `simulation/data/results/cu.json`; `docs/SECURITY_CHECKLIST.md` §3 | `update_quote` **51,296**, `swap` **61,513** CU (LiteSVM). The ≤40k target is not met. Updates are **not** low-cost vs the paper's 485–676 (not like-for-like: the paper excludes on-chain oracle verification) |
+| 8 | Update/swap compute units (honest) | **SUPPORTED (measurement)** | `measure_instruction_compute_units`; `artifacts/public/cu.json`; `docs/SECURITY_CHECKLIST.md` §3 | `update_quote` **48,158**, `swap` **59,258** CU (LiteSVM, `cargo build-sbf`). The ≤40k target is not met. Updates are **not** low-cost vs the paper's 485–676 (not like-for-like: the paper excludes on-chain oracle verification) |
 | 16 | Single-source-of-truth numbers | **SUPPORTED** | `scripts/export_artifacts.py` → `simulation/data/results/artifacts.json`; `scripts/check_docs_consistency.py` (CI) | docs regenerate from the bundle; provenance + superseded table in `docs/RESULTS.md` |
 | 17 | "Beats passive pools" (Option 1) | **NOT CLAIMED** | `docs/THESIS.md` (pre-registered Amendment 3): T-A not shown | T-A.i real-flow CI not run; T-A.ii quiet half-spread worse than B1; no-propAMM niche share 27.9% only |
 | 18 | Competitiveness vs tight propAMMs | **NOT CLAIMED** | `docs/THESIS.md` T-B: ArbSwap 0.0–0.7% routed share vs a propAMM-like 0.3–2.0 bps | the propAMM-like venue is a model, not a measured competitor |
@@ -34,12 +34,17 @@ APY or return projection.
 | 13 | Independent audit | **NOT CLAIMED** | same-agent self-review | external audit required before real funds |
 | 14 | Interactive demo mode / dashboard | **SUPPORTED (offline model output)** | `simulation/analytics/demo.py` + `test_phase4.py`; backup `docs/demo_backup.html` + `test_backup.py` | fixed-seed simulator replay, not live data; the separate `frontend/` dApp is NOT built |
 | 15 | Headline chart reproducible from README | **SUPPORTED** | `simulation/sim/test_headline.py`; `./scripts/headline.sh` → `docs/headline_chart.svg` | model output; synthetic price-path fallback when raw data is absent |
+| 16 | Keeper offline pre-validation (never sends a knowably-invalid quote) | **SUPPORTED (offline)** | `arbswap_keeper::prevalidate_quote`; 12 tests in `vault/keeper/src/lib.rs` (spread/anchor/inventory/capacity/slot/conf + failure injection) | offline only; live-devnet injection SKIPPED (no keypair) |
+| 17 | Timelocked admin rotation | **SUPPORTED (LiteSVM)** | `propose_admin`/`accept_admin`/`cancel_admin`; `admin_rotation_*` tests; mutation S4.2 | successor must sign; Squads multisig is wallet-level (external) |
+| 18 | F5 high-volatility real windows | **PASS (honest: T-A.i not met)** | `simulation/sim/real_flow_study.py`; 2026-02-06 (3.79×σ_ref) and 2026-01-31 (2.44×σ_ref) | model output; T-A.i CI above zero on 0/5 days |
+| 19 | F4 retail spread diagnosis | **SUPPORTED (model output)** | `simulation/sim/diagnose.py` → `diagnosis.json`; dominant term volatility (~42%) | model output; router flaw fixed + regression |
+| 20 | F4(d) coefficient re-choice | **CLOSED-BY-DECISION (mechanical)** | `simulation/sim/rechoice.py`; no candidate satisfies PnL≥0 ∧ quiet HS≤B1 → frozen params retained | decision rule applied; Option 1 unchanged |
 
 ## Commands
 
 ```bash
-cargo test --workspace        # 137 Rust tests
-.venv/bin/pytest simulation -q # 192 Python tests
+cargo test --workspace        # 148 Rust tests
+.venv/bin/pytest simulation -q # 193 Python tests
 anchor build                  # SBF program
 ./scripts/headline.sh         # headline chart (no data/keys)
 ```

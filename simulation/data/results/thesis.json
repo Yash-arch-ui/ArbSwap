@@ -3,7 +3,7 @@
     "T_A_holds": false,
     "T_A_i_real_flow_ci": {
       "met": false,
-      "reason": "real aggTrades held-out study with bootstrap CIs not run; measured real-flow B1 saturates at ~-7.9/13 bps (F-08)"
+      "reason": "real aggTrades study run (Amendment 4): 95% CI above zero on none; high-vol days 2026-02-06 / 2026-01-31; B1 real-flow residual remains negative (F-08)"
     },
     "T_A_ii_quiet_hs_le_b1": {
       "detail": [

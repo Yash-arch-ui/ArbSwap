@@ -68,9 +68,18 @@ def generated_block(b: dict) -> str:
                  + " bps.")
     lines.append("")
     lines.append(f"**Cost (E10, source: `{b['cu'].get('source', 'n/a')}`):** "
-                 f"`update_quote` **{cost['cu_update_quote']} CU**, "
-                 f"`swap` **{cost['cu_swap']} CU**; "
+                 f"`update_quote` **{cost['cu_update_quote']:,} CU**, "
+                 f"`swap` **{cost['cu_swap']:,} CU**; "
                  f"cost/update {cost['update_total_quote']:.5f} quote @ SOL={cost['sol_price']:.0f}.")
+    lines.append("")
+    lines.append(f"**Compute units (single source: `artifacts/public/cu.json`; build "
+                 f"`{b['cu'].get('build_method', 'n/a')}`; `.so` sha256 "
+                 f"`{str(b['cu'].get('so_sha256', 'n/a'))[:12]}…`).**")
+    lines.append("")
+    lines.append("| Instruction | CU |")
+    lines.append("|---|---|")
+    for name, value in sorted(b["cu"]["instructions"].items()):
+        lines.append(f"| `{name}` | {value:,} |")
     lines.append("")
     lines.append(f"**Tests:** {tc['rust']} Rust / {tc['python']} Python. "
                  f"**Guard mutations:** {mut['total']} caught "

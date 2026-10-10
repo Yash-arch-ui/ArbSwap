@@ -501,6 +501,226 @@ fn mul_div(a: u128, b: u128, c: u128) -> Option<u128> {
     }
 }
 
+/// BPS denominator, matching the on-chain constant.
+pub const BPS_DENOM: u32 = 10_000;
+/// Largest allowed outermost ladder offset, matching the on-chain constant.
+pub const MAX_LEVEL_OFFSET_BPS: u32 = 500;
+
+/// Every knowable bound the program enforces in `update_quote` that the keeper
+/// can check **offline**, before it spends a transaction. Verify-before-send:
+/// the keeper must never emit a quote the program would reject for one of these
+/// reasons (F6). The Pyth-account checks (`price == update.oracle_price`,
+/// confidence equality) cannot be mirrored offline and are excluded; the local
+/// pre-check covers everything derived from `Config` and the reserves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PrevalidateBounds {
+    pub min_spread_bps: u32,
+    pub max_spread_bps: u32,
+    pub max_anchor_step_bps: u32,
+    pub max_anchor_dev_bps: u32,
+    pub max_inventory_bps: u32,
+    pub utilization_max_bps: u32,
+    pub max_conf_bps: u32,
+    pub max_update_slot_age: u64,
+    pub max_staleness_seconds: i64,
+    pub now_publish_time: i64,
+    pub previous_anchor_sqrt_price: u128,
+    pub available_base: u128,
+    pub available_quote: u128,
+    pub now_slot: u64,
+}
+
+impl Default for PrevalidateBounds {
+    /// Permissive defaults so the check is opt-in; callers tighten every field
+    /// from the vault's `Config` before enabling it on the live path.
+    fn default() -> Self {
+        Self {
+            min_spread_bps: 0,
+            max_spread_bps: u32::MAX,
+            max_anchor_step_bps: u32::MAX,
+            max_anchor_dev_bps: u32::MAX,
+            max_inventory_bps: 9_999,
+            utilization_max_bps: 10_000,
+            max_conf_bps: u32::MAX,
+            max_update_slot_age: u64::MAX,
+            max_staleness_seconds: i64::MAX,
+            now_publish_time: 0,
+            previous_anchor_sqrt_price: 0,
+            available_base: u128::MAX,
+            available_quote: u128::MAX,
+            now_slot: u64::MAX,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrevalidateError {
+    ZeroPrice,
+    NonMonotonicSlot,
+    SlotTooOld,
+    StaleOracle,
+    WideConfidence,
+    SpreadOutOfBounds,
+    BadWeights,
+    BadLadder,
+    AnchorStepTooLarge,
+    AnchorTooFarFromOracle,
+    InventoryOutOfBounds,
+    LevelOutOfBounds,
+    UtilizationExceeded,
+    MathOverflow,
+}
+
+/// The same math the program runs, applied to the quote payload before send.
+pub fn prevalidate_quote(
+    update: &QuoteUpdate,
+    bounds: &PrevalidateBounds,
+) -> Result<(), PrevalidateError> {
+    if update.oracle_price_q64 == 0 {
+        return Err(PrevalidateError::ZeroPrice);
+    }
+    if update.slot > bounds.now_slot {
+        return Err(PrevalidateError::NonMonotonicSlot);
+    }
+    if bounds.now_slot.saturating_sub(update.slot) > bounds.max_update_slot_age {
+        return Err(PrevalidateError::SlotTooOld);
+    }
+    if update.publish_time < 0
+        || bounds
+            .now_publish_time
+            .saturating_sub(update.publish_time)
+            > bounds.max_staleness_seconds
+    {
+        return Err(PrevalidateError::StaleOracle);
+    }
+    if update.confidence_bps > bounds.max_conf_bps {
+        return Err(PrevalidateError::WideConfidence);
+    }
+    if update.half_spread_bps < bounds.min_spread_bps
+        || update.half_spread_bps > bounds.max_spread_bps
+    {
+        return Err(PrevalidateError::SpreadOutOfBounds);
+    }
+    if update.weights_bps.iter().map(|v| *v as u64).sum::<u64>() != BPS_DENOM as u64 {
+        return Err(PrevalidateError::BadWeights);
+    }
+    if !update.offsets_bps.windows(2).all(|w| w[0] < w[1])
+        || update.offsets_bps[LEVELS - 1] > MAX_LEVEL_OFFSET_BPS
+    {
+        return Err(PrevalidateError::BadLadder);
+    }
+    if !update
+        .ask_levels
+        .iter()
+        .chain(update.bid_levels.iter())
+        .all(|l| l.sqrt_lo > 0 && l.sqrt_lo < l.sqrt_hi && l.liquidity > 0)
+    {
+        return Err(PrevalidateError::BadLadder);
+    }
+    if bounds.previous_anchor_sqrt_price > 0 {
+        let old = bounds.previous_anchor_sqrt_price;
+        let diff = update.anchor_sqrt_price.abs_diff(old);
+        if diff.saturating_mul(BPS_DENOM as u128)
+            > old.saturating_mul(bounds.max_anchor_step_bps as u128)
+        {
+            return Err(PrevalidateError::AnchorStepTooLarge);
+        }
+    }
+    let anchor_price = arb_math::price_from_sqrt(update.anchor_sqrt_price)
+        .map_err(|_| PrevalidateError::MathOverflow)?;
+    if anchor_price == 0 {
+        return Err(PrevalidateError::ZeroPrice);
+    }
+    let oracle = update.oracle_price_q64;
+    if anchor_price.abs_diff(oracle).saturating_mul(BPS_DENOM as u128)
+        > oracle.saturating_mul(bounds.max_anchor_dev_bps as u128)
+    {
+        return Err(PrevalidateError::AnchorTooFarFromOracle);
+    }
+    let reservation = arb_math::price_from_sqrt(update.reservation_sqrt_price)
+        .map_err(|_| PrevalidateError::MathOverflow)?;
+    let inventory = bounds.max_inventory_bps.min(BPS_DENOM - 1);
+    let res_upper = arb_math::mul_div_ceil(
+        anchor_price,
+        (BPS_DENOM + inventory) as u128,
+        BPS_DENOM as u128,
+    )
+    .ok_or(PrevalidateError::MathOverflow)?;
+    let res_lower = arb_math::mul_div_floor(
+        anchor_price,
+        (BPS_DENOM - inventory) as u128,
+        BPS_DENOM as u128,
+    )
+    .ok_or(PrevalidateError::MathOverflow)?;
+    if reservation > res_upper || reservation < res_lower {
+        return Err(PrevalidateError::InventoryOutOfBounds);
+    }
+    let outer = update.offsets_bps[LEVELS - 1];
+    let ask_band = update
+        .half_spread_bps
+        .saturating_add(update.ask_extra_bps)
+        .saturating_add(outer)
+        .min(MAX_LEVEL_OFFSET_BPS);
+    let bid_band = update
+        .half_spread_bps
+        .saturating_add(update.bid_extra_bps)
+        .saturating_add(outer)
+        .min(MAX_LEVEL_OFFSET_BPS);
+    let upper = arb_math::mul_div_ceil(
+        reservation,
+        (BPS_DENOM + ask_band) as u128,
+        BPS_DENOM as u128,
+    )
+    .ok_or(PrevalidateError::MathOverflow)?;
+    let lower = arb_math::mul_div_floor(
+        reservation,
+        (BPS_DENOM - bid_band.min(BPS_DENOM - 1)) as u128,
+        BPS_DENOM as u128,
+    )
+    .ok_or(PrevalidateError::MathOverflow)?;
+    let epsilon = reservation / 1_000_000;
+    for level in update.ask_levels.iter().chain(update.bid_levels.iter()) {
+        let lo = arb_math::price_from_sqrt(level.sqrt_lo)
+            .map_err(|_| PrevalidateError::MathOverflow)?;
+        let hi = arb_math::price_from_sqrt(level.sqrt_hi)
+            .map_err(|_| PrevalidateError::MathOverflow)?;
+        if !(lo.saturating_add(epsilon) >= lower && hi <= upper.saturating_add(epsilon)) {
+            return Err(PrevalidateError::LevelOutOfBounds);
+        }
+    }
+    let mut ask_base_capacity = 0u128;
+    for level in update.ask_levels.iter() {
+        ask_base_capacity = ask_base_capacity
+            .checked_add(
+                level
+                    .base_capacity()
+                    .map_err(|_| PrevalidateError::MathOverflow)?,
+            )
+            .ok_or(PrevalidateError::MathOverflow)?;
+    }
+    let mut bid_quote_capacity = 0u128;
+    for level in update.bid_levels.iter() {
+        bid_quote_capacity = bid_quote_capacity
+            .checked_add(
+                level
+                    .quote_capacity()
+                    .map_err(|_| PrevalidateError::MathOverflow)?,
+            )
+            .ok_or(PrevalidateError::MathOverflow)?;
+    }
+    if ask_base_capacity.saturating_mul(BPS_DENOM as u128)
+        > bounds.available_base.saturating_mul(bounds.utilization_max_bps as u128)
+    {
+        return Err(PrevalidateError::UtilizationExceeded);
+    }
+    if bid_quote_capacity.saturating_mul(BPS_DENOM as u128)
+        > bounds.available_quote.saturating_mul(bounds.utilization_max_bps as u128)
+    {
+        return Err(PrevalidateError::UtilizationExceeded);
+    }
+    Ok(())
+}
+
 pub fn should_update(
     previous: Option<QuoteUpdate>,
     next: &QuoteUpdate,
@@ -536,6 +756,13 @@ pub struct KeeperCore {
     pub regime_delta_bps: u32,
     pub priority_floor: u64,
     pub priority_cap: u64,
+    /// When set, every candidate quote is run through [`prevalidate_quote`]
+    /// before it is returned, so the keeper never emits a quote the program
+    /// would reject for a knowable reason (F6). `None` disables the local gate.
+    pub bounds: Option<PrevalidateBounds>,
+    /// The last quote the keeper *believes* is on chain, used for the anchor
+    /// step bound when prevalidation is enabled. Reset to 0 on a send failure.
+    pub accepted_anchor_sqrt_price: u128,
 }
 
 impl KeeperCore {
@@ -550,7 +777,23 @@ impl KeeperCore {
             regime_delta_bps: 2,
             priority_floor: 1_000,
             priority_cap: 50_000,
+            bounds: None,
+            accepted_anchor_sqrt_price: 0,
         }
+    }
+
+    /// Enable the offline pre-validation gate and reset the accepted anchor.
+    pub fn with_bounds(mut self, bounds: PrevalidateBounds) -> Self {
+        self.bounds = Some(bounds);
+        self.accepted_anchor_sqrt_price = bounds.previous_anchor_sqrt_price;
+        self
+    }
+
+    /// A failed send must not advance the "last on chain" anchor, so the next
+    /// tick is re-quoted against the state the chain actually holds.
+    pub fn on_send_failure(&mut self) {
+        self.previous = None;
+        self.accepted_anchor_sqrt_price = 0;
     }
 
     /// Process one tick. Returns `Some((quote, priority_fee))` when the update
@@ -576,6 +819,15 @@ impl KeeperCore {
             previous_price,
             self.params,
         )?;
+        if let Some(bounds) = self.bounds {
+            let bounds = PrevalidateBounds {
+                previous_anchor_sqrt_price: self.accepted_anchor_sqrt_price,
+                ..bounds
+            };
+            if prevalidate_quote(&next, &bounds).is_err() {
+                return None;
+            }
+        }
         if should_update(
             self.previous,
             &next,
@@ -1209,5 +1461,210 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(run(), run());
+    }
+
+    // --- F6: offline pre-validation and failure injection --------------------
+
+    fn sample_quote_and_bounds() -> (QuoteUpdate, PrevalidateBounds) {
+        let tick = OracleTick {
+            slot: 100,
+            publish_time: 1_000,
+            price_q64: 150 * Q64,
+            confidence_bps: 1,
+        };
+        let params = KeeperParams::default();
+        let base: u128 = 1_000_000_000_000;
+        let quote: u128 = base * 150;
+        let update =
+            compute_quote(tick, VolatilityState::default(), base, quote, 0, 0, params).unwrap();
+        let bounds = PrevalidateBounds {
+            min_spread_bps: 0,
+            max_spread_bps: 500,
+            max_anchor_step_bps: 1_000,
+            max_anchor_dev_bps: 100,
+            max_inventory_bps: 500,
+            utilization_max_bps: params.utilization_bps,
+            max_conf_bps: 50,
+            max_update_slot_age: 100,
+            max_staleness_seconds: 60,
+            now_publish_time: 1_010,
+            previous_anchor_sqrt_price: 0,
+            available_base: base,
+            available_quote: quote,
+            now_slot: 100,
+        };
+        (update, bounds)
+    }
+
+    #[test]
+    fn prevalidate_accepts_a_computed_quote() {
+        let (update, bounds) = sample_quote_and_bounds();
+        assert_eq!(prevalidate_quote(&update, &bounds), Ok(()));
+    }
+
+    #[test]
+    fn prevalidate_rejects_a_wide_confidence() {
+        let (update, bounds) = sample_quote_and_bounds();
+        let bounds = PrevalidateBounds {
+            max_conf_bps: 0,
+            ..bounds
+        };
+        assert_eq!(
+            prevalidate_quote(&update, &bounds),
+            Err(PrevalidateError::WideConfidence)
+        );
+    }
+
+    #[test]
+    fn prevalidate_rejects_an_out_of_bounds_spread() {
+        let (update, bounds) = sample_quote_and_bounds();
+        let bounds = PrevalidateBounds {
+            max_spread_bps: 1,
+            ..bounds
+        };
+        assert_eq!(
+            prevalidate_quote(&update, &bounds),
+            Err(PrevalidateError::SpreadOutOfBounds)
+        );
+    }
+
+    #[test]
+    fn prevalidate_rejects_a_slot_from_the_future_or_a_stale_one() {
+        let (update, bounds) = sample_quote_and_bounds();
+        let future = PrevalidateBounds {
+            now_slot: update.slot - 1,
+            ..bounds
+        };
+        assert_eq!(
+            prevalidate_quote(&update, &future),
+            Err(PrevalidateError::NonMonotonicSlot)
+        );
+        let stale = PrevalidateBounds {
+            max_update_slot_age: 1,
+            now_slot: update.slot + 10,
+            ..bounds
+        };
+        assert_eq!(
+            prevalidate_quote(&update, &stale),
+            Err(PrevalidateError::SlotTooOld)
+        );
+    }
+
+    #[test]
+    fn prevalidate_rejects_a_stale_oracle() {
+        let (update, bounds) = sample_quote_and_bounds();
+        let stale = PrevalidateBounds {
+            max_staleness_seconds: 0,
+            now_publish_time: update.publish_time + 10,
+            ..bounds
+        };
+        assert_eq!(
+            prevalidate_quote(&update, &stale),
+            Err(PrevalidateError::StaleOracle)
+        );
+    }
+
+    #[test]
+    fn prevalidate_rejects_an_anchor_step() {
+        let (update, bounds) = sample_quote_and_bounds();
+        let stepped = PrevalidateBounds {
+            max_anchor_step_bps: 1,
+            previous_anchor_sqrt_price: update.anchor_sqrt_price / 2,
+            ..bounds
+        };
+        assert_eq!(
+            prevalidate_quote(&update, &stepped),
+            Err(PrevalidateError::AnchorStepTooLarge)
+        );
+    }
+
+    #[test]
+    fn prevalidate_rejects_an_oversized_ladder() {
+        let (update, bounds) = sample_quote_and_bounds();
+        let tiny = PrevalidateBounds {
+            available_base: 1,
+            available_quote: 1,
+            ..bounds
+        };
+        assert_eq!(
+            prevalidate_quote(&update, &tiny),
+            Err(PrevalidateError::UtilizationExceeded)
+        );
+    }
+
+    #[test]
+    fn keeper_core_suppresses_a_quote_with_insufficient_reserves() {
+        let tick = OracleTick {
+            slot: 1,
+            publish_time: 1,
+            price_q64: 150 * Q64,
+            confidence_bps: 1,
+        };
+        let bounds = PrevalidateBounds {
+            available_base: 1,
+            available_quote: 1,
+            now_slot: 1,
+            ..Default::default()
+        };
+        let mut core = KeeperCore::new(KeeperParams::default()).with_bounds(bounds);
+        assert!(
+            core.step(tick, 1_000_000_000_000, 150_000_000_000_000, 0, 1_000)
+                .is_none(),
+            "an oversized quote must be suppressed, not sent"
+        );
+    }
+
+    #[test]
+    fn send_failure_forgets_the_accepted_anchor() {
+        let (update, bounds) = sample_quote_and_bounds();
+        let mut core = KeeperCore::new(KeeperParams::default()).with_bounds(bounds);
+        core.accepted_anchor_sqrt_price = 123;
+        core.previous = Some(update);
+        core.on_send_failure();
+        assert_eq!(core.accepted_anchor_sqrt_price, 0);
+        assert!(core.previous.is_none());
+    }
+
+    #[test]
+    fn duplicate_sends_are_byte_identical() {
+        use solana_signer::Signer;
+        let keeper = Keypair::new();
+        let (quote, _) = sample_quote_and_bounds();
+        let plan = UpdateQuotePlan {
+            program_id: Address::new_from_array([1u8; 32]),
+            keeper: keeper.pubkey(),
+            vault: Address::new_from_array([2u8; 32]),
+            config: Address::new_from_array([3u8; 32]),
+            quote_state: Address::new_from_array([4u8; 32]),
+            price_update: Address::new_from_array([5u8; 32]),
+            keeper_bond: Address::new_from_array([6u8; 32]),
+            base_reserve: Address::new_from_array([7u8; 32]),
+            quote_reserve: Address::new_from_array([8u8; 32]),
+            recent_blockhash: Hash::new_from_array([9u8; 32]),
+            compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
+        };
+        let first = build_update_quote_transaction(&plan, &keeper, &quote, 1_000);
+        let second = build_update_quote_transaction(&plan, &keeper, &quote, 1_000);
+        assert_eq!(
+            first.signatures[0], second.signatures[0],
+            "same quote + blockhash must yield one signature the cluster de-duplicates"
+        );
+    }
+
+    #[test]
+    fn clock_skew_is_absorbed_by_the_time_normalised_ewma() {
+        // A two-second gap must not inflate the per-second variance: the decay
+        // is lambda^n and the innovation is r^2/n.
+        let state = VolatilityState {
+            variance_short_q64: 0,
+            variance_medium_q64: 0,
+            previous_price_q64: 100 * Q64,
+            jump: false,
+        };
+        let one = state.update_with_dt(101 * Q64, 1_000, 9_400, 9_900, 4);
+        let two = state.update_with_dt(101 * Q64, 2_000, 9_400, 9_900, 4);
+        // Both estimate the same one-second variance from a 1% move; the 2 s
+        // sample halves the innovation, so it cannot exceed the 1 s variance.
+        assert!(two.variance_short_q64 <= one.variance_short_q64);
     }
 }

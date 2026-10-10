@@ -1,0 +1,40 @@
+{
+  "candidates": [
+    {
+      "feasible": false,
+      "mean_arb_hedged_pnl": -5.637492192780138,
+      "mean_arb_quiet_half_spread_bps": 4.470236700129016,
+      "mean_b1_quiet_half_spread_bps": 4.637497434427323,
+      "mean_volume_share": 0.019733509483305083,
+      "volatility_coeff": 0.0
+    },
+    {
+      "feasible": false,
+      "mean_arb_hedged_pnl": 0.605772049867256,
+      "mean_arb_quiet_half_spread_bps": 5.067123805787608,
+      "mean_b1_quiet_half_spread_bps": 4.637497434427323,
+      "mean_volume_share": 0.019733509483305083,
+      "volatility_coeff": 0.25
+    },
+    {
+      "feasible": false,
+      "mean_arb_hedged_pnl": 9.708651408327858,
+      "mean_arb_quiet_half_spread_bps": 5.353247736805866,
+      "mean_b1_quiet_half_spread_bps": 4.637497434427323,
+      "mean_volume_share": 0.019733509483305083,
+      "volatility_coeff": 0.5
+    },
+    {
+      "feasible": false,
+      "mean_arb_hedged_pnl": 21.609227568995617,
+      "mean_arb_quiet_half_spread_bps": 6.22998279864538,
+      "mean_b1_quiet_half_spread_bps": 4.637497434427323,
+      "mean_volume_share": 0.019733509483305083,
+      "volatility_coeff": 1.0
+    }
+  ],
+  "decision": "no-feasible-candidate",
+  "frozen_params_sha256": "0a4f2565a30e04487cf7f9739e1b04b8c529e29e212d14472435cecd8fe0a3f9",
+  "held_out_after_rechoice": null,
+  "winner": null
+}

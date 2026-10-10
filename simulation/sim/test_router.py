@@ -39,3 +39,17 @@ def test_price_insensitive_share_reaches_the_designated_venue():
     rows = {r["venue"]: r for r in route_window(
         _prices(), prop_hs=0.3, b1_fee=30.0, insensitive_share=1.0, informed_enabled=False)}
     assert rows["B1_passive"]["volume_share"] > 0.9
+
+
+def test_volume_share_counts_filled_not_attempted_notional():
+    """Regression (F4): a rejected order must not count as executed volume.
+
+    The vault can reject an informed order (honesty/capacity), so counting
+    *attempted* notional inflated ArbSwap's volume share. Volume share is now
+    based on filled notional, and never exceeds the attempted share.
+    """
+    rows = route_window(_prices(), informed_enabled=True)
+    assert abs(sum(r["volume_share"] for r in rows) - 1.0) < 1e-9
+    for row in rows:
+        assert row["filled_notional_quote"] <= row["notional_quote"] + 1e-9
+        assert row["volume_share"] <= row["attempt_share"] + 1e-12

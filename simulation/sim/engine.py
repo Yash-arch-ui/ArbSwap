@@ -212,7 +212,7 @@ def simulate(
                         venue.refresh(price=landed_tick.oracle_price,
                                       confidence=landed_tick.confidence, age=age,
                                       previous_price=last_refresh_oracle,
-                                      depth_budget=depth_budget)
+                                      depth_budget=depth_budget, now=now)
                         last_refresh_oracle = landed_tick.oracle_price
                         last_refresh_time = now
                         quote_updates += 1

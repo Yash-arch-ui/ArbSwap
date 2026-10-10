@@ -1,3 +1,4 @@
+<!-- cu-scan: historical-snapshot -->
 ## Pre-registration
 
 Fixed on 2026-10-07 (the download date), before any simulation was run. The rule reads no price; only the arithmetic below assigns labels.

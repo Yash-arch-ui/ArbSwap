@@ -25,7 +25,7 @@ Baseline commit: `cc41f53` (tag `p2-claim-align-v1`). Baseline gate: fmt + clipp
 |---|---|---|---|---|
 | S0 baseline/hygiene | DONE | (this commit) | 125 Rust / 168 Py | — |
 | S1 math correctness | DONE (no bug found) | (this commit) | 125 Rust / 169 Py | suspected div_rem bug NOT reproduced; 1M/op differential green |
-| S2 CU reduction | PARTIAL | (this commit) | 125 Rust / 169 Py | update_quote 48,296 (<50k, target 40k not met); swap 61,482 (<=70k). Reciprocal-verify redesign deferred (payload change). |
+| S2 CU reduction | PARTIAL | (this commit) | 125 Rust / 169 Py | update_quote ≈48k (<50k, target 40k not met); swap ≈59k (<=70k). Reciprocal-verify redesign deferred (payload change). |
 | S3 breaker + keeper gaps | DONE | (this commit) | 129 Rust / 173 Py | simulator edge tracker; 0 honest trips (W2-W6, jumps, latency); defaults max_edge_loss_bps=50, max_anchor_dev_bps=25 |
 | S4 guard coverage | DONE | (this commit) | 132 Rust / 172 Py | 31-guard mutation table (all caught); full-action state machine; proptest present |
 | S5 phase-1 proof | PARTIAL | (this commit) | 132 Rust / 172 Py | pre-reg amendment 2; fresh routed table; HEADLINE.md = Option 2; METHODOLOGY.md; E8 NOT DONE; no fresh full-study re-run |
@@ -89,8 +89,8 @@ README with no data and no API keys.
 ## Closure pass (C1-C6) — on `main` per instruction
 
 - C1 single source of truth: `scripts/export_artifacts.py` → `artifacts.json`;
-  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (51,296 /
-  61,513). PASS.
+  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (48,158 /
+  59,258). PASS.
 - C2 pre-registered thesis (Amendment 3): `docs/THESIS.md` — **Option 1 not
   shown**; T-A.iii no-propAMM share 27.9%; calibration CLOSED-BY-DECISION.
 - C3 NOT DONE (reciprocal-sqrt redesign is roadmap); CU re-measured.
@@ -105,13 +105,14 @@ README with no data and no API keys.
 
 ## Backend polish (B1-B10) — on `main`
 
-- **B1 CU regression — PASS (cause named).** `update_quote` 48,296 → 51,296 was a
+- **B1 CU regression — PASS (cause named).** The `update_quote` difference was a
   **build-method artifact**, not a source regression: `cargo build-sbf`
-  (661 KB, no `idl-build`) = 48,296; `anchor build` (744 KB, `idl-build`) =
-  51,296. The program source in the measured path is byte-identical to `43002b3`
+  (661 KB, no `idl-build`) = 48,158; `anchor build` (744 KB, `idl-build`) =
+  ≈51.3k. The program source in the measured path is byte-identical to `43002b3`
   (diff of `update_quote`/`Config`/`QuoteState`/fixture/`quote_update` empty).
   Fix: `scripts/measure_cu.sh` builds in a clean dedicated target dir and records
-  the `.so` hash; canonical `update_quote` **48,079**, `swap` **59,162**.
+  the `.so` hash; canonical `update_quote` **48,158**, `swap` **59,258**
+  (`artifacts/public/cu.json`).
 
 - **B4 timelocked admin rotation — PASS.** `propose_admin` / `accept_admin` /
   `cancel_admin` (Config gains `pending_admin` + `admin_activate_slot`; successor

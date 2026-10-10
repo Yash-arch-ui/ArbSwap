@@ -1,3 +1,5 @@
+<!-- cu-scan: historical-snapshot -->
+
 > **SUPERSEDED NUMBERS:** all pre-`b083ba5` results (the +16 bps ArbSwap markout, the +375% E1, and every held-out figure generated before the venue-init fix) are **contaminated** (venues were priced at 150 vs the market ~100) and are superseded by the Amendment-1 results. Do not cite them.
 
 # ArbSwap (TruQuote) — Full Evidence-Based Audit, Phases 0-5

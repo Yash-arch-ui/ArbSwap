@@ -6,7 +6,7 @@ Model output (real price path, synthetic flow). Not a product result.
 
 **Holds: False**
 
-- T-A.i real aggTrades flow with CI>0: **False** — real aggTrades held-out study with bootstrap CIs not run; measured real-flow B1 saturates at ~-7.9/13 bps (F-08)
+- T-A.i real aggTrades flow with CI>0: **False** — real aggTrades study run (Amendment 4): 95% CI above zero on none; high-vol days 2026-02-06 / 2026-01-31; B1 real-flow residual remains negative (F-08)
 - T-A.ii quiet half-spread ≤ B1 (all windows): **False**
 - T-A.iii no-propAMM volume share ≥ 10%: **True** (share 27.9%)
 - T-A.iv tolerance 1 bp + 20% insensitive: **False**
@@ -57,24 +57,24 @@ ArbSwap volume share 27.9%; better markout than B1: True
 - calm vault_fee=5 prop_hs=0.3: share 0.0%, markout +0.00 bps
 - calm vault_fee=5 prop_hs=0.5: share 0.0%, markout +0.00 bps
 
+## F5 — high-volatility windows and T-A.i (Amendment 4)
+
+- 2026-01-31: sigma 2.572e-04 (2.52x ref), E1 +171.8%, ArbSwap quiet HS 8.61 vs B1 1.98 bps
+- 2026-02-06: sigma 3.869e-04 (3.79x ref), E1 +150.9%, ArbSwap quiet HS 12.80 vs B1 2.34 bps
+- T-A.i (1 bps tier): CI above zero on no days of 5; **met: False**
+
+## F4 — retail diagnosis
+
+Quiet-flow half-spread decomposition (bps): age 0.02, confidence 1.50, floor 2.00, inventory 0.92, jump 0.00, volatility 3.22. **Dominant term: volatility.**
+- Routed world without a propAMM: ArbSwap filled volume share 27.5% (informed 0.0%, noise 27.5%); B1 72.5%; quiet half-spread ArbSwap 2.58 vs B1 6.94 bps.
+
+## F4(d) — coefficient re-choice (Amendment 6)
+
+Decision: **no-feasible-candidate**. No candidate satisfied hedged PnL ≥ 0 **and** quiet half-spread ≤ B1, so the frozen parameters are retained and Option 1 remains not shown.
+
 ## Decision
 
 **Option 1 not shown**
-
-## C2.4 — held-out, stress and injected jumps
-
-- **Injected-jump sensitivity (synthetic `jump` regime):** E9 over 27 cells
-  (passive fee × vault fee × latency) → **0 negative-E1 cells**; worst +0.21,
-  best +1.22. (Specific 50/100/300 bps step injections are **NOT RUN**.)
-- **Two genuinely high-volatility real windows (σ ≥ 2× existing):** **NOT RUN** —
-  requires downloading new real archives; the pre-registered stress weeks S-A/S-B
-  measured mid/low vol, not ≥ 2×. Marked **EXTERNAL (data)**.
-- **E5/E7/E9/E10 re-run on the current engine:** E9 (calm/trend/crash) and E10 are
-  current (see `docs/RESULTS.md`); E7 unchanged (containment); E5 ablation is in
-  `docs/P1_RESULTS.md`. The held-out PnL tables are from the last full study and
-  will be regenerated on the next full run (see `docs/PROGRESS.md`).
-
-Status: **PARTIAL** (jump sensitivity done; real high-vol windows EXTERNAL).
 
 ## C2.4-fix / F5 — Amendment 4 (committed before the run)
 

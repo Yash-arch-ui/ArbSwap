@@ -35,8 +35,14 @@ jobs:
         run: |
           python -m simulation.reference.golden
           git diff --exit-code -- vault/math/tests/golden_vectors.txt
-      - name: Docs numbers match the artifact bundle (C1)
+      - name: Docs numbers match the artifact bundle (C1/F2)
         run: python scripts/check_docs_consistency.py
+      - name: Published bundle is fresh relative to HEAD (F3)
+        run: python scripts/check_bundle_freshness.py
+      - name: Banned-wording scan
+        run: python scripts/banned_words.py
+      - name: Secrets scan (no keys committed)
+        run: python scripts/secrets_scan.py
 
   anchor:
     runs-on: ubuntu-latest

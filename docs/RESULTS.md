@@ -70,8 +70,8 @@ Each is a named LiteSVM test in `vault/program/tests/` (see `docs/CLAIMS.md`):
 
 - **E9:** passive fee × vault fee × latency grid — **45 of 81 cells have negative
   E1** (losing regimes reported, not hidden).
-- **E10:** `cu_update_quote = 17,962`, `cu_swap = 71,518`; cost per update
-  ≈ 0.00075 quote, ≈ 2.71 quote/hour; 26.6× the paper's update floor and 4.2×
+- **E10:** `cu_update_quote = 48,158`, `cu_swap = 59,258`; cost per update
+  ≈ 0.00076 quote, ≈ 2.75 quote/hour; ~71–99× the paper's update floor and 3.5×
   its swap floor (not like-for-like: the paper excludes on-chain oracle
   verification).
 
@@ -91,7 +91,7 @@ tables**. Provenance for each table is the `commit` in `artifacts.json`.
 |---|---|---|
 | E1 ≈ +16 bps markout, +375% E1 (pre-`b083ba5`) | **price-150 bug**: every study venue was initialized at price 150 while the market traded ~100 | **SUPERSEDED** — see `docs/AUDIT_FULL.md` header |
 | E1 ≈ −100% (early synthetic) | arbitrageur sizing + ladder-consumption correctness fix | **SUPERSEDED** |
-| `update_quote` 17,962 CU / `swap` 71,518 CU | old figures were a short/rejected update path; a full two-sided ladder update is ~51k CU | **SUPERSEDED** — see `simulation/data/results/cu.json` |
+| `update_quote` ≈18k CU / `swap` ≈72k CU | old figures were a short/rejected update path measured with a different Cargo profile; a full two-sided ladder update is 48,158 CU under the deployed `cargo build-sbf` | **SUPERSEDED** — see `artifacts/public/cu.json` |
 | Calibration best −98.7 / 52.9 bps (synthetic) | synthetic flow uncalibrated | **SUPERSEDED** by real-flow calibration attempt |
 | Real-flow B1 saturating at ≈ −7.9 / 13.1 bps | the model's passive adverse selection is ~40× the paper's | **CLOSED-BY-DECISION** (F-08, bounded impact) |
 

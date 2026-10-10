@@ -101,18 +101,29 @@ outputs.
 
 ---
 
-## 4. CU table (before → after)
+## 4. CU table (LiteSVM, `cargo build-sbf`)
 
-| Instruction | stale docs | current (LiteSVM) |
-|---|---|---|
-| `update_quote` | 17,962 | **51,296** |
-| `swap` | 71,518 | **61,513** |
-| `deposit` | 46,477 | 46,533 |
-| `request_withdraw` | 24,420 | 19,920 |
-| `claim_withdraw` | 24,158 | 24,189 |
-| `crank_epoch` | 5,157 | 5,182 |
-| `bond_keeper` / `slash_keeper` / `claim_keeper_reward` | 26,409 / 15,507 / 13,967 | 26,541 / 14,153 / 14,026 |
-| `unbond_keeper` (queue / release) | 16,242 / 18,379 | 16,242 / 18,379 |
+Single source: `artifacts/public/cu.json`; `.so` sha256
+`b98dfd73df0c2a9…` (681,592 B). `anchor build` (idl-build) is ~3k CU higher on
+`update_quote` and is not the deployed binary. Old before/after figures are
+superseded and live only in the historical stage reports.
+
+| Instruction | CU |
+|---|---|
+| `update_quote` | **48,158** |
+| `update_quote_wide_conf_rejected` | 15,514 |
+| `swap` | **59,258** |
+| `deposit` | 43,663 |
+| `request_withdraw` | 21,162 |
+| `claim_withdraw` | 23,745 |
+| `crank_epoch` | 5,155 |
+| `bond_keeper` | 24,630 |
+| `slash_keeper` | 13,901 |
+| `claim_keeper_reward` | 13,838 |
+| `unbond_keeper` (queue / release) | 16,242 / 18,379 |
+| `propose_admin` | 8,009 |
+| `accept_admin` | 9,316 |
+| `cancel_admin` | 7,504 |
 
 Devnet CU: **not measured** (needs a funded run). The ≤40k target is **not met**.
 
@@ -146,3 +157,39 @@ Devnet CU: **not measured** (needs a funded run). The ≤40k target is **not met
 Every open item now ends as **PASS**, **CLOSED-BY-DECISION**, or **EXTERNAL**;
 the two stages that could not be completed (C3, C5) are marked **NOT DONE** with
 reasons rather than left ambiguous.
+
+---
+
+## 7. Final fix pass (F1–F7) — added on top of C1–C6
+
+Definition of the status words is now in `docs/STATUS.md`. Applying it:
+
+- **F1 honesty:** **B2** (compute redesign) and **B6** (one-hour E8 proxy) are
+  relabelled **NOT DONE** (effort is not a technical reason); the high-volatility
+  windows are no longer "EXTERNAL" — they are **run** (F5). **B8** is now
+  **PASS (offline)**.
+- **F2 CU single source:** every CU number in every doc is generated from
+  `artifacts/public/cu.json`; `scripts/check_docs_consistency.py` scans all docs
+  and bans stale tokens. Canonical: `update_quote` **48,158**, `swap` **59,258**
+  (`cargo build-sbf`; `.so` sha256 `b98dfd7…`).
+- **F3 bundle freshness:** the bundle is regenerated at HEAD and
+  `scripts/check_bundle_freshness.py` (in CI) fails if the manifest drifts.
+- **F4 retail diagnosis:** `simulation/sim/diagnose.py` decomposes the quiet
+  half-spread — the **dominant term is volatility (~42%)**. The router
+  `volume_share` was counting *attempted* notional (rejected orders); fixed with
+  a regression test, and affected numbers marked superseded. The Amendment-6
+  volatility re-choice found **no feasible candidate**, so the frozen parameters
+  and the Option-2 decision stand.
+- **F5 real-flow evidence:** two high-volatility windows (2026-02-06 σ=3.79×σ_ref,
+  2026-01-31 σ=2.44×σ_ref) plus the three archived aggTrades days drive a
+  real-flow bootstrap; **T-A.i is NOT MET** (95% CI above zero on 0 of 5 days).
+  Reported honestly, including the negative real-flow B1 residual (F-08).
+- **F6 keeper robustness:** `arbswap_keeper::prevalidate_quote` mirrors the
+  on-chain knowable bounds offline; 12 keeper tests cover dropped transactions,
+  blockhash expiry, duplicate sends, out-of-order slots, stale/wide oracle,
+  clock skew and safe failure.
+- **F7 devnet:** **SKIPPED** (`ARBSWAP_DEVNET_KEYPAIR` unset); the date and
+  commit of the last devnet evidence are recorded in `README.md`.
+
+Every F item now ends as PASS, or SKIPPED with the exact precondition. The value
+claim (Option 1) remains **not shown**.

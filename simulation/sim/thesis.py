@@ -88,16 +88,26 @@ def t_c_retail() -> dict:
 
 
 def t_a() -> dict:
-    # T-A.i (real aggTrades flow, bootstrap CI above zero in >=3 windows incl. a
-    # stress window) is NOT met: the real-flow study is not run here and the
-    # measured real-flow B1 saturates at ~-7.9/13 bps (F-08). T-A.ii (quiet
+    # T-A.i (real aggTrades flow, bootstrap CI above zero) is evaluated from the
+    # F5 artifact when present; otherwise it is NOT MET. T-A.ii (quiet
     # half-spread <= B1) is NOT met (see T-C). T-A.iii is the no-propAMM share.
     iii = t_a_iii_and_niche()
     tc = t_c_retail()
+    f5 = ROOT / "simulation" / "data" / "results" / "f5_real_flow.json"
+    if f5.exists():
+        f5_data = json.loads(f5.read_text())
+        ta_i = f5_data["T_A_i"]
+        ta_i_met = ta_i["met"]
+        days = ", ".join(ta_i.get("days_with_ci_above_zero", [])) or "none"
+        reason = (f"real aggTrades study run (Amendment 4): 95% CI above zero on "
+                  f"{days}; high-vol days 2026-02-06 / 2026-01-31; B1 real-flow "
+                  f"residual remains negative (F-08)")
+    else:
+        ta_i_met = False
+        reason = ("real aggTrades held-out study with bootstrap CIs not run; "
+                  "measured real-flow B1 saturates at ~-7.9/13 bps (F-08)")
     return {
-        "T_A_i_real_flow_ci": {"met": False,
-                               "reason": "real aggTrades held-out study with bootstrap CIs not "
-                                         "run; measured real-flow B1 saturates at ~-7.9/13 bps (F-08)"},
+        "T_A_i_real_flow_ci": {"met": ta_i_met, "reason": reason},
         "T_A_ii_quiet_hs_le_b1": {"met": tc["arb_le_b1_all"], "detail": tc["rows"]},
         "T_A_iii_noprop_share_ge_10pct": {"met": iii["arb_ge_10pct"],
                                           "share": iii["arb_volume_share"]},
@@ -208,14 +218,68 @@ def render(res: dict) -> str:
     for r in env.get("losing_examples", []):
         lines.append(f"- {r['regime']} vault_fee={r['vault_fee_bps']} prop_hs={r['prop_half_spread_bps']}: "
                      f"share {pct(r['arb_volume_share'] or 0)}, markout {r['arb_markout_2s_bps']:+.2f} bps")
+
+    f5_path = ROOT / "simulation" / "data" / "results" / "f5_real_flow.json"
+    if f5_path.exists():
+        f5 = json.loads(f5_path.read_text())
+        lines += ["", "## F5 — high-volatility windows and T-A.i (Amendment 4)", ""]
+        for day, r in sorted(f5["high_vol_held_out"].items()):
+            lines.append(
+                f"- {day}: sigma {r['sigma_per_sqrt_s']:.3e} "
+                f"({r['sigma_ratio_vs_ref']:.2f}x ref), E1 {r['E1_pct']:+.1f}%, "
+                f"ArbSwap quiet HS {r['E4_arb_quiet_half_spread_bps']:.2f} vs B1 "
+                f"{r['E4_b1_quiet_half_spread_bps']:.2f} bps")
+        lines.append(
+            f"- T-A.i (1 bps tier): CI above zero on "
+            f"{', '.join(f5['T_A_i']['days_with_ci_above_zero']) or 'no days'} of "
+            f"{len(f5['T_A_i']['of_days'])}; **met: {f5['T_A_i']['met']}**")
+    diag_path = ROOT / "simulation" / "data" / "results" / "diagnosis.json"
+    if diag_path.exists():
+        diag = json.loads(diag_path.read_text())
+        terms = ", ".join(f"{k} {v:.2f}" for k, v in
+                          sorted(diag["overall_term_means_bps"].items()))
+        lines += ["", "## F4 — retail diagnosis", "",
+                  f"Quiet-flow half-spread decomposition (bps): {terms}. "
+                  f"**Dominant term: {diag['overall_dominant_term']}.**"]
+        r = diag["routed_without_propamm"]["per_venue_mean"]
+        a = r.get("ArbSwap", {})
+        b = r.get("B1_passive", {})
+        lines.append(
+            f"- Routed world without a propAMM: ArbSwap filled volume share "
+            f"{pct(a.get('volume_share', 0))} (informed {pct(a.get('informed_volume_share', 0))}, "
+            f"noise {pct(a.get('noise_volume_share', 0))}); B1 {pct(b.get('volume_share', 0))}; "
+            f"quiet half-spread ArbSwap {a.get('quiet_half_spread_bps', 0):.2f} vs B1 "
+            f"{b.get('quiet_half_spread_bps', 0):.2f} bps.")
+    rechoice_path = ROOT / "simulation" / "data" / "results" / "rechoice.json"
+    if rechoice_path.exists():
+        rc = json.loads(rechoice_path.read_text())
+        lines += ["", "## F4(d) — coefficient re-choice (Amendment 6)", "",
+                  f"Decision: **{rc['decision']}**. "
+                  + ("No candidate satisfied hedged PnL ≥ 0 **and** quiet "
+                     "half-spread ≤ B1, so the frozen parameters are retained and "
+                     "Option 1 remains not shown."
+                     if rc["decision"] == "no-feasible-candidate" else
+                     f"Re-chosen coefficient frozen at hash "
+                     f"`{rc['frozen_params_sha256'][:12]}…`.")]
     lines += ["", "## Decision", "", f"**{res['decision']}**", ""]
     return "\n".join(lines)
+
+
+AMENDMENT_MARKER = "## C2.4-fix / F5 — Amendment 4"
 
 
 def main() -> None:
     res = evaluate()
     OUT_JSON.write_text(json.dumps(res, indent=2, sort_keys=True) + "\n")
-    OUT_MD.write_text(render(res))
+    rendered = render(res)
+    # Preserve the append-only pre-registration amendments that live at the tail
+    # of docs/THESIS.md (Amendments 4-6) across regeneration.
+    if OUT_MD.exists():
+        existing = OUT_MD.read_text()
+        if AMENDMENT_MARKER in existing:
+            tail = existing.split(AMENDMENT_MARKER, 1)[1]
+            rendered = rendered.rstrip() + "\n\n" + AMENDMENT_MARKER + tail
+    OUT_MD.write_text(rendered if rendered.endswith("\n") else rendered + "\n")
     print(f"wrote {OUT_JSON.relative_to(ROOT)} and {OUT_MD.relative_to(ROOT)}")
     print("decision:", res["decision"])
 

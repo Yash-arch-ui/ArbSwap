@@ -71,7 +71,12 @@ We do **not** claim:
 - Calibrated profitability. The simulator's passive pool is not yet calibrated to
   the paper's adverse selection; headline E1 magnitudes are **model outputs, not
   results**.
-- Live execution quality. No devnet deployment, no live RPC keeper.
+- Live execution quality. Devnet lifecycle + a 600 s live keeper were run
+  (`docs/DEVNET.md`, `docs/P3_AUDIT.md`), but **the deployed program may differ
+  from HEAD**: F7 (re-deploy + 30-minute keeper) was **SKIPPED** because
+  `ARBSWAP_DEVNET_KEYPAIR` was unset. Last devnet evidence: commit `7184cb3`
+  (P2 lifecycle) and `36a3c79` (live keeper), dated 2026-10-07; deployed program
+  id `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`.
 - An independent audit. Same-agent self-review only; external review is required
   before real funds.
 - "Exploit-free", "audited", or "as complete as Uniswap".
@@ -106,7 +111,7 @@ at the real source via `[workspace] members = ["vault/program"]`.
 Toolchain used at setup: solana-cli 4.1.2, anchor 1.1.2, rust 1.98.0
 (pinned in `rust-toolchain.toml`), node 24, python 3.12.
 
-Current suite: **137 Rust / 192 Python** tests (single source of truth:
+Current suite: **148 Rust / 193 Python** tests (single source of truth:
 `simulation/data/results/artifacts.json`).
 
 ```bash

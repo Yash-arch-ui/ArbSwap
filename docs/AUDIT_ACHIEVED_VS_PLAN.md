@@ -112,7 +112,7 @@ data/keys. Commit: `0a9c44e`.
 | E7 safety | **PASS** | all contained |
 | E8 real-pool gap | CLOSED-BY-DECISION | proxy only (`e8_proxy.json`) |
 | E9 sensitivity | PASS | 45/81 negative cells; jump 0/27 |
-| E10 cost | PASS | 51,296 / 61,513 CU |
+| E10 cost | PASS | 48,158 / 59,258 CU (`cargo build-sbf`) |
 
 ---
 
@@ -156,18 +156,29 @@ push main" text). One status per item.
 
 | Item | Status | Evidence / commit |
 |---|---|---|
-| B1 CU regression | **PASS** | cause = build-method artifact (`cargo build-sbf` 48k vs `anchor build` idl-build ~51k), not a source regression; `scripts/measure_cu.sh`; `86bacdc` |
-| B2 compute redesign (verify-instead-of-compute) | **CLOSED-BY-DECISION** | not implemented; current exact capacity check retained; CU measured (`update_quote` 48,158). Reason: large on-chain redesign (account-space + 1M differential + keeper serialization) not landed; documented, not silently claimed |
-| B3a mutation completeness | **PARTIAL** | B4 admin guards mutated (S4.2); inverse-sqrt guard N/A (B2 not done) |
-| B3b cargo-fuzz | **CLOSED-BY-DECISION** | tool absent; `proptest` used (math + aggregator + state machine) |
+| B1 CU regression | **PASS** | cause = build-method artifact (`cargo build-sbf` 48,158 vs `anchor build` idl-build ≈51.3k), not a source regression; `scripts/measure_cu.sh`; `86bacdc` |
+| B2 compute redesign (verify-instead-of-compute) | **NOT DONE** | not implemented; exact capacity check retained. No technical reason exists (effort only), so it is NOT DONE, not CLOSED-BY-DECISION |
+| B3a mutation completeness | **PARTIAL** | B4 admin guards + F6 pre-validation guards mutated; inverse-sqrt guard N/A (B2 not done) |
+| B3b cargo-fuzz | **NOT DONE** | `cargo-fuzz` not installed; `proptest` used (`docs/SECURITY_CHECKLIST.md`) |
 | B4 admin rotation | **PASS** | `propose_admin`/`accept_admin`/`cancel_admin` + 4 tests + S4.2 mutation; `8e5c9d8` |
-| B5 thesis evidence (high-vol windows, T-A.i, retail diagnosis, re-chosen coefficients) | **EXTERNAL / CLOSED-BY-DECISION** | high-vol windows need new real data (EXTERNAL); T-A.i real-flow CIs, retail-term decomposition and coefficient re-choice not run (documented) |
-| B6 E8 proxy 1 h | **CLOSED-BY-DECISION** | 60-sample proxy (`e8_proxy.json`, change_rate 98.3%, mean 1.0 bps); full 1 h not run |
+| B5 thesis evidence | **PASS / NOT MET (honest outcome)** | F5 ran high-vol windows (2026-02-06, 2026-01-31) + real-flow T-A.i bootstrap CIs: **T-A.i NOT MET**; F4 diagnosis + coefficient re-choice: **no feasible candidate** |
+| B6 E8 proxy 1 h | **NOT DONE** | 60-sample proxy exists (`e8_proxy.json`); the one-hour run was not done (reachable, so not CLOSED-BY-DECISION) |
 | B7 devnet | **SKIPPED** | `ARBSWAP_DEVNET_KEYPAIR` unset |
-| B8 keeper robustness | **CLOSED-BY-DECISION** | not implemented; existing offline keeper tests + safe-expiry retained |
+| B8 keeper robustness | **PASS (offline)** | `prevalidate_quote` mirrors on-chain bounds + failure-injection tests; live-devnet injection SKIPPED |
 | B9 data contract | **PASS** (a/b/d) / **CLOSED-BY-DECISION** (c) | `artifacts/public/*` + schemas + manifest + validation tests; `docs/DATA_SCHEMA.md`, `docs/INTEGRATION.md`; `b2a937c` |
 | B10 final | **PASS** | bundle + docs regenerated; scans clean; tag `final-candidate-2` |
 
-**Nothing pushed to main by the C-series** (that was `main`-based); B-series is on
-`main` per the explicit instruction. `frontend/` untouched. No secrets; banned-word
-scan clean; docs numbers match the bundle.
+# Final fix pass (F1–F7) — closure
+
+| Item | Status | Evidence / commit |
+|---|---|---|
+| F1 status honesty | **PASS** | `docs/STATUS.md` defines CLOSED-BY-DECISION; B2/B6 relabelled NOT DONE, high-vol no longer EXTERNAL; `docs/CLOSURE_REPORT.md`, `docs/AUDIT_ACHIEVED_VS_PLAN.md`, `docs/CLAIMS.md` |
+| F2 CU single source | **PASS** | all CU rendered from `artifacts/public/cu.json`; `check_docs_consistency.py` scans every doc + bans stale tokens; stale values fixed |
+| F3 bundle freshness | **PASS** | bundle regenerated at HEAD; `scripts/check_bundle_freshness.py` + CI; test suites re-run |
+| F4 retail diagnosis | **PASS** | `simulation/sim/diagnose.py` → `diagnosis.json` (dominant term volatility 42%); router volume-share flaw fixed + regression; Amendment 6 re-choice → **no feasible candidate** |
+| F5 real-flow evidence | **PASS (honest: T-A.i not met)** | `simulation/sim/real_flow_study.py` → `f5_real_flow.json`; 2 high-vol windows + 3 archived days, bootstrap CIs |
+| F6 keeper robustness | **PASS (offline)** | `prevalidate_quote` + 12 keeper tests (dropped tx, expired blockhash, duplicate send, out-of-order, stale/wide oracle, clock skew, safe failure) |
+| F7 devnet | **SKIPPED** | `ARBSWAP_DEVNET_KEYPAIR` unset; last devnet evidence dated in `README.md` |
+
+`frontend/` untouched. No secrets; banned-word scan clean; CU + test counts match
+the bundle (enforced by `scripts/check_docs_consistency.py`).

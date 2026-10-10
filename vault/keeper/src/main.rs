@@ -15,8 +15,8 @@
 
 use arbswap_keeper::{
     build_update_quote_transaction, compute_quote, confidence_bps, encode_update_quote_instruction,
-    pyth_decimal_to_q64, DryRunSender, KeeperCore, KeeperParams, OracleTick, QuoteSender,
-    UpdateQuotePlan, VolatilityState, MAX_UPDATE_COMPUTE_UNITS,
+    pyth_decimal_to_q64, DryRunSender, KeeperCore, KeeperParams, OracleTick, PrevalidateBounds,
+    QuoteSender, UpdateQuotePlan, VolatilityState, MAX_UPDATE_COMPUTE_UNITS,
 };
 use base64::Engine;
 use solana_address::Address;
@@ -376,6 +376,26 @@ fn read_vault(rpc_url: &str, vault: &Address) -> Option<arbswap::Vault> {
     arbswap::Vault::try_deserialize(&mut &data[..]).ok()
 }
 
+/// Read the vault `Config` so the keeper can mirror the on-chain `update_quote`
+/// bounds offline (F6). A missing/undecodable config means "do not quote".
+fn read_config(rpc_url: &str, config: &Address) -> Option<arbswap::Config> {
+    use anchor_lang::AccountDeserialize;
+    let v = rpc_call(
+        rpc_url,
+        "getAccountInfo",
+        serde_json::json!([config.to_string(), {"encoding": "base64"}]),
+    )?;
+    let b64 = v
+        .get("result")?
+        .get("value")?
+        .get("data")?
+        .as_array()?
+        .first()?
+        .as_str()?;
+    let data = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    arbswap::Config::try_deserialize(&mut &data[..]).ok()
+}
+
 fn read_keypair(path: &str) -> Keypair {
     let text = fs::read_to_string(Path::new(path)).expect("read keeper keypair");
     let bytes: Vec<u8> = serde_json::from_str(&text).expect("keypair JSON array");
@@ -528,6 +548,30 @@ fn live(args: Vec<String>) {
             vs.protocol_base as u128,
             vs.protocol_quote as u128,
         );
+        // F6: mirror the on-chain `update_quote` bounds offline so the keeper
+        // never spends a transaction on a quote the program would reject for a
+        // knowable reason (spread/anchor/inventory/capacity/slot/confidence).
+        let Some(cfg) = read_config(&rpc_url, &config) else {
+            skipped += 1;
+            sleep(interval);
+            continue;
+        };
+        core.bounds = Some(PrevalidateBounds {
+            min_spread_bps: cfg.min_spread_bps,
+            max_spread_bps: cfg.max_spread_bps,
+            max_anchor_step_bps: cfg.max_anchor_step_bps,
+            max_anchor_dev_bps: cfg.max_anchor_dev_bps,
+            max_inventory_bps: cfg.max_inventory_bps,
+            utilization_max_bps: cfg.utilization_max_bps,
+            max_conf_bps: cfg.max_conf_bps,
+            max_update_slot_age: cfg.max_update_slot_age as u64,
+            max_staleness_seconds: cfg.max_staleness_seconds,
+            now_publish_time: wall as i64,
+            previous_anchor_sqrt_price: core.accepted_anchor_sqrt_price,
+            available_base: base_avail,
+            available_quote: quote_avail,
+            now_slot: slot,
+        });
         let tick = OracleTick {
             slot,
             publish_time: msg.publish_time,
@@ -572,7 +616,7 @@ fn live(args: Vec<String>) {
                     sig = Some(s);
                     break;
                 }
-                None => core.previous = None,
+                None => core.on_send_failure(),
             }
         }
         match sig {
@@ -580,6 +624,8 @@ fn live(args: Vec<String>) {
                 let latency_ms = tx_start.elapsed().as_millis();
                 let cu = rpc_transaction_cu(&rpc_url, &s).unwrap_or(0);
                 submitted += 1;
+                // Only a sent quote advances the anchor used by the next bound.
+                core.accepted_anchor_sqrt_price = next.anchor_sqrt_price;
                 println!(
                     "update,sig={s},publish_time={},version_slot={},latency_ms={latency_ms},cu={cu},attempts={attempt},err=none",
                     next.publish_time, next.slot

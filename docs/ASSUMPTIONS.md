@@ -40,7 +40,7 @@ Example 3; narrow-liquidity LVR/V → ∞ (Master Plan R3) is Example 4.
 propAMM paper §7.1: median updates 485–676 CU (Solana) vs ≥16,938 CU for a swap;
 HumidiFi reported ~300 → 47 CU per update. The <1,000 CU target in Build Plan
 §2.5 is conservative. **Measured on the built program (LiteSVM, 2026-10-07):**
-`update_quote` 17,962 CU, `swap` 71,518 CU (ladder-dependent), `trip_breaker`
+`update_quote` 48,158 CU, `swap` 59,258 CU (ladder-dependent), `trip_breaker`
 10,054 CU. All fit the 200,000 CU transaction
 default. The update is still ~19–26× the paper's propAMM median, so the "low-cost
 update" claim is *not* supported for `update_quote`; it is dominated by Anchor
@@ -188,8 +188,8 @@ gates.
   `LANDING_DELAY_SECONDS = ((0.4,0.55),(0.8,0.25),(1.2,0.12),(2.0,0.05),(3.2,0.03))`
   (mean 0.76 s) is a **HEURISTIC** — not measured on Solana. Replace with a
   live-mempool measurement before any P4 claim.
-- **Costs:** compute units are *measured* in LiteSVM (update 17,962 CU; swap
-  71,518 CU) → VERIFIED; `base_fee_lamports = 5000` is the protocol parameter;
+- **Costs:** compute units are *measured* in LiteSVM (update 48,158 CU; swap
+  59,258 CU) → VERIFIED; `base_fee_lamports = 5000` is the protocol parameter;
   `priority_micro_lamports_per_cu = 1000` is a **HEURISTIC** (priority fees are
   set by a leader auction). Gas and priority are converted to quote at the
   current reference SOL price.
@@ -225,7 +225,7 @@ gates.
    phases were re-run; the headline E1 moved from ≈+290% to ≈+375%.
 
 ## A-17. Task 2 compute-unit reduction — VERIFIED (measured 2026-10-07)
-The `swap` instruction cost 201,119 CU, above Solana's 200,000 CU transaction
+The `swap` instruction cost ≈201k CU, above Solana's 200,000 CU transaction
 default, so every swap needed a `ComputeBudgetProgram` bump (audit F-05).
 Root cause: `arb_math::wide::U256::div_rem` was a restoring shift-subtract that
 always ran **256** single-bit rounds, and `U256::isqrt` ran ~96 rounds; both sit
@@ -240,7 +240,7 @@ a differential fuzz test (`tests/properties.rs`: 20,000 random 1–4-limb
 dividends, 5,000 u128-range cases, and hand-picked edges); the Python↔Rust
 golden vectors are unchanged.
 
-Measured effect (LiteSVM, rebuilt SBF program): **`swap` 201,119 → 33,676 CU**
+Measured effect (LiteSVM, rebuilt SBF program): **`swap` ≈201k → ≈34k CU**
 (6.0×), now inside the 200,000 default. `update_quote` is **unchanged at
 12,802 CU** because it does not walk the ladder — it is dominated by Anchor
 account validation and Pyth verification, which live in the program, not
@@ -250,8 +250,8 @@ lifecycle test binaries are invoked in the same `cargo test` command. That
 spread is a measurement artifact of the harness, not a code path, and it
 explains the audit's F-06 "7,051 vs 10,051" disagreement — the two numbers are
 the same instruction measured two ways. Consequence: no caller needs a
-compute-budget bump. (Later re-measured after F-04/D-07: `update_quote` 17,962,
-`swap` 71,518, `trip_breaker` 10,054 — see A-21 and `SECURITY_CHECKLIST.md`;
+compute-budget bump. (Later re-measured after F-04/D-07: `update_quote` 48,158,
+`swap` 59,258 — see A-21 and `SECURITY_CHECKLIST.md`;
 `research/sim/costs.py` now records those.) The "low-cost update" claim is still
 **not** supported for `update_quote`.
 
@@ -349,7 +349,7 @@ the funded **devnet deploy + initialize_program**, scripted in
   the cluster so retries cannot double-spend an update. `adaptive_priority_fee`
   scales with volatility urgency, doubles on a jump, and is clipped to
   `[floor, cap]`. `MAX_UPDATE_COMPUTE_UNITS = 60_000` is set tightly above the
-  measured 17,962 CU update cost (see `SECURITY_CHECKLIST.md`).
+  measured 48,158 CU update cost (see `SECURITY_CHECKLIST.md`).
 - **Live loop (T3.1/T3.2):** `keeper live <hermes_url> <rpc_url> ...` fetches
   Hermes, reads reserves over JSON-RPC (`getTokenAccountBalance`), and submits
   `update_quote` via `sendTransaction`. It is not run in this environment (no

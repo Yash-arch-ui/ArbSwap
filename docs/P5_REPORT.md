@@ -1,3 +1,4 @@
+<!-- cu-scan: historical-snapshot -->
 # P5_REPORT.md — Hardening and adversarial testing (Build Plan §12 P5)
 
 **Gate: every E7 attack fails or is contained and documented. — PASSED.**
