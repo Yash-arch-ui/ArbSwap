@@ -128,3 +128,24 @@ This amendment re-chooses **one coefficient** on the calibration window only.
 - **If no candidate is feasible**, the frozen parameters are retained and the
   decision rule leaves the thesis unchanged.
 - The winner (if any) is frozen with a hash and used unchanged for W2–W6.
+
+## F4(d) — Amendment 6 (corrects the target; committed before the re-run)
+
+**Registered 2026-10-10.** The **corrected** F4 diagnosis (venues initialised at
+the path's start price, matching `run_venues`) finds the **volatility term
+dominates** the quiet-flow half-spread (**~42%**; floor 2.0, volatility 3.22,
+confidence 1.5, directional 1.22, inventory 0.92, age 0.02 bps). Amendment 5
+swept `inventory_coeff` on the basis of an earlier diagnosis that mis-priced the
+initial reserve; that target is **superseded**.
+
+Amendment 6 re-chooses **`volatility_coeff` ∈ {0.0, 0.25, 0.5, 1.0}** (every
+other frozen parameter unchanged) with the Amendment-5 objective, on W1's 12
+calibration blocks only:
+
+- feasible iff mean ArbSwap hedged PnL ≥ 0 **and** mean ArbSwap quiet
+  half-spread ≤ mean B1 quiet half-spread;
+- among feasible candidates, maximise mean routed volume share (no propAMM,
+  `b1_fee=1` bps, insensitive 0.2, slippage 1 bp), tie-break on the smaller
+  `volatility_coeff`;
+- if none is feasible, retain the frozen parameters and leave the decision
+  unchanged.
