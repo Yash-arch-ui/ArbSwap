@@ -22,7 +22,7 @@ The routed chart is `docs/headline_chart.svg` (`./scripts/headline.sh`).
 
 <!-- BEGIN GENERATED NUMBERS -->
 
-_Generated from `simulation/data/results/artifacts.json` (commit `d060676`, 2026-10-10, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
+_Generated from `simulation/data/results/artifacts.json` (commit `3df287b`, 2026-10-10, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
 
 **Calibration (W1):** B1 best 2s markout **-0.02 bps** (target -0.2, accept [-0.5, 0.1]); quiet half-spread **2.409 bps** (target 2.6, accept [1.8, 3.4]).
 
@@ -38,9 +38,9 @@ _Generated from `simulation/data/results/artifacts.json` (commit `d060676`, 2026
 
 **Retail execution (E4):** ArbSwap quiet half-spread W2 8.26, W3 8.05, W4 8.32, W5 8.29, W6 7.89 bps; B1 2.26, 2.17, 2.21, 2.05, 1.99 bps.
 
-**Cost (E10, source: `cargo build-sbf + litesvm_lifecycle.rs::measure_instruction_compute_units`):** `update_quote` **48,209 CU**, `swap` **59,327 CU**; cost/update 0.00076 quote @ SOL=150.
+**Cost (E10, source: `cargo build-sbf + litesvm_lifecycle.rs::measure_instruction_compute_units`):** `update_quote` **38,563 CU**, `swap` **59,327 CU**; cost/update 0.00076 quote @ SOL=150.
 
-**Compute units (single source: `artifacts/public/cu.json`; build `cargo build-sbf (no idl-build)`; `.so` sha256 `c5ba3d1fba5a…`).**
+**Compute units (single source: `artifacts/public/cu.json`; build `cargo build-sbf (no idl-build)`; `.so` sha256 `ac266659311f…`).**
 
 | Instruction | CU |
 |---|---|
@@ -50,15 +50,15 @@ _Generated from `simulation/data/results/artifacts.json` (commit `d060676`, 2026
 | `claim_keeper_reward` | 13,828 |
 | `claim_withdraw` | 23,728 |
 | `crank_epoch` | 5,162 |
-| `deposit` | 45,153 |
+| `deposit` | 43,653 |
 | `propose_admin` | 8,060 |
 | `request_withdraw` | 19,662 |
 | `slash_keeper` | 13,901 |
 | `swap` | 59,327 |
-| `update_quote` | 48,209 |
-| `update_quote_wide_conf_rejected` | 15,518 |
+| `update_quote` | 38,563 |
+| `update_quote_wide_conf_rejected` | 15,689 |
 
-**Tests:** 154 Rust / 202 Python. **Guard mutations:** 54 caught (docs/SECURITY_CHECKLIST.md).
+**Tests:** 157 Rust / 204 Python. **Guard mutations:** 55 caught (docs/SECURITY_CHECKLIST.md).
 
 <!-- END GENERATED NUMBERS -->
 
@@ -88,7 +88,7 @@ Each is a named LiteSVM test in `vault/program/tests/` (see `docs/CLAIMS.md`):
 
 - **E9:** passive fee × vault fee × latency grid — **45 of 81 cells have negative
   E1** (losing regimes reported, not hidden).
-- **E10:** `cu_update_quote = 48,209`, `cu_swap = 59,327`; cost per update
+- **E10:** `cu_update_quote = 38,563`, `cu_swap = 59,327`; cost per update
   ≈ 0.00076 quote, ≈ 2.75 quote/hour; ~71–99× the paper's update floor and 3.5×
   its swap floor (not like-for-like: the paper excludes on-chain oracle
   verification).
@@ -114,7 +114,7 @@ tables**. Provenance for each table is the `commit` in `artifacts.json`.
 |---|---|---|
 | E1 ≈ +16 bps markout, +375% E1 (pre-`b083ba5`) | **price-150 bug**: every study venue was initialized at price 150 while the market traded ~100 | **SUPERSEDED** — see `docs/SECURITY_CHECKLIST.md` header |
 | E1 ≈ −100% (early synthetic) | arbitrageur sizing + ladder-consumption correctness fix | **SUPERSEDED** |
-| `update_quote` ≈18k CU / `swap` ≈72k CU | old figures were a short/rejected update path measured with a different Cargo profile; a full two-sided ladder update is 48,209 CU under the deployed `cargo build-sbf` | **SUPERSEDED** — see `artifacts/public/cu.json` |
+| `update_quote` ≈18k CU / `swap` ≈72k CU | old figures were a short/rejected update path measured with a different Cargo profile; a full two-sided ladder update is 38,563 CU under the deployed `cargo build-sbf` | **SUPERSEDED** — see `artifacts/public/cu.json` |
 | Calibration best −98.7 / 52.9 bps (synthetic) | synthetic flow uncalibrated | **SUPERSEDED** by real-flow calibration attempt |
 | Real-flow B1 saturating at ≈ −7.9 / 13.1 bps | the model's passive adverse selection is ~40× the paper's | **CLOSED-BY-DECISION** (F-08, bounded impact) |
 

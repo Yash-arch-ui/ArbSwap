@@ -7,13 +7,13 @@
     "claim_keeper_reward": 13828,
     "claim_withdraw": 23728,
     "crank_epoch": 5162,
-    "deposit": 45153,
+    "deposit": 43653,
     "propose_admin": 8060,
     "request_withdraw": 19662,
     "slash_keeper": 13901,
     "swap": 59327,
-    "update_quote": 48209,
-    "update_quote_wide_conf_rejected": 15518
+    "update_quote": 38563,
+    "update_quote_wide_conf_rejected": 15689
   },
   "instructions_stats": {
     "accept_admin": {
@@ -26,13 +26,13 @@
       "stdev": 0.0
     },
     "bond_keeper": {
-      "max": 26130,
-      "mean": 24330.0,
+      "max": 27630,
+      "mean": 24930.0,
       "median": 24630,
       "min": 23130,
       "n": 5,
-      "range": 3000,
-      "stdev": 1122.5
+      "range": 4500,
+      "stdev": 1749.3
     },
     "cancel_admin": {
       "max": 7555,
@@ -44,22 +44,22 @@
       "stdev": 0.0
     },
     "claim_keeper_reward": {
-      "max": 13845,
-      "mean": 13831.4,
+      "max": 13828,
+      "mean": 13828.0,
       "median": 13828,
       "min": 13828,
       "n": 5,
-      "range": 17,
-      "stdev": 6.8
+      "range": 0,
+      "stdev": 0.0
     },
     "claim_withdraw": {
-      "max": 23745,
-      "mean": 23731.4,
+      "max": 23749,
+      "mean": 23732.2,
       "median": 23728,
       "min": 23728,
       "n": 5,
-      "range": 17,
-      "stdev": 6.8
+      "range": 21,
+      "stdev": 8.4
     },
     "crank_epoch": {
       "max": 5162,
@@ -71,13 +71,13 @@
       "stdev": 0.0
     },
     "deposit": {
-      "max": 52653,
-      "mean": 46056.4,
-      "median": 45153,
+      "max": 48153,
+      "mean": 44557.2,
+      "median": 43653,
       "min": 43653,
       "n": 5,
-      "range": 9000,
-      "stdev": 3365.1
+      "range": 4500,
+      "stdev": 1797.9
     },
     "propose_admin": {
       "max": 8060,
@@ -89,54 +89,54 @@
       "stdev": 0.0
     },
     "request_withdraw": {
-      "max": 19662,
-      "mean": 19062.0,
+      "max": 24162,
+      "mean": 19962.0,
       "median": 19662,
       "min": 18162,
       "n": 5,
-      "range": 1500,
-      "stdev": 734.8
+      "range": 6000,
+      "stdev": 2204.5
     },
     "slash_keeper": {
-      "max": 13922,
-      "mean": 13908.6,
+      "max": 13901,
+      "mean": 13901.0,
       "median": 13901,
       "min": 13901,
-      "n": 5,
-      "range": 21,
-      "stdev": 9.4
-    },
-    "swap": {
-      "max": 59327,
-      "mean": 59327.0,
-      "median": 59327,
-      "min": 59327,
       "n": 5,
       "range": 0,
       "stdev": 0.0
     },
-    "update_quote": {
-      "max": 49709,
-      "mean": 47909.0,
-      "median": 48209,
-      "min": 46709,
+    "swap": {
+      "max": 59348,
+      "mean": 59334.6,
+      "median": 59327,
+      "min": 59327,
       "n": 5,
-      "range": 3000,
-      "stdev": 1122.5
+      "range": 21,
+      "stdev": 9.4
+    },
+    "update_quote": {
+      "max": 41563,
+      "mean": 38863.0,
+      "median": 38563,
+      "min": 37063,
+      "n": 5,
+      "range": 4500,
+      "stdev": 1749.3
     },
     "update_quote_wide_conf_rejected": {
-      "max": 17018,
-      "mean": 15218.0,
-      "median": 15518,
-      "min": 14018,
+      "max": 18689,
+      "mean": 15989.0,
+      "median": 15689,
+      "min": 14189,
       "n": 5,
-      "range": 3000,
-      "stdev": 1122.5
+      "range": 4500,
+      "stdev": 1749.3
     }
   },
   "note": "LiteSVM CU varies run-to-run (transfer-heavy instructions up to a few thousand CU); `instructions` is the per-instruction median over `samples_per_instruction` fresh runs. See docs/SECURITY_CHECKLIST.md \u00a73.",
   "samples_per_instruction": 5,
-  "so_bytes": 683680,
-  "so_sha256": "c5ba3d1fba5acfae1c8118141be79afff6f03e83f0e4812e58990b7ae9bb954b",
+  "so_bytes": 688616,
+  "so_sha256": "ac266659311f7c946e2960185037b0977b5bdae4f3c83b72f6e286e5b6378e8d",
   "source": "cargo build-sbf + litesvm_lifecycle.rs::measure_instruction_compute_units"
 }

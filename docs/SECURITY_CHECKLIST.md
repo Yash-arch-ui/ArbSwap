@@ -245,14 +245,14 @@ Single source of truth: `artifacts/public/cu.json` (mirrored at
 `scripts/measure_cu.sh` → `measure_instruction_compute_units`). Current
 measurement (LiteSVM, **build method `cargo build-sbf` (no `idl-build`)**, the
 same build that produces the deployed binary; **median of 5 fresh runs**; `.so`
-sha256 `c5ba3d1fba5a…`, 683,680 B):
+sha256 `ac266659311f…`, 688,616 B):
 
 | Instruction | CU (median) |
 |---|---|
-| `update_quote` | **48,209** |
-| `update_quote_wide_conf_rejected` | 15,518 |
+| `update_quote` | **38,563** |
+| `update_quote_wide_conf_rejected` | 15,689 |
 | `swap` | **59,327** |
-| `deposit` | 45,153 |
+| `deposit` | 43,653 |
 | `request_withdraw` | 19,662 |
 | `claim_withdraw` | 23,728 |
 | `crank_epoch` | 5,162 |
@@ -263,37 +263,27 @@ sha256 `c5ba3d1fba5a…`, 683,680 B):
 | `accept_admin` | 9,367 |
 | `cancel_admin` | 7,555 |
 
-Per-instruction sampling statistics (plain names — the CU table above is the
-generated, drift-checked one):
-
-| Instruction | n | min | median | max | range | stdev |
-|---|---|---|---|---|---|---|
-| update_quote | 5 | 46709 | 48209 | 49709 | 3000 | 1122.5 |
-| update_quote_wide_conf_rejected | 5 | 14018 | 15518 | 17018 | 3000 | 1122.5 |
-| swap | 5 | 59327 | 59327 | 59327 | 0 | 0.0 |
-| deposit | 5 | 43653 | 45153 | 52653 | 9000 | 3365.1 |
-| request_withdraw | 5 | 18162 | 19662 | 19662 | 1500 | 734.8 |
-| claim_withdraw | 5 | 23728 | 23728 | 23745 | 17 | 6.8 |
-| crank_epoch | 5 | 5162 | 5162 | 5162 | 0 | 0.0 |
-| bond_keeper | 5 | 23130 | 24630 | 26130 | 3000 | 1122.5 |
-| slash_keeper | 5 | 13901 | 13901 | 13922 | 21 | 9.4 |
-| claim_keeper_reward | 5 | 13828 | 13828 | 13845 | 17 | 6.8 |
-| propose_admin | 5 | 8060 | 8060 | 8060 | 0 | 0.0 |
-| accept_admin | 5 | 9367 | 9367 | 9367 | 0 | 0.0 |
-| cancel_admin | 5 | 7555 | 7555 | 7555 | 0 | 0.0 |
-
 **Measurement variance (P3).** LiteSVM CU is **not run-to-run deterministic**:
-transfer/account-init heavy instructions spread by up to 9,000 CU (the
-account-init instructions) and about 3,000 CU (the quote update and bond), while
-pure-compute instructions are stable (range 0). `cu.json` records the median plus
-per-instruction `min/median/max/range/mean/stdev` over `samples_per_instruction`
-runs, so a single sample is never cited as exact. The `anchor build` (idl-build)
-path is a different binary and is not cited.
+transfer/account-init heavy instructions spread by a few thousand CU (e.g.
+the quote update ranges 37,063–41,563 across 5 runs), while pure-compute instructions are
+stable (range 0). `cu.json` records the median plus per-instruction
+`min/median/max/range/mean/stdev` in `instructions_stats`, so a single sample is
+never cited as exact. The `anchor build` (idl-build) path is a different binary
+and is not cited.
+
+**C3/B2 compute redesign — `update_quote` target MET.** The ask-side capacity
+check no longer does a 256-bit division per level: the keeper supplies per-level
+Q64.64 inverse square roots (verified on-chain with one multiply each,
+`inv_sqrt_is_conservative`) and the program computes the ask base capacity by
+multiply+shift (`base_capacity_from_inverse_sqrts`), which is conservatively
+`>=` the exact floor (one-million-case differential, Rust + Python). The quote
+update fell from ~48k to a **median 38,563 CU (range 37,063–41,563)**, meeting the ≤40k
+target at the median (the LiteSVM spread is measurement noise, not a code path).
 
 `update_quote` exceeds the keeper's former 60k limit, so
 `MAX_UPDATE_COMPUTE_UNITS` is 80,000. All instructions remain inside the
 200,000 CU transaction default. We do **not** claim a "cheap" update, and the
-`<1,000 CU/update` target is **not met** (~48k observed).
+`<1,000 CU/update` target is **not met**.
 
 ### h2 — update_quote profile and the <=40k target
 
@@ -307,24 +297,14 @@ Profiled by ablation (LiteSVM, two-sided ladder, 12 levels):
 | level band binding (24 `price_from_sqrt`) | ≈0 | remove the binding loop |
 | keeper-bond PDA check | ≈2k | bonded vs unbonded |
 
-**Target <=40k is NOT met** (measured **48,209 CU**, clean `cargo build-sbf`;
-`artifacts/public/cu.json`). The remaining dominant cost is the ask-side
-`base_capacity` (`floor(L·Δ/(lo·hi))`, a 256-bit division per level), on top of
-the fixed account-validation + Pyth verification (~30k) that the program cannot
-remove without dropping the on-chain oracle check.
-
-**Proposed design change (WAITING for approval; semantics change).** Validate
-capacity **coarsely** at update time and enforce the **exact** consumption cap at
-swap time:
-- update time: require the *lower-cost* per-side `quote_capacity` sums
-  (`Σ L·Δ/2¹²⁸`, no 256-bit division) ≤ `utilization × value` of the reserve, so
-  an over-deep ladder is still rejected;
-- swap time: the existing `walk_ladder` `remaining != 0` check plus the token
-  transfer already hard-cap the actual outflow to the reserve, so no swap can
-  pay out more than the vault holds.
-This removes the 6 ask divisions (~23k) and would land `update_quote` near the
-30k stretch target. It changes the *update-time* guarantee from exact base
-capacity to exact value capacity, so it needs sign-off.
+**Target <=40k is MET (C3/B2, implemented).** The 6 ask-side 256-bit divisions
+(~23k CU) are gone: the keeper supplies per-level inverse square roots, the
+program verifies each with one multiply (`inv_sqrt_is_conservative`) and computes
+the ask base capacity by multiply+shift (`base_capacity_from_inverse_sqrts`),
+conservatively `>=` the exact floor. Measured median **38,563 CU**
+(37,063–41,563 over 5 runs; `artifacts/public/cu.json`). The remaining fixed cost
+is account validation + Pyth verification (~30k), which the program cannot remove
+without dropping the on-chain oracle check.
 
 **Correction (S1):** the earlier note that a single-U256-divisor `base_capacity`
 "silently returned wrong values" was a **false alarm**. The Stage-1 differential
@@ -373,7 +353,10 @@ every mutation **caught**. Re-runnable: `python scripts/mutation_program.py`.
 | M7 permissionless keeper gate | always require `keeper == config.keeper` | `permissionless_bonded_keeper_may_quote_when_min_bond_is_set` | caught |
 | §7.3 spread step | delete the per-update step require | `spread_step_is_bounded_per_update` | caught |
 | §5.9 flow accumulator reset | delete `quote.flow_n = 0` on update | `flow_accumulator_tracks_net_base_and_resets` | caught |
+| C3/B2 inverse-sqrt verification | drop the `inv_sqrt_is_conservative` require | `update_quote_rejects_an_under_estimated_inverse_sqrt` | caught |
 
 Account-space: `Config` grows by 4 B (`max_spread_step_bps`) and `QuoteState` by
 16 B (`flow_n: i128`); the declared `space` expressions and
-`account_spaces_match_serialized_sizes` were updated in the same commit.
+`account_spaces_match_serialized_sizes` were updated in the same commit. C3/B2
+changes only the **instruction payload** (`LevelUpdate` gains `inv_lo`/`inv_hi`);
+the account layout is unchanged.

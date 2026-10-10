@@ -52,6 +52,16 @@ MUTATIONS = [
         "        quote.update_slot = update.update_slot;\n",
         "flow_accumulator_tracks_net_base_and_resets",
     ),
+    (
+        "C3/B2 inverse-sqrt verification",
+        "            require!(\n"
+        "                arb_math::inv_sqrt_is_conservative(level.sqrt_lo, level.inv_lo)\n"
+        "                    && arb_math::inv_sqrt_is_conservative(level.sqrt_hi, level.inv_hi),\n"
+        "                ErrorCode::InvalidInverseSqrt\n"
+        "            );\n",
+        "            let _ = (level.inv_lo, level.inv_hi);\n",
+        "update_quote_rejects_an_under_estimated_inverse_sqrt",
+    ),
 ]
 
 

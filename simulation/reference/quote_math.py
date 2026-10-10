@@ -391,3 +391,36 @@ def withdrawal_amounts(shares: int, reserve_base: int, reserve_quote: int,
         raise ValueError("invalid withdrawal state")
     return (shares * reserve_base // total_shares,
             shares * reserve_quote // total_shares)
+
+
+# --- C3/B2: inverse-sqrt capacity (multiply+shift, no 256-bit division) ------
+# Integer mirror of `arb-math`'s `inv_sqrt_q64_ceil` / `base_capacity_from_inverse_sqrts`.
+_Q64 = 1 << 64
+
+
+def inv_sqrt_q64_ceil(sqrt_scaled: int) -> int:
+    """`ceil(2^128 / sqrt_scaled)`, the Q64.64 inverse sqrt rounded up."""
+    if sqrt_scaled <= 0:
+        raise ValueError("sqrt must be positive")
+    q, r = divmod(1 << 128, sqrt_scaled)
+    return q + (1 if r else 0)
+
+
+def inv_sqrt_is_conservative(sqrt_scaled: int, inv: int) -> bool:
+    """True iff `inv` does not under-estimate `1/sqrt` (one multiply)."""
+    return ((sqrt_scaled * inv) >> 64) >= _Q64
+
+
+def _mul_q64_ceil(a: int, b: int) -> int:
+    return (a * b + _Q64 - 1) >> 64
+
+
+def base_capacity_from_inverse_sqrts(liquidity: int, sqrt_lo: int, sqrt_hi: int,
+                                     inv_lo: int, inv_hi: int) -> int:
+    """Ask base capacity from verified inverses; rounds up (>= exact)."""
+    if sqrt_lo <= 0 or sqrt_lo >= sqrt_hi or liquidity <= 0:
+        raise ValueError("invalid level")
+    delta = sqrt_hi - sqrt_lo
+    a = _mul_q64_ceil(liquidity, delta)
+    b = _mul_q64_ceil(a, inv_lo)
+    return _mul_q64_ceil(b, inv_hi) >> 64

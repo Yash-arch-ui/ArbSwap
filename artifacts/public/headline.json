@@ -22,12 +22,12 @@
   },
   "cost": {
     "cu_swap": 59327,
-    "cu_update_quote": 48209,
+    "cu_update_quote": 38563,
     "sol_price": 150.0,
     "swap_total_quote": 0.00075889905,
     "update_gas_quote": 0.00075,
-    "update_priority_quote": 7.231350000000001e-06,
-    "update_total_quote": 0.00075723135,
+    "update_priority_quote": 5.78445e-06,
+    "update_total_quote": 0.0007557844500000001,
     "updates_per_hour": 3600
   },
   "e1_e4": {
@@ -83,7 +83,7 @@
     }
   },
   "meta": {
-    "commit": "d060676b810c7d47d514e55756f23bfb7710a540",
+    "commit": "3df287b1a04846b52e8e011f252232fa6a05fa40",
     "data_sha256": {
       "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
       "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -102,7 +102,7 @@
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "d060676"
+    "short": "3df287b"
   },
   "routed_world": {
     "rows": [

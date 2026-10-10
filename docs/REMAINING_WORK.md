@@ -33,8 +33,8 @@ implementation status in `docs/AUDIT_ACHIEVED_VS_PLAN.md`.
 | Item | Plan ref | Status |
 |---|---|---|
 | Fuzzing (cargo-fuzz) | MasterPlan §9, §13; BuilderPlan §10, T5.2 | **DONE** — 3 targets (`arb_math`, `walk_ladder`, `quote_validation`) in `fuzz/`, nightly CI job (`scripts/fuzz_short.sh`) |
-| CU/update < ~1,000 | MasterPlan §2.5, §17.14; BuilderPlan §2.5 | NOT met (~48k); LiteSVM non-deterministic |
-| Verify-instead-of-compute redesign | C3/B2 roadmap | NOT DONE |
+| CU/update < ~1,000 | MasterPlan §2.5, §17.14; BuilderPlan §2.5 | **partly closed**: `<=40k` target **MET** (median 38,563; C3/B2 invert-sqrt redesign). `<1,000` still NOT met |
+| Verify-instead-of-compute redesign | C3/B2 roadmap | **DONE** (inverse-sqrt payload verified on-chain; 1M-case differential; mutation caught) |
 | Property/state-machine/adversarial suite | BuilderPlan §10 | present |
 
 ## 5. Deploy / process

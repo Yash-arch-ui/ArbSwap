@@ -686,16 +686,25 @@ pub mod arbswap {
         // `arb-math`; the fee buckets are liabilities and are excluded.
         let mut ask_base_capacity = 0u128;
         for level in update.ask_levels.iter() {
-            let math_level = MathLevel {
-                sqrt_lo: level.sqrt_lo,
-                sqrt_hi: level.sqrt_hi,
-                liquidity: level.liquidity,
-            };
+            // C3/B2: verify the keeper-supplied inverse square roots (one
+            // multiply each) and compute the ask capacity by multiply+shift.
+            // The estimate is conservative (>= the exact floor), so the
+            // utilization cap can only reject, never wrongly accept.
+            require!(
+                arb_math::inv_sqrt_is_conservative(level.sqrt_lo, level.inv_lo)
+                    && arb_math::inv_sqrt_is_conservative(level.sqrt_hi, level.inv_hi),
+                ErrorCode::InvalidInverseSqrt
+            );
             ask_base_capacity = ask_base_capacity
                 .checked_add(
-                    math_level
-                        .base_capacity()
-                        .map_err(|_| error!(ErrorCode::MathOverflow))?,
+                    arb_math::base_capacity_from_inverse_sqrts(
+                        level.liquidity,
+                        level.sqrt_lo,
+                        level.sqrt_hi,
+                        level.inv_lo,
+                        level.inv_hi,
+                    )
+                    .map_err(|_| error!(ErrorCode::MathOverflow))?,
                 )
                 .ok_or(ErrorCode::MathOverflow)?;
         }
@@ -1599,6 +1608,11 @@ pub struct LevelUpdate {
     pub sqrt_lo: u128,
     pub sqrt_hi: u128,
     pub liquidity: u128,
+    /// C3/B2: keeper-supplied Q64.64 inverse square roots, verified on-chain with
+    /// one multiply each (`inv_sqrt_is_conservative`). Used for the ask-side
+    /// base-capacity check via multiply+shift instead of a 256-bit division.
+    pub inv_lo: u128,
+    pub inv_hi: u128,
 }
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
 pub struct QuoteUpdate {
@@ -2419,6 +2433,8 @@ pub enum ErrorCode {
     SpreadOutOfBounds,
     #[msg("Half-spread changed by more than the per-update step bound")]
     SpreadStepTooLarge,
+    #[msg("Keeper-supplied inverse square root under-estimates 1/sqrt")]
+    InvalidInverseSqrt,
     #[msg("Quote expired")]
     QuoteExpired,
     #[msg("Version too old")]

@@ -279,5 +279,5 @@ def test_keeper_replay_emits_a_two_sided_payload(tmp_path):
     updates = [line for line in result.stdout.splitlines() if line.startswith("update,")]
     assert updates, result.stdout
     payload = bytes.fromhex(updates[0].split("instruction_hex=")[1])
-    two_sided_len = 8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + 6 * 4 + 6 * 4 + 6 * 48 * 2
+    two_sided_len = 8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + 6 * 4 + 6 * 4 + 6 * 80 * 2
     assert len(payload) == two_sided_len

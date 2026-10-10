@@ -567,3 +567,35 @@ the vault stops quoting (fail-closed) on a spike. `lvr_budget = 1` and
 `max_vol = infinity` are the neutral defaults, so historical study numbers are
 unchanged. Rounding: all steps use the shared `mul_q64` (round down) and the
 vault-favouring convention in §5.2.
+
+## C3/B2 — ask capacity by verified inverse square roots (rounding rule)
+
+The exact ask base capacity of a segment is
+`base_capacity = floor(L·Δ / (lo·hi))`, `Δ = hi - lo` (Q64.64 sqrt prices). The
+old path needs one 256-bit division per level. The redesign replaces it with
+multiply+shift, verified against the exact value over 1,000,000 random ladders
+(`vault/math/tests/capacity_inverse.rs`, `simulation/reference/test_capacity_inverse.py`).
+
+**Keeper:** supplies, per ask level, `inv_lo = inv_sqrt_q64_ceil(sqrt_lo)` and
+`inv_hi = inv_sqrt_q64_ceil(sqrt_hi)` where
+`inv_sqrt_q64_ceil(s) = ceil(2^128 / s)` (the Q64.64 inverse sqrt, **rounded up**).
+
+**Program:** verifies each inverse with **one multiply**:
+`inv_sqrt_is_conservative(s, inv)  ⟺  mul_q64(s, inv) >= 1.0`
+(i.e. `(s·inv) >> 64 >= 2^64`). Then
+
+    base_capacity_est = (( mul_q64_ceil(mul_q64_ceil(mul_q64_ceil(L, Δ), inv_lo), inv_hi) )
+                         >> 64)
+
+where `mul_q64_ceil(a, b) = (a·b + (2^64 − 1)) >> 64`.
+
+**Rounding rule (conservative).** Every multiplication rounds **up** and each
+inverse is an over-estimate of `1/sqrt`, so
+`base_capacity_est >= floor(L·Δ/(lo·hi))` always. The on-chain check
+`base_capacity_est · 10^4 <= utilization · available_base` is therefore **at
+least as strict** as the exact check: a keeper that under-estimates an inverse is
+rejected (`InvalidInverseSqrt`), and an over-deep ladder can never be accepted.
+Overflow saturates to `u128::MAX`, which also fails the cap (reject). The only
+semantic change is documented conservative rounding (a valid ladder at the exact
+boundary may be rejected by up to the estimate's slack, `<0.1%` in the
+differential).
