@@ -1,0 +1,3961 @@
+{
+  "address": "2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm",
+  "metadata": {
+    "name": "arbswap",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "ArbSwap: open, professionally managed market-making vault on Solana"
+  },
+  "instructions": [
+    {
+      "name": "accept_admin",
+      "docs": [
+        "B4: the proposed successor accepts; the timelock must have elapsed."
+      ],
+      "discriminator": [
+        112,
+        42,
+        45,
+        90,
+        116,
+        181,
+        13,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "new_admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "account",
+                "path": "vault.quote_mint",
+                "account": "Vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "apply_params",
+      "docs": [
+        "Applies a previously proposed parameter set once the timelock elapsed."
+      ],
+      "discriminator": [
+        188,
+        203,
+        86,
+        124,
+        178,
+        34,
+        133,
+        116
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "account",
+                "path": "vault.quote_mint",
+                "account": "Vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "bond_keeper",
+      "docs": [
+        "T3.4: the keeper locks a bond in the quote token. The bond is held in a",
+        "vault-owned PDA token account, so no external key can move it."
+      ],
+      "discriminator": [
+        167,
+        101,
+        132,
+        208,
+        178,
+        36,
+        89,
+        88
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "keeper_quote",
+          "writable": true
+        },
+        {
+          "name": "bond_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  110,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "keeper_bond",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  107,
+                  101,
+                  101,
+                  112,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "keeper"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "cancel_admin",
+      "docs": [
+        "B4: the current admin cancels a pending rotation."
+      ],
+      "discriminator": [
+        169,
+        143,
+        43,
+        87,
+        189,
+        134,
+        146,
+        216
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "account",
+                "path": "vault.quote_mint",
+                "account": "Vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_keeper_reward",
+      "docs": [
+        "T3.4: the configured keeper claims exactly the accrued reward buckets.",
+        "Only the keeper can claim, only the `keeper_*` buckets move, and they are",
+        "zeroed, so no vault principal can ever be drained."
+      ],
+      "discriminator": [
+        84,
+        112,
+        54,
+        166,
+        64,
+        240,
+        183,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_reserve",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve",
+          "writable": true
+        },
+        {
+          "name": "keeper_base",
+          "writable": true
+        },
+        {
+          "name": "keeper_quote",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_withdraw",
+      "discriminator": [
+        232,
+        89,
+        154,
+        117,
+        16,
+        204,
+        182,
+        224
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "base_reserve",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve",
+          "writable": true
+        },
+        {
+          "name": "share_mint",
+          "writable": true
+        },
+        {
+          "name": "share_lock",
+          "writable": true
+        },
+        {
+          "name": "withdraw_ticket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_base",
+          "writable": true
+        },
+        {
+          "name": "user_quote",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "crank_epoch",
+      "discriminator": [
+        172,
+        100,
+        58,
+        85,
+        143,
+        73,
+        244,
+        103
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "deposit",
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_reserve",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve",
+          "writable": true
+        },
+        {
+          "name": "share_mint",
+          "writable": true
+        },
+        {
+          "name": "share_lock",
+          "writable": true
+        },
+        {
+          "name": "user_base",
+          "writable": true
+        },
+        {
+          "name": "user_quote",
+          "writable": true
+        },
+        {
+          "name": "user_shares",
+          "writable": true
+        },
+        {
+          "name": "deposit_ticket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "base_amount",
+          "type": "u64"
+        },
+        {
+          "name": "quote_amount",
+          "type": "u64"
+        },
+        {
+          "name": "min_shares",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "execute_fee_claim",
+      "docs": [
+        "Item 5: releases a previously proposed fee claim once the timelock",
+        "elapsed. Moves **only** the requested LP-excluded bucket, and only to the",
+        "fixed `config.treasury` token accounts. LP reserves are never touched."
+      ],
+      "discriminator": [
+        50,
+        205,
+        153,
+        223,
+        64,
+        254,
+        71,
+        5
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_claim",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_reserve",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve",
+          "writable": true
+        },
+        {
+          "name": "treasury_base",
+          "writable": true
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_program",
+      "docs": [
+        "One-time deployer bootstrap. Claims the program admin role so a",
+        "subsequent `initialize_vault` cannot be front-run for a mint pair",
+        "(the vault PDA is derived from the mints alone)."
+      ],
+      "discriminator": [
+        176,
+        107,
+        205,
+        168,
+        24,
+        157,
+        175,
+        103
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_vault",
+      "discriminator": [
+        48,
+        191,
+        163,
+        44,
+        71,
+        129,
+        63,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "params.base_mint"
+              },
+              {
+                "kind": "arg",
+                "path": "params.quote_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "base_reserve",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "quote_reserve",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "share_mint",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "share_lock",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "InitParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "propose_admin",
+      "docs": [
+        "B4: the current admin proposes a successor. It takes effect only when the",
+        "successor signs `accept_admin`, at least `TIMELOCK_SLOTS` later. The old",
+        "admin cannot be locked out by a typo: acceptance is required."
+      ],
+      "discriminator": [
+        121,
+        214,
+        199,
+        212,
+        87,
+        39,
+        117,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "account",
+                "path": "vault.quote_mint",
+                "account": "Vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_admin",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "propose_fee_claim",
+      "docs": [
+        "Item 5: admin proposes a timelocked claim of the insurance or protocol",
+        "fee bucket. Nothing moves yet; `execute_fee_claim` releases it only after",
+        "`TIMELOCK_SLOTS` and only to the fixed `config.treasury`."
+      ],
+      "discriminator": [
+        210,
+        234,
+        170,
+        120,
+        42,
+        126,
+        164,
+        137
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "account",
+                "path": "vault.quote_mint",
+                "account": "Vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_claim",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "kind",
+          "type": {
+            "defined": {
+              "name": "FeeKind"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "request_withdraw",
+      "discriminator": [
+        137,
+        95,
+        187,
+        96,
+        250,
+        138,
+        31,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "share_lock",
+          "writable": true
+        },
+        {
+          "name": "deposit_ticket",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_shares",
+          "writable": true
+        },
+        {
+          "name": "withdraw_ticket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "shares",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "reset_breaker",
+      "discriminator": [
+        76,
+        102,
+        147,
+        41,
+        41,
+        213,
+        230,
+        221
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_params",
+      "docs": [
+        "F-17: admin proposes tunable parameters. They take effect only after",
+        "`apply_params` and at least `TIMELOCK_SLOTS` slots later."
+      ],
+      "discriminator": [
+        27,
+        234,
+        178,
+        52,
+        147,
+        2,
+        187,
+        141
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "account",
+                "path": "vault.quote_mint",
+                "account": "Vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "ParamsUpdate"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "slash_keeper",
+      "docs": [
+        "T3.4: admin slashes the bond; the slashed tokens go to the quote reserve",
+        "and are booked to the insurance bucket. Never to the admin."
+      ],
+      "discriminator": [
+        203,
+        194,
+        54,
+        26,
+        207,
+        45,
+        134,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve",
+          "writable": true
+        },
+        {
+          "name": "keeper"
+        },
+        {
+          "name": "keeper_bond",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  107,
+                  101,
+                  101,
+                  112,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "keeper"
+              }
+            ]
+          }
+        },
+        {
+          "name": "bond_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  110,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "swap",
+      "discriminator": [
+        248,
+        198,
+        158,
+        145,
+        225,
+        117,
+        135,
+        200
+      ],
+      "accounts": [
+        {
+          "name": "trader",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_reserve",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve",
+          "writable": true
+        },
+        {
+          "name": "trader_base",
+          "writable": true
+        },
+        {
+          "name": "trader_quote",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "side",
+          "type": {
+            "defined": {
+              "name": "SwapSide"
+            }
+          }
+        },
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_out",
+          "type": "u64"
+        },
+        {
+          "name": "min_version",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "trip_breaker",
+      "discriminator": [
+        141,
+        130,
+        124,
+        235,
+        77,
+        100,
+        183,
+        10
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "unbond_keeper",
+      "docs": [
+        "p2-T5: two-phase keeper unbond. The first call queues `amount` and starts",
+        "the cooldown; a second call after the cooldown releases the queued amount",
+        "(capped at the remaining bond, so a slash during the cooldown reduces the",
+        "payout). The admin may slash at any time; rewards stay claimable."
+      ],
+      "discriminator": [
+        228,
+        117,
+        181,
+        66,
+        56,
+        0,
+        45,
+        37
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "keeper_quote",
+          "writable": true
+        },
+        {
+          "name": "bond_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  110,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "keeper_bond",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  107,
+                  101,
+                  101,
+                  112,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "keeper"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_quote",
+      "discriminator": [
+        235,
+        69,
+        162,
+        233,
+        147,
+        53,
+        42,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_update"
+        },
+        {
+          "name": "keeper_bond",
+          "docs": [
+            "`seeds`), so the MVP allowlist path pays no PDA-derivation CU; the body",
+            "checks the PDA and the bonded amount only when `min_bond > 0`."
+          ]
+        },
+        {
+          "name": "base_reserve",
+          "docs": [
+            "The vault's token reserves, read to bound the quoted depth to the",
+            "*available* reserves (net of the fee buckets). Bound by address."
+          ]
+        },
+        {
+          "name": "quote_reserve"
+        }
+      ],
+      "args": [
+        {
+          "name": "update",
+          "type": {
+            "defined": {
+              "name": "QuoteUpdate"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "wind_down",
+      "discriminator": [
+        108,
+        63,
+        202,
+        124,
+        241,
+        98,
+        53,
+        50
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "DepositTicket",
+      "discriminator": [
+        147,
+        140,
+        28,
+        139,
+        216,
+        92,
+        230,
+        198
+      ]
+    },
+    {
+      "name": "KeeperBond",
+      "discriminator": [
+        147,
+        25,
+        133,
+        190,
+        97,
+        230,
+        22,
+        101
+      ]
+    },
+    {
+      "name": "PendingClaim",
+      "discriminator": [
+        157,
+        245,
+        142,
+        253,
+        253,
+        170,
+        4,
+        158
+      ]
+    },
+    {
+      "name": "PendingConfig",
+      "discriminator": [
+        109,
+        48,
+        178,
+        191,
+        125,
+        67,
+        26,
+        70
+      ]
+    },
+    {
+      "name": "ProgramConfig",
+      "discriminator": [
+        196,
+        210,
+        90,
+        231,
+        144,
+        149,
+        140,
+        63
+      ]
+    },
+    {
+      "name": "QuoteState",
+      "discriminator": [
+        190,
+        255,
+        174,
+        44,
+        19,
+        215,
+        37,
+        156
+      ]
+    },
+    {
+      "name": "Vault",
+      "discriminator": [
+        211,
+        8,
+        232,
+        43,
+        2,
+        152,
+        117,
+        119
+      ]
+    },
+    {
+      "name": "WithdrawTicket",
+      "discriminator": [
+        237,
+        23,
+        164,
+        58,
+        53,
+        248,
+        240,
+        94
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AdminChanged",
+      "discriminator": [
+        232,
+        34,
+        31,
+        226,
+        62,
+        18,
+        19,
+        114
+      ]
+    },
+    {
+      "name": "AdminProposed",
+      "discriminator": [
+        129,
+        249,
+        226,
+        227,
+        199,
+        82,
+        110,
+        243
+      ]
+    },
+    {
+      "name": "BreakerReset",
+      "discriminator": [
+        108,
+        198,
+        235,
+        208,
+        124,
+        113,
+        227,
+        174
+      ]
+    },
+    {
+      "name": "BreakerTripped",
+      "discriminator": [
+        248,
+        29,
+        234,
+        230,
+        10,
+        90,
+        65,
+        84
+      ]
+    },
+    {
+      "name": "DepositEvent",
+      "discriminator": [
+        120,
+        248,
+        61,
+        83,
+        31,
+        142,
+        107,
+        144
+      ]
+    },
+    {
+      "name": "EdgeBreakerTripped",
+      "discriminator": [
+        229,
+        188,
+        149,
+        136,
+        154,
+        42,
+        185,
+        193
+      ]
+    },
+    {
+      "name": "FeeClaimProposed",
+      "discriminator": [
+        238,
+        175,
+        53,
+        164,
+        67,
+        107,
+        102,
+        152
+      ]
+    },
+    {
+      "name": "FeeClaimed",
+      "discriminator": [
+        202,
+        108,
+        15,
+        80,
+        101,
+        18,
+        217,
+        158
+      ]
+    },
+    {
+      "name": "KeeperBonded",
+      "discriminator": [
+        253,
+        175,
+        66,
+        79,
+        226,
+        84,
+        206,
+        204
+      ]
+    },
+    {
+      "name": "KeeperSlashed",
+      "discriminator": [
+        40,
+        75,
+        247,
+        92,
+        165,
+        86,
+        81,
+        28
+      ]
+    },
+    {
+      "name": "KeeperUnbonded",
+      "discriminator": [
+        51,
+        104,
+        178,
+        109,
+        195,
+        218,
+        72,
+        209
+      ]
+    },
+    {
+      "name": "ParamsApplied",
+      "discriminator": [
+        79,
+        221,
+        60,
+        141,
+        244,
+        69,
+        47,
+        209
+      ]
+    },
+    {
+      "name": "ParamsProposed",
+      "discriminator": [
+        29,
+        64,
+        243,
+        241,
+        75,
+        135,
+        93,
+        142
+      ]
+    },
+    {
+      "name": "ProgramInitialized",
+      "discriminator": [
+        43,
+        70,
+        110,
+        241,
+        199,
+        218,
+        221,
+        245
+      ]
+    },
+    {
+      "name": "QuoteUpdated",
+      "discriminator": [
+        18,
+        34,
+        232,
+        231,
+        132,
+        245,
+        74,
+        136
+      ]
+    },
+    {
+      "name": "RewardClaimed",
+      "discriminator": [
+        49,
+        28,
+        87,
+        84,
+        158,
+        48,
+        229,
+        175
+      ]
+    },
+    {
+      "name": "SwapEvent",
+      "discriminator": [
+        64,
+        198,
+        205,
+        232,
+        38,
+        8,
+        113,
+        226
+      ]
+    },
+    {
+      "name": "VaultInitialized",
+      "discriminator": [
+        180,
+        43,
+        207,
+        2,
+        18,
+        71,
+        3,
+        75
+      ]
+    },
+    {
+      "name": "WithdrawClaimed",
+      "discriminator": [
+        77,
+        130,
+        89,
+        38,
+        239,
+        172,
+        174,
+        85
+      ]
+    },
+    {
+      "name": "WithdrawRequested",
+      "discriminator": [
+        114,
+        16,
+        240,
+        206,
+        93,
+        128,
+        151,
+        39
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
+    },
+    {
+      "code": 6001,
+      "name": "NoPendingAdmin",
+      "msg": "No pending admin rotation"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidMint",
+      "msg": "Invalid mint"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidParams",
+      "msg": "Invalid params"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidAmount",
+      "msg": "Invalid amount"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidWeights",
+      "msg": "Invalid weights"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidLadder",
+      "msg": "Invalid ladder"
+    },
+    {
+      "code": 6007,
+      "name": "LevelOutOfBounds",
+      "msg": "Level outside the anchor band"
+    },
+    {
+      "code": 6008,
+      "name": "InventoryOutOfBounds",
+      "msg": "Reservation outside the inventory band"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidPrice",
+      "msg": "Invalid price"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidStatus",
+      "msg": "Invalid status"
+    },
+    {
+      "code": 6011,
+      "name": "BreakerConditionNotMet",
+      "msg": "Breaker condition not met"
+    },
+    {
+      "code": 6012,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6013,
+      "name": "Paused",
+      "msg": "Paused"
+    },
+    {
+      "code": 6014,
+      "name": "WarmupNotElapsed",
+      "msg": "Warmup not elapsed"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidOracle",
+      "msg": "Invalid oracle account or verification"
+    },
+    {
+      "code": 6016,
+      "name": "OraclePriceMismatch",
+      "msg": "Oracle price mismatch"
+    },
+    {
+      "code": 6017,
+      "name": "StaleOracle",
+      "msg": "Stale oracle"
+    },
+    {
+      "code": 6018,
+      "name": "WideConfidence",
+      "msg": "Wide confidence"
+    },
+    {
+      "code": 6019,
+      "name": "AnchorStepTooLarge",
+      "msg": "Anchor step too large"
+    },
+    {
+      "code": 6020,
+      "name": "AnchorTooFarFromOracle",
+      "msg": "Anchor too far from the verified oracle price"
+    },
+    {
+      "code": 6021,
+      "name": "FlowCapExceeded",
+      "msg": "Cumulative one-sided flow cap exceeded for this window"
+    },
+    {
+      "code": 6022,
+      "name": "UtilizationExceeded",
+      "msg": "Quoted ladder depth exceeds the utilization cap of the available reserves"
+    },
+    {
+      "code": 6023,
+      "name": "InsuranceNotClaimable",
+      "msg": "The insurance buffer cannot be claimed to the treasury"
+    },
+    {
+      "code": 6024,
+      "name": "TimelockNotElapsed",
+      "msg": "Timelock has not elapsed"
+    },
+    {
+      "code": 6025,
+      "name": "InsufficientBond",
+      "msg": "Insufficient keeper bond"
+    },
+    {
+      "code": 6026,
+      "name": "NotBonded",
+      "msg": "Keeper is not bonded"
+    },
+    {
+      "code": 6027,
+      "name": "SpreadOutOfBounds",
+      "msg": "Spread out of bounds"
+    },
+    {
+      "code": 6028,
+      "name": "SpreadStepTooLarge",
+      "msg": "Half-spread changed by more than the per-update step bound"
+    },
+    {
+      "code": 6029,
+      "name": "InvalidInverseSqrt",
+      "msg": "Keeper-supplied inverse square root under-estimates 1/sqrt"
+    },
+    {
+      "code": 6030,
+      "name": "QuoteExpired",
+      "msg": "Quote expired"
+    },
+    {
+      "code": 6031,
+      "name": "VersionTooOld",
+      "msg": "Version too old"
+    },
+    {
+      "code": 6032,
+      "name": "SlippageExceeded",
+      "msg": "Slippage exceeded"
+    },
+    {
+      "code": 6033,
+      "name": "CapacityExceeded",
+      "msg": "Capacity exceeded"
+    },
+    {
+      "code": 6034,
+      "name": "EpochNotReached",
+      "msg": "Epoch not reached"
+    },
+    {
+      "code": 6035,
+      "name": "NotKeeper",
+      "msg": "Not keeper"
+    },
+    {
+      "code": 6036,
+      "name": "NonMonotonicSlot",
+      "msg": "Non-monotonic slot"
+    },
+    {
+      "code": 6037,
+      "name": "UpdateSlotTooOld",
+      "msg": "Update slot is older than the configured maximum age"
+    }
+  ],
+  "types": [
+    {
+      "name": "AdminChanged",
+      "docs": [
+        "B4: admin rotation accepted; the new admin is active."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "new_admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdminProposed",
+      "docs": [
+        "B4: admin rotation proposed (timelocked)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "new_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "activate_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BreakerReset",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BreakerTripped",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "Item 5: the fixed destination for timelocked fee claims. Set once at",
+              "init; a claim can only ever send insurance/protocol fees here."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pyth_feed_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "insurance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "keeper_bps",
+            "type": "u16"
+          },
+          {
+            "name": "protocol_bps",
+            "type": "u16"
+          },
+          {
+            "name": "min_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "warmup_slots",
+            "type": "u64"
+          },
+          {
+            "name": "epoch_slots",
+            "type": "u64"
+          },
+          {
+            "name": "grace_slots",
+            "type": "u64"
+          },
+          {
+            "name": "expiry_slots",
+            "type": "u64"
+          },
+          {
+            "name": "max_staleness_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "max_conf_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_anchor_step_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_spread_step_bps",
+            "docs": [
+              "Spec §7.3: max change in `half_spread_bps` per update (step guard)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "min_spread_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_spread_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_quote_size",
+            "type": "u64"
+          },
+          {
+            "name": "max_inventory_bps",
+            "type": "u32"
+          },
+          {
+            "name": "utilization_max_bps",
+            "type": "u32"
+          },
+          {
+            "name": "min_bond",
+            "type": "u64"
+          },
+          {
+            "name": "unbond_cooldown_slots",
+            "type": "u64"
+          },
+          {
+            "name": "max_update_slot_age",
+            "docs": [
+              "p2-T8: max age (slots) of the stored `update_slot` at update time."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "edge_window_slots",
+            "docs": [
+              "h3: realized-edge loss window (slots) and threshold (bps of available value)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_edge_loss_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_anchor_dev_bps",
+            "type": "u32"
+          },
+          {
+            "name": "flow_window_slots",
+            "docs": [
+              "Item 1a: flow window length (slots) and one-sided cap (bps of base reserve)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_window_flow_bps",
+            "type": "u32"
+          },
+          {
+            "name": "pending_admin",
+            "docs": [
+              "B4: timelocked admin rotation. `pending_admin` is the proposed successor",
+              "(default = none); it must sign `accept_admin` after `admin_activate_slot`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin_activate_slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "base_amount",
+            "type": "u64"
+          },
+          {
+            "name": "quote_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositTicket",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "activate_slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EdgeBreakerTripped",
+      "docs": [
+        "h3: the realized-edge breaker paused the vault."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "realized_edge",
+            "type": "i128"
+          },
+          {
+            "name": "bound",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeClaimProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "activate_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "FeeKind"
+              }
+            }
+          },
+          {
+            "name": "base_amount",
+            "type": "u64"
+          },
+          {
+            "name": "quote_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeKind",
+      "docs": [
+        "Item 5: the LP-excluded fee bucket a timelocked treasury claim targets."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Insurance"
+          },
+          {
+            "name": "Protocol"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "Item 5: fixed destination for timelocked fee claims."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pyth_feed_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "insurance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "keeper_bps",
+            "type": "u16"
+          },
+          {
+            "name": "protocol_bps",
+            "type": "u16"
+          },
+          {
+            "name": "min_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "warmup_slots",
+            "type": "u64"
+          },
+          {
+            "name": "epoch_slots",
+            "type": "u64"
+          },
+          {
+            "name": "grace_slots",
+            "type": "u64"
+          },
+          {
+            "name": "expiry_slots",
+            "type": "u64"
+          },
+          {
+            "name": "max_staleness_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "max_conf_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_anchor_step_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_spread_step_bps",
+            "docs": [
+              "Spec §7.3: max change in `half_spread_bps` per update (step guard)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "min_spread_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_spread_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_quote_size",
+            "type": "u64"
+          },
+          {
+            "name": "max_inventory_bps",
+            "type": "u32"
+          },
+          {
+            "name": "utilization_max_bps",
+            "type": "u32"
+          },
+          {
+            "name": "min_bond",
+            "type": "u64"
+          },
+          {
+            "name": "unbond_cooldown_slots",
+            "type": "u64"
+          },
+          {
+            "name": "max_update_slot_age",
+            "docs": [
+              "p2-T8: max age (slots) of the stored `update_slot` at update time."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "edge_window_slots",
+            "docs": [
+              "h3: realized-edge loss window (slots) and threshold (bps of available value)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_edge_loss_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_anchor_dev_bps",
+            "type": "u32"
+          },
+          {
+            "name": "flow_window_slots",
+            "type": "u64"
+          },
+          {
+            "name": "max_window_flow_bps",
+            "type": "u32"
+          },
+          {
+            "name": "offsets_bps",
+            "type": {
+              "array": [
+                "u32",
+                6
+              ]
+            }
+          },
+          {
+            "name": "weights_bps",
+            "type": {
+              "array": [
+                "u32",
+                6
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "KeeperBond",
+      "docs": [
+        "Keeper bond (T3.4), seeded `[b\"keeper\", vault, keeper]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "bond",
+            "type": "u64"
+          },
+          {
+            "name": "slashed",
+            "type": "u64"
+          },
+          {
+            "name": "unbond_amount",
+            "docs": [
+              "p2-T5: amount queued for release by `unbond_keeper`, and the slot it",
+              "becomes releasable. `unbond_ready_slot == 0` means no unbond is pending."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "unbond_ready_slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "KeeperBonded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "total",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "KeeperSlashed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "KeeperUnbonded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Level",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "offset_bps",
+            "type": "u32"
+          },
+          {
+            "name": "weight_bps",
+            "type": "u32"
+          },
+          {
+            "name": "sqrt_lo",
+            "type": "u128"
+          },
+          {
+            "name": "sqrt_hi",
+            "type": "u128"
+          },
+          {
+            "name": "liquidity",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LevelUpdate",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sqrt_lo",
+            "type": "u128"
+          },
+          {
+            "name": "sqrt_hi",
+            "type": "u128"
+          },
+          {
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "inv_lo",
+            "docs": [
+              "C3/B2: keeper-supplied Q64.64 inverse square roots, verified on-chain with",
+              "one multiply each (`inv_sqrt_is_conservative`). Used for the ask-side",
+              "base-capacity check via multiply+shift instead of a 256-bit division."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "inv_hi",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ParamsApplied",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ParamsProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "activate_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ParamsUpdate",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "insurance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "keeper_bps",
+            "type": "u16"
+          },
+          {
+            "name": "protocol_bps",
+            "type": "u16"
+          },
+          {
+            "name": "max_staleness_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "max_conf_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_anchor_step_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_spread_step_bps",
+            "docs": [
+              "Spec §7.3: max change in `half_spread_bps` per update (step guard)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "min_spread_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_spread_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_quote_size",
+            "type": "u64"
+          },
+          {
+            "name": "max_inventory_bps",
+            "type": "u32"
+          },
+          {
+            "name": "utilization_max_bps",
+            "type": "u32"
+          },
+          {
+            "name": "min_bond",
+            "type": "u64"
+          },
+          {
+            "name": "unbond_cooldown_slots",
+            "docs": [
+              "p2-T5: cooldown before a keeper's unbond releases (slots)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_update_slot_age",
+            "docs": [
+              "p2-T8: max age (slots) of the stored `update_slot` at update time."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "edge_window_slots",
+            "docs": [
+              "h3: realized-edge loss window (slots) and threshold (bps of available value)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_edge_loss_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_anchor_dev_bps",
+            "docs": [
+              "Max |anchor - oracle| / oracle in bps (Item 2)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "flow_window_slots",
+            "docs": [
+              "Item 1a: cumulative one-sided flow window, in slots."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_window_flow_bps",
+            "docs": [
+              "Item 1a: max one-sided base flow per window, in bps of base reserve."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "keeper",
+            "docs": [
+              "Item 5: optional keeper rotation, applied (timelocked) when set."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingClaim",
+      "docs": [
+        "Item 5: a pending timelocked treasury fee claim, seeded `[b\"claim\", vault]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "FeeKind"
+              }
+            }
+          },
+          {
+            "name": "activate_slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingConfig",
+      "docs": [
+        "Pending timelocked parameter change (F-17), seeded `[b\"pending\", vault]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "activate_slot",
+            "type": "u64"
+          },
+          {
+            "name": "params",
+            "type": {
+              "defined": {
+                "name": "ParamsUpdate"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceFeedMessage",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "feed_id",
+            "docs": [
+              "`FeedId` but avoid the type alias because of compatibility issues with Anchor's `idl-build` feature."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "price",
+            "type": "i64"
+          },
+          {
+            "name": "conf",
+            "type": "u64"
+          },
+          {
+            "name": "exponent",
+            "type": "i32"
+          },
+          {
+            "name": "publish_time",
+            "docs": [
+              "The timestamp of this price update in seconds"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "prev_publish_time",
+            "docs": [
+              "The timestamp of the previous price update. This field is intended to allow users to",
+              "identify the single unique price update for any moment in time:",
+              "for any time t, the unique update is the one such that prev_publish_time < t <= publish_time.",
+              "",
+              "Note that there may not be such an update while we are migrating to the new message-sending logic,",
+              "as some price updates on pythnet may not be sent to other chains (because the message-sending",
+              "logic may not have triggered). We can solve this problem by making the message-sending mandatory",
+              "(which we can do once publishers have migrated over).",
+              "",
+              "Additionally, this field may be equal to publish_time if the message is sent on a slot where",
+              "where the aggregation was unsuccesful. This problem will go away once all publishers have",
+              "migrated over to a recent version of pyth-agent."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "ema_price",
+            "type": "i64"
+          },
+          {
+            "name": "ema_conf",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceUpdateV2",
+      "docs": [
+        "A price update account. This account is used by the Pyth Receiver program to store a verified price update from a Pyth price feed.",
+        "It contains:",
+        "- `write_authority`: The write authority for this account. This authority can close this account to reclaim rent or update the account to contain a different price update.",
+        "- `verification_level`: The [`VerificationLevel`] of this price update. This represents how many Wormhole guardian signatures have been verified for this price update.",
+        "- `price_message`: The actual price update.",
+        "- `posted_slot`: The slot at which this price update was posted."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "write_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "verification_level",
+            "type": {
+              "defined": {
+                "name": "VerificationLevel"
+              }
+            }
+          },
+          {
+            "name": "price_message",
+            "type": {
+              "defined": {
+                "name": "PriceFeedMessage"
+              }
+            }
+          },
+          {
+            "name": "posted_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProgramConfig",
+      "docs": [
+        "Singleton program admin, seeded `[b\"program\"]` (set once at deploy)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProgramInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u64"
+          },
+          {
+            "name": "update_slot",
+            "type": "u64"
+          },
+          {
+            "name": "expiry_slot",
+            "type": "u64"
+          },
+          {
+            "name": "anchor_sqrt_price",
+            "type": "u128"
+          },
+          {
+            "name": "p_res_sqrt",
+            "type": "u128"
+          },
+          {
+            "name": "half_spread_bps",
+            "type": "u32"
+          },
+          {
+            "name": "ask_extra_bps",
+            "type": "u32"
+          },
+          {
+            "name": "bid_extra_bps",
+            "type": "u32"
+          },
+          {
+            "name": "depth_mult_bps",
+            "docs": [
+              "Indexer hint only: the keeper's depth throttle for this quote. The",
+              "on-chain depth control is the per-level `liquidity` plus the",
+              "`utilization_max_bps` capacity bound, not this field (p2-T8)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "window_start_slot",
+            "docs": [
+              "Item 1a: cumulative one-sided base flow within the current window."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "window_base_sold",
+            "type": "u64"
+          },
+          {
+            "name": "window_base_bought",
+            "type": "u64"
+          },
+          {
+            "name": "oracle_publish_time",
+            "type": "i64"
+          },
+          {
+            "name": "oracle_conf_bps",
+            "type": "u32"
+          },
+          {
+            "name": "oracle_price",
+            "docs": [
+              "h3: the verified oracle price (Q64) stored at `update_quote`; the swap",
+              "measures the vault's realized execution edge against it."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "edge_window_start_slot",
+            "docs": [
+              "h3: rolling realized-edge tracker (quote atoms; positive = vault gained)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "realized_edge",
+            "type": "i128"
+          },
+          {
+            "name": "flow_n",
+            "docs": [
+              "Spec §5.9: signed net base sold since the last `update_quote`",
+              "(positive = the vault sold base on net); reset to 0 on every update."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "ask_levels",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Level"
+                  }
+                },
+                6
+              ]
+            }
+          },
+          {
+            "name": "bid_levels",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Level"
+                  }
+                },
+                6
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteUpdate",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "update_slot",
+            "type": "u64"
+          },
+          {
+            "name": "oracle_publish_time",
+            "type": "i64"
+          },
+          {
+            "name": "oracle_price",
+            "type": "u128"
+          },
+          {
+            "name": "oracle_conf_bps",
+            "type": "u32"
+          },
+          {
+            "name": "anchor_sqrt_price",
+            "type": "u128"
+          },
+          {
+            "name": "p_res_sqrt",
+            "type": "u128"
+          },
+          {
+            "name": "half_spread_bps",
+            "type": "u32"
+          },
+          {
+            "name": "ask_extra_bps",
+            "type": "u32"
+          },
+          {
+            "name": "bid_extra_bps",
+            "type": "u32"
+          },
+          {
+            "name": "depth_mult_bps",
+            "type": "u32"
+          },
+          {
+            "name": "offsets_bps",
+            "type": {
+              "array": [
+                "u32",
+                6
+              ]
+            }
+          },
+          {
+            "name": "weights_bps",
+            "type": {
+              "array": [
+                "u32",
+                6
+              ]
+            }
+          },
+          {
+            "name": "ask_levels",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "LevelUpdate"
+                  }
+                },
+                6
+              ]
+            }
+          },
+          {
+            "name": "bid_levels",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "LevelUpdate"
+                  }
+                },
+                6
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "version",
+            "type": "u64"
+          },
+          {
+            "name": "anchor_sqrt_price",
+            "type": "u128"
+          },
+          {
+            "name": "depth_mult_bps",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "base",
+            "type": "u64"
+          },
+          {
+            "name": "quote",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "version",
+            "type": "u64"
+          },
+          {
+            "name": "side",
+            "type": {
+              "defined": {
+                "name": "SwapSide"
+              }
+            }
+          },
+          {
+            "name": "amount_in",
+            "type": "u64"
+          },
+          {
+            "name": "amount_out",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapSide",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "BuyBase"
+          },
+          {
+            "name": "SellBase"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Vault",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_reserve",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_reserve",
+            "type": "pubkey"
+          },
+          {
+            "name": "share_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "share_lock",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_shares",
+            "type": "u64"
+          },
+          {
+            "name": "insurance_base",
+            "type": "u64"
+          },
+          {
+            "name": "insurance_quote",
+            "type": "u64"
+          },
+          {
+            "name": "keeper_base",
+            "type": "u64"
+          },
+          {
+            "name": "keeper_quote",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_base",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_quote",
+            "type": "u64"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "epoch_start",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VerificationLevel",
+      "docs": [
+        "Pyth price updates are bridged to all blockchains via Wormhole.",
+        "Using the price updates on another chain requires verifying the signatures of the Wormhole guardians.",
+        "The usual process is to check the signatures for two thirds of the total number of guardians, but this can be cumbersome on Solana because of the transaction size limits,",
+        "so we also allow for partial verification.",
+        "",
+        "This enum represents how much a price update has been verified:",
+        "- If `Full`, we have verified the signatures for two thirds of the current guardians.",
+        "- If `Partial`, only `num_signatures` guardian signatures have been checked.",
+        "",
+        "# Warning",
+        "Using partially verified price updates is dangerous, as it lowers the threshold of guardians that need to collude to produce a malicious price update."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Partial",
+            "fields": [
+              {
+                "name": "num_signatures",
+                "type": "u8"
+              }
+            ]
+          },
+          {
+            "name": "Full"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "base_amount",
+            "type": "u64"
+          },
+          {
+            "name": "quote_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawRequested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawTicket",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
