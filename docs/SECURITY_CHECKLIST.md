@@ -245,7 +245,7 @@ Single source of truth: `artifacts/public/cu.json` (mirrored at
 `scripts/measure_cu.sh` → `measure_instruction_compute_units`). Current
 measurement (LiteSVM, **build method `cargo build-sbf` (no `idl-build`)**, the
 same build that produces the deployed binary; **median of 5 fresh runs**; `.so`
-sha256 `ac266659311f…`, 688,616 B):
+sha256 `9a05056e4c50…`, 688,616 B):
 
 | Instruction | CU (median) |
 |---|---|

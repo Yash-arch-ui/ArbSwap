@@ -6,7 +6,7 @@ addresses are public).
 | Item | Value |
 |---|---|
 | Cluster | `https://api.devnet.solana.com` |
-| Program id | `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx` |
+| Program id | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
 | ProgramData | `GguKzds7FhirzVoo1Yp4EdBgXDqqCihZhEWpg9pjkMJ9` |
 | Upgrade authority | `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH` |
 | Program config (admin) | `5gjmTuCtPCmHGRr2qGPNb4KpNMbCFUKTbMw4iLPTGnAr` (PDA `[b"program"]`) |
@@ -21,7 +21,7 @@ addresses are public).
 | Upgrade | `45sk39oTFNiS6jsMWm3JuqoEyEmxaL231pJBzfhEEYu9rA2XjoCE9fGpTvfkxc5qEcBcgbu38kFVCXDC9Z8f9L74` |
 | `initialize_program` | `4ZNu7xbSkCk6ktcdav8VHjhkGpxrnssEtXbRBiwyUv5zPJ2aiaYAEADZcwE1qayRwKpqaMKzB4z3KLwjWe8J1P8i` |
 
-Verify with `solana program show CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx --url devnet`.
+Verify with `solana program show 2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm --url devnet`.
 
 ## What worked
 
@@ -100,7 +100,7 @@ LP share account is created.
 ## P2 GATE — FULL LIFECYCLE PASSED ON DEVNET (branch `dev`)
 
 The complete money path ran on devnet against the deployed program
-`CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`, consuming a **fully verified**
+`2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`, consuming a **fully verified**
 SOL/USD Pyth update posted with the **official `@pythnetwork/pyth-solana-receiver`
 TypeScript SDK**.
 
@@ -205,7 +205,7 @@ cargo run -q -p arbswap-e2e -- deposit https://api.devnet.solana.com ~/.config/s
 cd scripts/devnet && PYTH_API_KEY=... POST_INTERVAL_MS=20000 npx tsx post_feed_loop.ts &
 # 3. run the keeper binary
 cd ../.. && cargo run -q -p arbswap-keeper -- live https://api.devnet.solana.com \
-  CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx <vault> <config> <quote_state> \
+  2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm <vault> <config> <quote_state> \
   <base_reserve> <quote_reserve> 7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE <vault> \
   ~/.config/solana/id.json ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d \
   60 50 1000 1000 600
@@ -217,7 +217,7 @@ Read-only check (no keypair) with `scripts/devnet_program_hash.py`:
 
 | | |
 |---|---|
-| program id | `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx` |
+| program id | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
 | programdata | `GguKzds7FhirzVoo1Yp4EdBgXDqqCihZhEWpg9pjkMJ9` |
 | authority | `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH` |
 | on-chain ELF | 744,376 B, sha256 `c0080ccf…` |
@@ -231,14 +231,23 @@ remaining sequence is printed by that script when the keypair is absent.
 
 ## P3 — redeploy exact HEAD build (2026-10-10) — DONE
 
-- Operator/upgrade authority `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH`
-  (funded devnet key), program keypair = `declare_id`
-  `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`.
-- Built the exact HEAD with `cargo build-sbf` (688,616 B, sha256 `8bf2881f…`) and
-  deployed: signatures `33qbHuSwYNWcrFVJdQacSeWimEnMJKuMfEHN59X16jbUw4HxzM5YpGdznPznoWpXqReqiWTzjG2Mn8XRCsPY8VL9`
-  and `64nCNb2PkW3VebGo3jSYiT2Hq3CVJF7oYQ6Gg6XVyv2SX4BjHKT5JSAJoWivB5wN6cHNDY4J1UpRjiouVctBxn4n`;
-  last deployed slot `509563620`.
-- Verification (`scripts/devnet_program_hash.py`): the deployed program's ELF
-  **prefix is byte-identical** to the HEAD build — **MATCH** (the upgradeable
-  loader retained 55,760 B trailing padding from the previous, larger build; the
-  program extent is the ELF header length).
+**Program id changed to `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`.**
+The previous id `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx` was closed during a
+sizing experiment; the upgradeable loader leaves a tombstone and the CLI refuses
+to reuse a closed id, so a fresh id was deployed and `declare_id` / `Anchor.toml`
+were synced (`anchor keys sync`).
+
+- Operator / upgrade authority `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH`
+  (funded devnet key); program keypair = `declare_id`
+  `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`.
+- Built the exact HEAD with `cargo build-sbf` (688,616 B) and deployed
+  (sig `41VpW8ZkoHvQbQfWVyxx3tSo6YuXhr4T8YjHi5FoQwF4YRkrKupuovrgbouHC8n8Lpx36MnNU7eQoVDcaf1vXsqf`,
+  slot `509565633`).
+- Verification (`scripts/devnet_program_hash.py`): deployed ELF **688,616 B,
+  sha256 `9a05056e…` == the local HEAD build — exact MATCH, no padding.**
+- `initialize_program` claimed the one-time admin:
+  sig `xTLNxRQB27SudYvquutFq2tRNd6q6VkFCuXnzxWYBjwA3mydeXmnPyhZGaasXoMovmWMowpBWbE8DhH6KxzuaLA`,
+  program_config PDA `J6MGfX1YvGq6yCP3eAqzbugpF83CTaBcTLKcmrxmBSok`.
+- A vault must now be initialized (see the mints section); the earlier devnet
+  vault `DpC2MPJ43ycsnoaDmZWUHUijWrr8aqSMkMmuBqW3NF7V` was owned by the closed id
+  and is no longer usable.

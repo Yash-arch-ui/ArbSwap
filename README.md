@@ -76,12 +76,12 @@ We do **not** claim:
   from HEAD**: F7 (re-deploy + 30-minute keeper) was **SKIPPED** because
   `ARBSWAP_DEVNET_KEYPAIR` was unset. The program was redeployed from the exact
   HEAD build on 2026-10-10 (byte-identical ELF; signatures in `docs/DEVNET.md`);
-  program id `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`.
+  program id `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`.
 - An independent audit. Same-agent self-review only; external review is required
   before real funds.
 - "Exploit-free", "audited", or "as complete as Uniswap".
 
-Program ID (localnet/devnet): `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`
+Program ID (localnet/devnet): `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`
 
 ## Layout
 

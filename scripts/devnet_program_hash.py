@@ -7,7 +7,7 @@ with a local `.so`. Used to prove whether the deployed program equals the exact
 HEAD build before/after a redeploy.
 
 Run: ``.venv/bin/python scripts/devnet_program_hash.py \
-        --program-id CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx \
+        --program-id 2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm \
         --rpc https://api.devnet.solana.com --so target/deploy/arbswap.so``
 """
 

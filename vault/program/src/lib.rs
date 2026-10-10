@@ -5,7 +5,7 @@ use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer}
 use arb_math::{walk_ladder, Level as MathLevel, Side as MathSide};
 use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 
-declare_id!("CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx");
+declare_id!("2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm");
 
 const LEVELS: usize = 6;
 const ACTIVE: u8 = 0;
