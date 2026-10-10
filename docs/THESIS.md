@@ -75,3 +75,32 @@ ArbSwap volume share 27.9%; better markout than B1: True
   will be regenerated on the next full run (see `docs/PROGRESS.md`).
 
 Status: **PARTIAL** (jump sensitivity done; real high-vol windows EXTERNAL).
+
+## C2.4-fix / F5 — Amendment 4 (committed before the run)
+
+**Registered 2026-10-10, before any high-volatility simulation was run.**
+
+**Window rule (fixed here, applied mechanically):**
+
+1. Baseline σ_ref = equal-weighted mean realised per-sqrt-second volatility of
+   the five held-out windows W2–W6 = **1.02×10⁻⁴** (computed from the same
+   USDC-converted 1 s series used by the study).
+2. Candidate period: single UTC days in **2026-01-01 … 2026-02-28**, Binance
+   `SOLUSDT` 1 s archives (the only period scanned).
+3. Selection: the **two highest-σ non-overlapping days with σ ≥ 2·σ_ref**.
+4. Applying the rule yields **2026-02-06** (σ = 3.80×10⁻⁴, 3.73·σ_ref) and
+   **2026-01-31** (σ = 2.49×10⁻⁴, 2.44·σ_ref). Both are `NOT DONE` no longer:
+   they are downloaded and used.
+5. Held-out protocol on each selected day: the E1–E6 venue comparison
+   (`run_venues`) on the USDC-converted real price path with synthetic flow, the
+   routed world, and the honesty cost.
+6. **T-A.i design:** real `aggTrades` flow (the whole flow; no synthetic
+   informed/noise) for ArbSwap and B1 at fee tiers **1 / 5 / 30 bps**, run on the
+   two selected days **and** the three archived aggTrades days (2026-09-10,
+   2026-09-17, 2026-10-01). For each day and tier, a **5-minute block bootstrap**
+   (2,000 resamples) gives a 95% CI on the hedged-PnL difference
+   (ArbSwap − B1). T-A.i is **MET** iff the CI lower bound is > 0 in at least
+   **3 of the 5 days**, including at least one high-volatility day.
+
+The two selected days are held out from every calibration (calibration stays on
+W1 only); no coefficient is re-chosen here.
