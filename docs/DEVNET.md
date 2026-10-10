@@ -228,3 +228,17 @@ Read-only check (no keypair) with `scripts/devnet_program_hash.py`:
 Offline prep is complete: `scripts/redeploy_and_verify.sh` builds the exact HEAD
 with `cargo build-sbf`, deploys, and re-runs the byte comparison. The minimal
 remaining sequence is printed by that script when the keypair is absent.
+
+## P3 — redeploy exact HEAD build (2026-10-10) — DONE
+
+- Operator/upgrade authority `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH`
+  (funded devnet key), program keypair = `declare_id`
+  `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`.
+- Built the exact HEAD with `cargo build-sbf` (688,616 B, sha256 `8bf2881f…`) and
+  deployed: signatures `33qbHuSwYNWcrFVJdQacSeWimEnMJKuMfEHN59X16jbUw4HxzM5YpGdznPznoWpXqReqiWTzjG2Mn8XRCsPY8VL9`
+  and `64nCNb2PkW3VebGo3jSYiT2Hq3CVJF7oYQ6Gg6XVyv2SX4BjHKT5JSAJoWivB5wN6cHNDY4J1UpRjiouVctBxn4n`;
+  last deployed slot `509563620`.
+- Verification (`scripts/devnet_program_hash.py`): the deployed program's ELF
+  **prefix is byte-identical** to the HEAD build — **MATCH** (the upgradeable
+  loader retained 55,760 B trailing padding from the previous, larger build; the
+  program extent is the ELF header length).

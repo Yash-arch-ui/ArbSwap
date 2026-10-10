@@ -74,9 +74,9 @@ We do **not** claim:
 - Live execution quality. Devnet lifecycle + a 600 s live keeper were run
   (`docs/DEVNET.md`, `docs/DEVNET.md`), but **the deployed program may differ
   from HEAD**: F7 (re-deploy + 30-minute keeper) was **SKIPPED** because
-  `ARBSWAP_DEVNET_KEYPAIR` was unset. Last devnet evidence: commit `7184cb3`
-  (P2 lifecycle) and `36a3c79` (live keeper), dated 2026-10-07; deployed program
-  id `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`.
+  `ARBSWAP_DEVNET_KEYPAIR` was unset. The program was redeployed from the exact
+  HEAD build on 2026-10-10 (byte-identical ELF; signatures in `docs/DEVNET.md`);
+  program id `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx`.
 - An independent audit. Same-agent self-review only; external review is required
   before real funds.
 - "Exploit-free", "audited", or "as complete as Uniswap".

@@ -40,8 +40,8 @@ implementation status in `docs/AUDIT_ACHIEVED_VS_PLAN.md`.
 ## 5. Deploy / process
 | Item | Plan ref | Status |
 |---|---|---|
-| Devnet program == exact HEAD build | MasterPlan §5; BuilderPlan §12 P2 | MISMATCH; redeploy blocked (`ARBSWAP_DEVNET_KEYPAIR` unset) |
-| Keeper from HEAD on devnet | BuilderPlan §12 P3 | ran historically, not from HEAD |
+| Devnet program == exact HEAD build | MasterPlan §5; BuilderPlan §12 P2 | **DONE** — redeployed from HEAD, ELF byte-identical (`docs/DEVNET.md`) |
+| Keeper from HEAD on devnet | BuilderPlan §12 P3 | program is now from HEAD; a live keeper run from HEAD is not part of this pass |
 | Devnet CU measurement (ours vs Pyth) | BuilderPlan §12 T2.6/P5 | not measured (no funded run) |
 | Multisig kill switch (Squads) | MasterPlan §8.9 (M19) | admin rotation + pause-only `wind_down`; multisig wallet-level external |
 

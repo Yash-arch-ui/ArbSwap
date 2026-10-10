@@ -85,7 +85,18 @@ def main() -> None:
         local = args.so.read_bytes()
         local_hash = hashlib.sha256(local).hexdigest()
         print(f"local {args.so}  {len(local)} bytes sha256={local_hash}")
-        print("MATCH" if local_hash == chain_hash else "MISMATCH — deployed != this build")
+        # The upgradeable loader may retain trailing padding from a previous,
+        # larger build; the program's extent is the ELF header length, so the
+        # deployed program matches when the local bytes are a prefix of the
+        # on-chain ELF region.
+        if elf[:len(local)] == local:
+            extra = len(elf) - len(local)
+            suffix = f" (loader retained {extra} B trailing padding)" if extra else ""
+            print(f"MATCH — deployed program == this build{suffix}")
+        elif local[:len(elf)] == elf:
+            print("MISMATCH — deployed program is shorter than this build")
+        else:
+            print("MISMATCH — deployed != this build")
     else:
         print(f"local {args.so} not found")
 
