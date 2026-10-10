@@ -21,35 +21,35 @@
     "window": "W1"
   },
   "cost": {
-    "cu_swap": 59258,
-    "cu_update_quote": 48158,
+    "cu_swap": 59344,
+    "cu_update_quote": 49709,
     "sol_price": 150.0,
-    "swap_total_quote": 0.0007588887,
+    "swap_total_quote": 0.0007589016,
     "update_gas_quote": 0.00075,
-    "update_priority_quote": 7.2237e-06,
-    "update_total_quote": 0.0007572237,
+    "update_priority_quote": 7.456350000000001e-06,
+    "update_total_quote": 0.00075745635,
     "updates_per_hour": 3600
   },
   "cu": {
     "build_method": "cargo build-sbf (no idl-build)",
     "instructions": {
-      "accept_admin": 9316,
-      "bond_keeper": 24630,
-      "cancel_admin": 7504,
-      "claim_keeper_reward": 13838,
-      "claim_withdraw": 23745,
-      "crank_epoch": 5155,
-      "deposit": 43663,
-      "propose_admin": 8009,
-      "request_withdraw": 21162,
+      "accept_admin": 9367,
+      "bond_keeper": 26130,
+      "cancel_admin": 7555,
+      "claim_keeper_reward": 13828,
+      "claim_withdraw": 23728,
+      "crank_epoch": 5162,
+      "deposit": 43653,
+      "propose_admin": 8060,
+      "request_withdraw": 18162,
       "slash_keeper": 13901,
-      "swap": 59258,
-      "update_quote": 48158,
-      "update_quote_wide_conf_rejected": 15514
+      "swap": 59344,
+      "update_quote": 49709,
+      "update_quote_wide_conf_rejected": 17018
     },
     "note": "anchor build (idl-build) is ~3k CU higher for update_quote (51,296 vs 48,296); no source regression. See docs/PROGRESS.md B1.",
-    "so_bytes": 681592,
-    "so_sha256": "b98dfd73df0c2a9cc08600d34d464a939181dc43be244f5fc9877fc53fcd5b45",
+    "so_bytes": 683680,
+    "so_sha256": "c5ba3d1fba5acfae1c8118141be79afff6f03e83f0e4812e58990b7ae9bb954b",
     "source": "cargo build-sbf + vault/program/tests/litesvm_lifecycle.rs::measure_instruction_compute_units"
   },
   "e1_e4": {
@@ -372,7 +372,7 @@
     }
   },
   "meta": {
-    "commit": "d7712a901c5511e8cb44094ba6f601a0cf60680a",
+    "commit": "e0f600e10384afbbb4e491ca1b714dd7501f7997",
     "data_sha256": {
       "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
       "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -391,12 +391,12 @@
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "d7712a9"
+    "short": "e0f600e"
   },
   "mutation": {
-    "caught": 51,
+    "caught": 54,
     "source": "docs/SECURITY_CHECKLIST.md",
-    "total": 51
+    "total": 54
   },
   "routed_world": {
     "rows": [
@@ -1930,7 +1930,7 @@
     "S5": "rendered from window_results.json (per-window E1 summary)"
   },
   "test_counts": {
-    "python": 193,
-    "rust": 148
+    "python": 198,
+    "rust": 154
   }
 }

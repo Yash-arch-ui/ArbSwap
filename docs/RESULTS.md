@@ -22,7 +22,7 @@ The routed chart is `docs/headline_chart.svg` (`./scripts/headline.sh`).
 
 <!-- BEGIN GENERATED NUMBERS -->
 
-_Generated from `simulation/data/results/artifacts.json` (commit `d7712a9`, 2026-10-10, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
+_Generated from `simulation/data/results/artifacts.json` (commit `e0f600e`, 2026-10-10, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
 
 **Calibration (W1):** B1 best 2s markout **-0.02 bps** (target -0.2, accept [-0.5, 0.1]); quiet half-spread **2.409 bps** (target 2.6, accept [1.8, 3.4]).
 
@@ -40,7 +40,7 @@ _Generated from `simulation/data/results/artifacts.json` (commit `d7712a9`, 2026
 
 **Cost (E10, source: `cargo build-sbf + vault/program/tests/litesvm_lifecycle.rs::measure_instruction_compute_units`):** `update_quote` **49,709 CU**, `swap` **59,344 CU**; cost/update 0.00076 quote @ SOL=150.
 
-**Compute units (single source: `artifacts/public/cu.json`; build `cargo build-sbf (no idl-build)`; `.so` sha256 `b98dfd73df0c…`).**
+**Compute units (single source: `artifacts/public/cu.json`; build `cargo build-sbf (no idl-build)`; `.so` sha256 `c5ba3d1fba5a…`).**
 
 | Instruction | CU |
 |---|---|
@@ -58,7 +58,7 @@ _Generated from `simulation/data/results/artifacts.json` (commit `d7712a9`, 2026
 | `update_quote` | 49,709 |
 | `update_quote_wide_conf_rejected` | 17,018 |
 
-**Tests:** 148 Rust / 193 Python. **Guard mutations:** 51 caught (docs/SECURITY_CHECKLIST.md).
+**Tests:** 154 Rust / 198 Python. **Guard mutations:** 54 caught (docs/SECURITY_CHECKLIST.md).
 
 <!-- END GENERATED NUMBERS -->
 

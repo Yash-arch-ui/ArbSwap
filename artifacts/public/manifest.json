@@ -1,5 +1,5 @@
 {
-  "commit": "d7712a901c5511e8cb44094ba6f601a0cf60680a",
+  "commit": "e0f600e10384afbbb4e491ca1b714dd7501f7997",
   "data_sha256": {
     "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
     "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -17,7 +17,7 @@
   "files": {
     "cu.json": {
       "schema": "../schema/cu.json",
-      "sha256": "74156977b20eb4398692c6ad3625a66f69a03b57edb71ccffaa0391b17298708"
+      "sha256": "d9cb9316de78abee5e5cc90d6016c30547e3ebb158af662e7695156a9100d757"
     },
     "e8_proxy.json": {
       "schema": "../schema/e8_proxy.json",
@@ -29,7 +29,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "ff5fff992bd85a306f7ed361a114748d23ec8b5967e37347f9f2b2b5b95f568e"
+      "sha256": "acbf92042238859574becf86339002448d8a2ace4197c444315e3c8777984aae"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -37,7 +37,7 @@
     },
     "mutation.json": {
       "schema": "../schema/mutation.json",
-      "sha256": "bccc745650ba4cb895f4d0705e90a8b053395dee6f07c39de247a17db228648d"
+      "sha256": "ad2e82866c8f11e071e2222fb531bd2c4fea52be9533d0f7e88f5c883e05c562"
     },
     "routed_world.json": {
       "schema": "../schema/routed_world.json",
@@ -45,7 +45,7 @@
     },
     "test_counts.json": {
       "schema": "../schema/test_counts.json",
-      "sha256": "27e0ee5e96f911ef55d0316673cde832bf9839f7e1c92455af69bd6e2b469090"
+      "sha256": "de0053a98624b6932c511303feaa38a26275832b3745e6655199a36865458abc"
     },
     "thesis.json": {
       "schema": "../schema/thesis.json",
@@ -56,5 +56,5 @@
   "generated": "2026-10-10",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "d7712a9"
+  "short": "e0f600e"
 }
