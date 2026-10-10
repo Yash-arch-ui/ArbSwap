@@ -42,10 +42,16 @@ post-rejection), fill/rejection rate, volume/fill share, CU per instruction.
   (`docs/ASSUMPTIONS.md` A-15); absolute PnL carries that uncertainty.
 - **Losing / zero-share regimes are reported as prominently as wins** (see the
   routed table: ArbSwap ~0% volume share).
-- **E8 (real Solana pool quote/fill data) is PARTIAL** — a real Jupiter-routed
-  SOL/USDC quote via the live propAMM BisonFi is recorded (`docs/P5_REPORT.md`);
-  the full quote-versus-fill gap needs execution data and is not measured, so
-  there is no measured claim about competitors.
+- **E8 (real Solana pool quote/fill data) — PROXY RUN (P1).** A one-hour
+  real-quote sample (`scripts/e8_proxy.py`, 1,800 ticks at 2 s over ~77 min,
+  1,245 usable) measures **quote persistence** (0.997 change rate, 95% CI
+  0.992–0.999) and a **round-trip quote-cost proxy** (−0.29 bps, CI −0.31…
+  −0.26, i.e. effectively zero at sub-second spacing) across real Solana routes
+  (BisonFi, HumidiFi, GoonFi, Flux, TesseraV, Obsidian, Aquifer, Meteora DLMM,
+  Whirlpool, Raydium CLMM, …). This is a **proxy, not a fill gap**: no
+  transaction is submitted. A fill gap still needs funded mainnet trades, so
+  there remains **no measured claim about competitors' fills**. Raw samples:
+  `simulation/data/results/e8_proxy_raw.json`; summary: `e8_proxy.json`.
 - Never headline raw LP PnL or impermanent loss; use hedged PnL.
 
 ## Reproduce

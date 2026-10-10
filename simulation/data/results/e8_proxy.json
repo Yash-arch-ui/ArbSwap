@@ -1,10 +1,126 @@
 {
-  "kind": "proxy (quote persistence), NOT a fill gap",
-  "samples": 60,
-  "ok": 60,
-  "change_rate": 0.9830508474576272,
-  "mean_change_bps": 1.0032733625457513,
-  "max_change_bps": 4.284572427795091,
+  "kind": "proxy (real Jupiter routing quotes), NOT a fill gap",
+  "source": "https://lite-api.jup.ag/swap/v1/quote",
+  "started": 1791624978,
+  "duration_s": 4645,
+  "interval_s": 2.0,
+  "samples": 1800,
+  "ok": 1245,
+  "error_rate": 0.30833333333333335,
+  "change_rate": 0.9967845659163987,
+  "change_rate_ci95": [
+    0.9917614220933746,
+    0.9987489119105566
+  ],
+  "mean_change_pairs": 1244,
+  "round_trip_bps_mean": -0.2884756706827425,
+  "round_trip_bps_ci95": [
+    -0.31360992771085194,
+    -0.2619206827309372
+  ],
+  "round_trip_bps_n": 1245,
+  "by_route": {
+    "GoonFi V2": {
+      "count": 112,
+      "changes": 111
+    },
+    "Flux": {
+      "count": 115,
+      "changes": 114
+    },
+    "Scorch|GoonFi V2": {
+      "count": 16,
+      "changes": 16
+    },
+    "BisonFi|GoonFi V2": {
+      "count": 1,
+      "changes": 1
+    },
+    "Kipseli": {
+      "count": 556,
+      "changes": 554
+    },
+    "TesseraV": {
+      "count": 46,
+      "changes": 46
+    },
+    "Aquifer": {
+      "count": 63,
+      "changes": 63
+    },
+    "BisonFi": {
+      "count": 132,
+      "changes": 132
+    },
+    "Obsidian": {
+      "count": 153,
+      "changes": 153
+    },
+    "HumidiFi": {
+      "count": 20,
+      "changes": 20
+    },
+    "Meteora DLMM": {
+      "count": 1,
+      "changes": 1
+    },
+    "Scorch|SolFi V2": {
+      "count": 2,
+      "changes": 2
+    },
+    "Scorch|Archer": {
+      "count": 1,
+      "changes": 1
+    },
+    "Scorch|Deriverse": {
+      "count": 7,
+      "changes": 7
+    },
+    "Scorch|AlphaQ": {
+      "count": 3,
+      "changes": 3
+    },
+    "BisonFi|JupLend AMM": {
+      "count": 1,
+      "changes": 1
+    },
+    "Raydium CLMM|Manifest|Deriverse": {
+      "count": 3,
+      "changes": 3
+    },
+    "Whirlpool|Manifest|AlphaQ": {
+      "count": 1,
+      "changes": 1
+    },
+    "BisonFi|SolFi V2": {
+      "count": 4,
+      "changes": 4
+    },
+    "BisonFi|Manifest": {
+      "count": 1,
+      "changes": 1
+    },
+    "BisonFi|AlphaQ": {
+      "count": 1,
+      "changes": 1
+    },
+    "Raydium CLMM|Manifest": {
+      "count": 1,
+      "changes": 1
+    },
+    "Whirlpool": {
+      "count": 1,
+      "changes": 1
+    },
+    "Scorch|JupLend AMM": {
+      "count": 2,
+      "changes": 2
+    },
+    "BinaryFi": {
+      "count": 1,
+      "changes": 1
+    }
+  },
   "routes": [
     [
       "Aquifer"
@@ -13,15 +129,8 @@
       "BinaryFi"
     ],
     [
-      "BisonFi"
-    ],
-    [
       "BisonFi",
       "AlphaQ"
-    ],
-    [
-      "BisonFi",
-      "Byreal"
     ],
     [
       "BisonFi",
@@ -29,11 +138,18 @@
     ],
     [
       "BisonFi",
-      "Manifest",
-      "AlphaQ"
+      "JupLend AMM"
     ],
     [
-      "Deriverse"
+      "BisonFi",
+      "Manifest"
+    ],
+    [
+      "BisonFi",
+      "SolFi V2"
+    ],
+    [
+      "BisonFi"
     ],
     [
       "Flux"
@@ -48,17 +164,43 @@
       "Kipseli"
     ],
     [
+      "Meteora DLMM"
+    ],
+    [
       "Obsidian"
     ],
     [
-      "PancakeSwap"
+      "Raydium CLMM",
+      "Manifest"
+    ],
+    [
+      "Raydium CLMM",
+      "Manifest",
+      "Deriverse"
     ],
     [
       "Scorch",
-      "Byreal"
+      "AlphaQ"
     ],
     [
-      "StepN"
+      "Scorch",
+      "Archer"
+    ],
+    [
+      "Scorch",
+      "Deriverse"
+    ],
+    [
+      "Scorch",
+      "GoonFi V2"
+    ],
+    [
+      "Scorch",
+      "JupLend AMM"
+    ],
+    [
+      "Scorch",
+      "SolFi V2"
     ],
     [
       "TesseraV"
@@ -67,6 +209,9 @@
       "Whirlpool",
       "Manifest",
       "AlphaQ"
+    ],
+    [
+      "Whirlpool"
     ]
   ]
 }

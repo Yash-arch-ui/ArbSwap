@@ -73,8 +73,8 @@ met. **Option 1 is not shown.**
 - Flow is synthetic; only the price path is real. Markout/spread/PnL are model
   outputs.
 - The propAMM-like venue is a model, not a measured competitor. E8 (real Solana
-  pool quote/fill data) is **NOT DONE** (F1: the one-hour proxy was not run;
-  the 60-sample proxy is labelled a proxy, not a fill gap), so there is **no
-  measured claim about competitors**.
+  pool quote/fill data) is a **one-hour real-quote proxy run** (persistence
+  0.997; round-trip proxy −0.29 bps); it is **not a fill gap**, so there is still
+  **no measured claim about competitors' fills**.
 - Devnet is not deployed; the live keeper transport is NOT DONE.
 - Independent audit pending.

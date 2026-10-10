@@ -22,7 +22,7 @@ The routed chart is `docs/headline_chart.svg` (`./scripts/headline.sh`).
 
 <!-- BEGIN GENERATED NUMBERS -->
 
-_Generated from `simulation/data/results/artifacts.json` (commit `7e1cc07`, 2026-10-10, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
+_Generated from `simulation/data/results/artifacts.json` (commit `e95f610`, 2026-10-10, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
 
 **Calibration (W1):** B1 best 2s markout **-0.02 bps** (target -0.2, accept [-0.5, 0.1]); quiet half-spread **2.409 bps** (target 2.6, accept [1.8, 3.4]).
 
@@ -93,12 +93,17 @@ Each is a named LiteSVM test in `vault/program/tests/` (see `docs/CLAIMS.md`):
   its swap floor (not like-for-like: the paper excludes on-chain oracle
   verification).
 
-## E8 (real Solana pool quote/fill gap) — PARTIAL
+## E8 (real Solana pool quote/fill gap) — PROXY RUN (P1)
 
-A public Jupiter quote (`lite-api.jup.ag`) for 1 SOL → USDC routed through the
-live propAMM **BisonFi** at **110.2525 USDC/SOL**, price impact ≈ 0.0005% (a real
-venue quote). The full **quote-versus-fill gap** needs execution data and is
-**not measured**; no claim is made about competitors' fill quality.
+One-hour real-quote sample from the public Jupiter quote API
+(`lite-api.jup.ag`, no key): 1,800 ticks at 2 s over ~77 min, 1,245 usable
+(30.8% transient errors, recorded). **Quote persistence** = 0.997 (95% CI
+0.992–0.999). **Round-trip quote-cost proxy** = **−0.29 bps** (95% CI −0.31 …
+−0.26) — effectively zero at sub-second spacing — over real Solana routes
+(BisonFi, HumidiFi, GoonFi, Flux, TesseraV, Obsidian, Aquifer, Meteora DLMM,
+Whirlpool, Raydium CLMM, …). This is a **proxy, not a fill gap**: no transaction
+is submitted, so there is **no measured claim about competitors' fill quality**.
+Raw: `simulation/data/results/e8_proxy_raw.json`.
 
 ## Provenance and superseded numbers (C1.3)
 
