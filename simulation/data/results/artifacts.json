@@ -492,7 +492,7 @@
     }
   },
   "meta": {
-    "commit": "74aa6e4083cb102f50b1fba2263415304707d0af",
+    "commit": "d060676b810c7d47d514e55756f23bfb7710a540",
     "data_sha256": {
       "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
       "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -511,7 +511,7 @@
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "74aa6e4"
+    "short": "d060676"
   },
   "mutation": {
     "caught": 54,
