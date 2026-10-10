@@ -91,7 +91,7 @@ export const VaultPage: React.FC = () => {
           <span className="mono" style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>{vaultState.baseReserve.toLocaleString()} SOL + ${vaultState.quoteReserve.toLocaleString()} USDC</span>
         </div>
         <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha APY</span>
+          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha (annualized, model)</span>
           <p className="mono" style={{ fontSize: 26, fontWeight: 600, color: 'var(--uni-accent1)', margin: '8px 0 4px' }}>+{vaultState.netHedgedApy}%</p>
           <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Trading fees minus adverse selection</span>
         </div>

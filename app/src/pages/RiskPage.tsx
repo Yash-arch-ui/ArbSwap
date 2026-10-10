@@ -65,7 +65,7 @@ export const RiskPage: React.FC = () => {
               <p className="status-desc">
                 {isTripped 
                   ? `Reason: ${riskBreakers.activeBreakerReason}. All quote executions are frozen on-chain; LP withdrawals remain open.`
-                  : 'Oracle freshness, volatility estimators, bounded spread clamp, and inventory aversion within safe thresholds.'}
+                  : 'Oracle freshness, volatility estimators, bounded spread clamp, and inventory aversion within configured bounds.'}
               </p>
             </div>
           </div>

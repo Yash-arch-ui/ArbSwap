@@ -258,7 +258,7 @@ function VisualBoundedKeepers() {
         {/* Corridor Lower Bound */}
         <line x1="10" y1="56" x2="230" y2="56" stroke="var(--uni-accent1)" strokeDasharray="3 3" strokeWidth="1.2" />
         <text x="12" y="65" fill="var(--uni-neutral3)" fontSize="7.5" fontFamily="var(--uni-mono)">s_min = 2 bps (MIN SPREAD)</text>
-        {/* Keeper safe trajectory */}
+        {/* Keeper fail-closed trajectory */}
         <path
           d="M 15 42 L 55 42 L 55 34 L 105 34 L 105 26 L 155 26 L 155 38 L 205 38 L 225 38"
           fill="none"

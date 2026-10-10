@@ -58,7 +58,7 @@ export interface VaultState {
   currentRatio: number;
   feeApy: number; // annualized
   lvrAvoided7dUsd: number;
-  netHedgedApy: number; // alpha APY
+  netHedgedApy: number; // annualized alpha (model)
   epoch: number;
   epochSlotsRemaining: number;
   status: 'Active' | 'Paused' | 'WindDown';

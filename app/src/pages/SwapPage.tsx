@@ -193,7 +193,7 @@ export const SwapPage: React.FC = () => {
 
           {/* Buy Panel */}
           <div className="uni-panel uni-panel-buy">
-            <span className="uni-panel-label">Buy (Guaranteed)</span>
+            <span className="uni-panel-label">Buy (at quoted price)</span>
             <div className="uni-panel-row">
               <input
                 aria-label="Buy amount"

@@ -9,8 +9,6 @@ export const AnalyticsPage: React.FC = () => {
   const backend = useBackend();
   const arbMarkout = meanVenueMetric(backend.heldOut, 'ArbSwap', 'markout_2s_bps');
   const b1Markout = meanVenueMetric(backend.heldOut, 'B1_passive', 'markout_2s_bps');
-  const arbQuiet = meanVenueMetric(backend.heldOut, 'ArbSwap', 'quiet_half_spread_bps');
-  const b1Quiet = meanVenueMetric(backend.heldOut, 'B1_passive', 'quiet_half_spread_bps');
   const arbShare = backend.routed?.rows.find((r) => r.venue === 'ArbSwap')?.volume_share ?? null;
   const fmt = (v: number | null, d = 2) => (v === null ? 'n/a' : v.toFixed(d));
   const pct = (v: number | null) => (v === null ? 'n/a' : `${(v * 100).toFixed(2)}%`);
@@ -179,7 +177,7 @@ export const AnalyticsPage: React.FC = () => {
           <div className="card-header-row">
             <div>
               <h3>Microstructural Comparison Matrix</h3>
-              <p className="matrix-sub text-muted">Audited metrics on Solana SOL/USDC trading pairs</p>
+              <p className="matrix-sub text-muted">Model metrics on Solana SOL/USDC trading pairs</p>
             </div>
             <span className="badge badge-neutral mono">Paper Reference: arXiv:2609.38056</span>
           </div>
