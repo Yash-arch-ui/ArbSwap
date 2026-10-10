@@ -126,3 +126,33 @@ README with no data and no API keys.
   type); validation tests `simulation/analytics/tests/test_artifacts_public.py`
   (jsonschema). Docs: `docs/DATA_SCHEMA.md`, `docs/INTEGRATION.md`. Read-only HTTP
   server CLOSED-BY-DECISION (static files suffice). `frontend/` untouched.
+
+## Final fix pass (F1–F7) — on `main`
+
+- **F1 status honesty — PASS.** `docs/STATUS.md` defines CLOSED-BY-DECISION
+  (needs a written technical reason + evidence). B2 (compute redesign) and B6
+  (one-hour E8 proxy) are relabelled **NOT DONE** (effort only); high-volatility
+  windows are no longer EXTERNAL (they are run, F5); B8 is **PASS (offline)**.
+  `CLOSURE_REPORT.md`, `AUDIT_ACHIEVED_VS_PLAN.md`, `CLAIMS.md` updated.
+- **F2 CU single source — PASS.** All CU rendered from `artifacts/public/cu.json`;
+  `scripts/check_docs_consistency.py` scans every doc and bans stale tokens.
+  Canonical `update_quote` **48,158**, `swap` **59,258** (`cargo build-sbf`).
+- **F3 bundle freshness — PASS.** Bundle regenerated at HEAD;
+  `scripts/check_bundle_freshness.py` added to CI. Re-ran suites: **148 Rust /
+  193 Python**; mutation table **51** (47 + 4 new F6 rows).
+- **F4 retail diagnosis — PASS.** `diagnosis.json`: dominant term **volatility
+  (~42%)**. Router `volume_share` counted attempted notional (rejected orders) —
+  fixed + regression test; affected numbers superseded. Amendment-6 volatility
+  re-choice → **no feasible candidate** (frozen params retained).
+- **F5 real-flow evidence — PASS (T-A.i not met, reported).** `f5_real_flow.json`:
+  2026-02-06 (σ 3.79×σ_ref), 2026-01-31 (σ 2.52×σ_ref) + 3 archived days;
+  bootstrap 95% CIs above zero on **0/5** days. Honest negative result (F-08).
+- **F6 keeper robustness — PASS (offline).** `prevalidate_quote` mirrors the
+  on-chain bounds; 12 keeper tests (dropped tx, expired blockhash, duplicate
+  send, out-of-order slot, stale/wide oracle, clock skew, fail-closed expiry);
+  4/4 F6 mutation guards caught.
+- **F7 devnet — SKIPPED.** `ARBSWAP_DEVNET_KEYPAIR` unset; README records the
+  last devnet evidence (commits `7184cb3`, `36a3c79`, 2026-10-07) and notes the
+  deployed program may differ from HEAD.
+- Gate: fmt + clippy -D warnings clean, `anchor build` OK, docs consistency +
+  bundle freshness + banned-word + secrets scans clean. Tag `final-candidate-3`.
