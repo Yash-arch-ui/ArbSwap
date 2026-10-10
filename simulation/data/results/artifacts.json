@@ -166,10 +166,10 @@
         "stdev": 1749.3
       }
     },
-    "note": "LiteSVM CU varies run-to-run (transfer-heavy instructions up to a few thousand CU); `instructions` is the per-instruction median over `samples_per_instruction` fresh runs. See docs/SECURITY_CHECKLIST.md \u00a73.",
+    "note": "LiteSVM CU varies run-to-run; `instructions` is the per-instruction median. The program id (declare_id) changed to a fresh devnet id after this measurement; the id is a compile-time constant and does not affect CU. `so_sha256`/`so_bytes` are the deployed HEAD build.",
     "samples_per_instruction": 5,
     "so_bytes": 688616,
-    "so_sha256": "ac266659311f7c946e2960185037b0977b5bdae4f3c83b72f6e286e5b6378e8d",
+    "so_sha256": "9a05056e4c50630f6618c975d0ecec931b421159f7d3c813383ad5670677730a",
     "source": "cargo build-sbf + litesvm_lifecycle.rs::measure_instruction_compute_units"
   },
   "e1_e4": {
@@ -492,7 +492,7 @@
     }
   },
   "meta": {
-    "commit": "50956edde71112bd9164f5cf94fb9d080fb59b40",
+    "commit": "2a71c37578d0cdae32b5b77057bc1a20f8148c08",
     "data_sha256": {
       "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
       "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -511,7 +511,7 @@
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "50956ed"
+    "short": "2a71c37"
   },
   "mutation": {
     "caught": 55,

@@ -134,9 +134,9 @@
       "stdev": 1749.3
     }
   },
-  "note": "LiteSVM CU varies run-to-run (transfer-heavy instructions up to a few thousand CU); `instructions` is the per-instruction median over `samples_per_instruction` fresh runs. See docs/SECURITY_CHECKLIST.md \u00a73.",
+  "note": "LiteSVM CU varies run-to-run; `instructions` is the per-instruction median. The program id (declare_id) changed to a fresh devnet id after this measurement; the id is a compile-time constant and does not affect CU. `so_sha256`/`so_bytes` are the deployed HEAD build.",
   "samples_per_instruction": 5,
   "so_bytes": 688616,
-  "so_sha256": "ac266659311f7c946e2960185037b0977b5bdae4f3c83b72f6e286e5b6378e8d",
+  "so_sha256": "9a05056e4c50630f6618c975d0ecec931b421159f7d3c813383ad5670677730a",
   "source": "cargo build-sbf + litesvm_lifecycle.rs::measure_instruction_compute_units"
 }
