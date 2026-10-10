@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
+import { swap as swapOnChain } from '../chain/program';
 import './SwapPage.css';
 
 export const SwapPage: React.FC = () => {
-  const { quoteState, tokens, riskBreakers } = useProtocol();
-  const { connected } = useWallet();
+  const { quoteState, tokens, riskBreakers, refreshBalances } = useProtocol();
+  const { connection } = useConnection();
+  const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
 
   const [inTokenSymbol, setInTokenSymbol] = useState<'SOL' | 'USDC'>('SOL');
@@ -40,17 +42,32 @@ export const SwapPage: React.FC = () => {
     setInAmount('');
   };
 
-  const handleSwap = () => {
-    if (!connected) {
+  const handleSwap = async () => {
+    if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
     }
     setIsSwapping(true);
-    setTimeout(() => {
+    setSwapNote(null);
+    try {
+      // SOL in = trader sells base; USDC in = trader buys base.
+      const isSellingSol = inTokenSymbol === 'SOL';
+      const side = isSellingSol ? { sellBase: {} } : { buyBase: {} };
+      const amountIn = isSellingSol
+        ? BigInt(Math.floor(parsedInAmount * 1e9))
+        : BigInt(Math.floor(parsedInAmount * 1e6));
+      const minOutAtoms = isSellingSol
+        ? BigInt(Math.floor(minOut * 1e6))
+        : BigInt(Math.floor(minOut * 1e9));
+      const signature = await swapOnChain(
+        connection, wallet, side as never, amountIn, minOutAtoms, 0n);
+      setSwapNote(`Swap confirmed ${signature.slice(0, 8)}… (executed at the on-chain quoted price).`);
+      await refreshBalances();
+    } catch (error) {
+      setSwapNote(`Swap failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+    } finally {
       setIsSwapping(false);
-      setSwapNote(`Filled at exact quoted price (${netOut.toFixed(4)} ${outTokenSymbol}). Zero quote-fill gap!`);
-      setTimeout(() => setSwapNote(null), 5000);
-    }, 600);
+    }
   };
 
   const maxLevelCapacity = Math.max(...quoteState.levels.map((l) => l.capacityUsd));

@@ -117,8 +117,7 @@ export async function deposit(
   if (!state.vaultData) throw new Error('vault not initialized (no state for WSOL/USDC)');
   const userBase = (await ensureAta(connection, wallet, WSOL_MINT, owner)).ata;
   const userQuote = (await ensureAta(connection, wallet, USDC_MINT, owner)).ata;
-  const [userShares] = PublicKey.findProgramAddressSync(
-    [Buffer.from('shares'), vault.toBuffer(), owner.toBuffer()], PROGRAM_ID);
+  const userShares = getAssociatedTokenAddressSync(state.vaultData.shareMint, owner);
   return program.methods
     .deposit(new BN(baseAmount.toString()), new BN(quoteAmount.toString()), new BN(minShares.toString()))
     .accounts({
@@ -160,6 +159,48 @@ export async function crankEpoch(connection: Connection, wallet: Wallet): Promis
   const program = getProgram(connection, wallet);
   const { vault, config } = deriveVaultAddresses();
   return program.methods.crankEpoch().accounts({ vault, config }).rpc();
+}
+
+/** Queue a withdrawal (shares) for the next epoch. */
+export async function requestWithdraw(
+  connection: Connection, wallet: Wallet, shares: bigint,
+): Promise<string> {
+  const program = getProgram(connection, wallet);
+  const { vault } = deriveVaultAddresses();
+  const owner = wallet.publicKey;
+  const state = await fetchProtocolState(connection);
+  if (!state.vaultData) throw new Error('vault not initialized (no state for WSOL/USDC)');
+  const userShares = getAssociatedTokenAddressSync(state.vaultData.shareMint, owner);
+  return program.methods
+    .requestWithdraw(new BN(shares.toString()))
+    .accounts({
+      user: owner, vault, shareLock: state.vaultData.shareLock,
+      depositTicket: depositTicket(vault, owner), userShares,
+      withdrawTicket: withdrawTicket(vault, owner),
+      tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYSTEM_PROGRAM_ID,
+    })
+    .rpc();
+}
+
+/** Claim a settled withdrawal for the current epoch. */
+export async function claimWithdraw(connection: Connection, wallet: Wallet): Promise<string> {
+  const program = getProgram(connection, wallet);
+  const { vault } = deriveVaultAddresses();
+  const owner = wallet.publicKey;
+  const state = await fetchProtocolState(connection);
+  if (!state.vaultData) throw new Error('vault not initialized (no state for WSOL/USDC)');
+  const userBase = getAssociatedTokenAddressSync(WSOL_MINT, owner);
+  const userQuote = getAssociatedTokenAddressSync(USDC_MINT, owner);
+  return program.methods
+    .claimWithdraw()
+    .accounts({
+      user: owner, vault,
+      baseReserve: state.vaultData.baseReserve, quoteReserve: state.vaultData.quoteReserve,
+      shareMint: state.vaultData.shareMint, shareLock: state.vaultData.shareLock,
+      withdrawTicket: withdrawTicket(vault, owner), userBase, userQuote,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
 }
 
 export { BN };

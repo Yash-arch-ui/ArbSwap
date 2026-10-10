@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
 import { MOCK_USER_TICKETS } from '../data/mockData';
+import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain } from '../chain/program';
 import type { WithdrawalTicket } from '../types/protocol';
 
 export const VaultPage: React.FC = () => {
-  const { vaultState, quoteState, tokens } = useProtocol();
-  const { connected } = useWallet();
+  const { vaultState, quoteState, tokens, refreshBalances } = useProtocol();
+  const { connection } = useConnection();
+  const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
 
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw'>('deposit');
@@ -30,32 +32,46 @@ export const VaultPage: React.FC = () => {
   const withdrawEstSol = (sharesToWithdraw * vaultState.baseReserve) / vaultState.totalShares;
   const withdrawEstUsdc = (sharesToWithdraw * vaultState.quoteReserve) / vaultState.totalShares;
 
-  const handleDeposit = () => {
-    if (!connected) {
+  const handleDeposit = async () => {
+    if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
     }
-    setNotice(`Pro-rata deposit submitted! Minting ~${estimatedShares.toLocaleString()} shares. Warm-up activation: 150 slots (~60s).`);
-    setTimeout(() => setNotice(null), 6000);
+    setNotice('Submitting deposit…');
+    try {
+      const base = BigInt(Math.floor(solNum * 1e9));
+      const quote = BigInt(Math.floor(usdcNum * 1e6));
+      const signature = await depositOnChain(connection, wallet, base, quote, 1n);
+      setNotice(`Deposit confirmed ${signature.slice(0, 8)}… (~${estimatedShares.toLocaleString()} shares; warm-up applies).`);
+      await refreshBalances();
+    } catch (error) {
+      setNotice(`Deposit failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+    }
   };
 
-  const handleWithdraw = () => {
-    if (!connected) {
+  const handleWithdraw = async () => {
+    if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
     }
-    const newTicket: WithdrawalTicket = {
-      id: `wd-${Math.floor(1000 + Math.random() * 9000)}`,
-      shares: sharesToWithdraw,
-      requestedEpoch: vaultState.epoch,
-      eligibleEpoch: vaultState.epoch + 1,
-      estimatedSol: Number(withdrawEstSol.toFixed(2)),
-      estimatedUsdc: Number(withdrawEstUsdc.toFixed(2)),
-      status: 'Pending',
-    };
-    setTickets([newTicket, ...tickets]);
-    setNotice(`Withdrawal ticket queued for Epoch ${vaultState.epoch + 1}.`);
-    setTimeout(() => setNotice(null), 6000);
+    setNotice('Queueing withdrawal…');
+    try {
+      const signature = await requestWithdrawOnChain(connection, wallet, BigInt(sharesToWithdraw));
+      const newTicket: WithdrawalTicket = {
+        id: `wd-${Math.floor(1000 + Math.random() * 9000)}`,
+        shares: sharesToWithdraw,
+        requestedEpoch: vaultState.epoch,
+        eligibleEpoch: vaultState.epoch + 1,
+        estimatedSol: Number(withdrawEstSol.toFixed(2)),
+        estimatedUsdc: Number(withdrawEstUsdc.toFixed(2)),
+        status: 'Pending',
+      };
+      setTickets([newTicket, ...tickets]);
+      setNotice(`Withdrawal queued ${signature.slice(0, 8)}… for Epoch ${vaultState.epoch + 1}.`);
+      await refreshBalances();
+    } catch (error) {
+      setNotice(`Withdraw request failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+    }
   };
 
   return (
