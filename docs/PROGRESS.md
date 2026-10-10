@@ -222,3 +222,12 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   `scripts/redeploy_and_verify.sh`.
 - **BC4 (P4 tests) — DONE.** Flow-accumulator test now also asserts the rolling
   window cap is independent of re-quoting; workspace tests green.
+
+## Remaining-work sprint (FZ/CU/ECON) — on `main`
+
+- **Fuzzing (FZ) — DONE.** `cargo install cargo-fuzz` (0.13.2); new `fuzz/`
+  crate with targets `arb_math` (sqrt/mul_div invariants), `walk_ladder`
+  (`remaining <= amount`), `quote_validation` (`prevalidate_quote` +
+  `compute_quote` never panic). 100,000 runs each locally, 0 crashes. Nightly
+  CI job runs `scripts/fuzz_short.sh 30`. Closes the B3b/`REMAINING_WORK` fuzzing
+  gap (proptest retained).

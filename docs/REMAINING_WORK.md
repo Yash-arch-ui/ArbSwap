@@ -32,7 +32,7 @@ implementation status in `docs/AUDIT_ACHIEVED_VS_PLAN.md`.
 ## 4. Testing / tooling
 | Item | Plan ref | Status |
 |---|---|---|
-| Fuzzing (cargo-fuzz / Trident) | MasterPlan §9, §13; BuilderPlan §10, T5.2 | proptest only |
+| Fuzzing (cargo-fuzz) | MasterPlan §9, §13; BuilderPlan §10, T5.2 | **DONE** — 3 targets (`arb_math`, `walk_ladder`, `quote_validation`) in `fuzz/`, nightly CI job (`scripts/fuzz_short.sh`) |
 | CU/update < ~1,000 | MasterPlan §2.5, §17.14; BuilderPlan §2.5 | NOT met (~48k); LiteSVM non-deterministic |
 | Verify-instead-of-compute redesign | C3/B2 roadmap | NOT DONE |
 | Property/state-machine/adversarial suite | BuilderPlan §10 | present |

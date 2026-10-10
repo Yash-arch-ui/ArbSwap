@@ -1,0 +1,36 @@
+[package]
+name = "arbswap-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arb-math = { path = "../vault/math" }
+arbswap-keeper = { path = "../vault/keeper" }
+
+[workspace]
+
+[[bin]]
+name = "arb_math"
+path = "fuzz_targets/arb_math.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "walk_ladder"
+path = "fuzz_targets/walk_ladder.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "quote_validation"
+path = "fuzz_targets/quote_validation.rs"
+test = false
+doc = false
+bench = false

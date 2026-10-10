@@ -44,6 +44,17 @@ jobs:
       - name: Secrets scan (no keys committed)
         run: python scripts/secrets_scan.py
 
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Short fuzz run (3 targets, 30 s each)
+        run: bash scripts/fuzz_short.sh 30
+
   anchor:
     runs-on: ubuntu-latest
     steps:
