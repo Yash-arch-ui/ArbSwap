@@ -156,3 +156,37 @@ README with no data and no API keys.
   deployed program may differ from HEAD.
 - Gate: fmt + clippy -D warnings clean, `anchor build` OK, docs consistency +
   bundle freshness + banned-word + secrets scans clean. Tag `final-candidate-3`.
+
+## Idea-fidelity pass (I1–I5) — close the MasterPlan/BuilderPlan protocol gaps
+
+Worked on `main`. All five code-level gaps named in the idea review are now
+implemented, tested, and synced (account space, FORMULA.md, CU, mutation table,
+bundle).
+
+- **I1 open bonded keeper network (M7/§8.7) — DONE.** `update_quote` is
+  permissionless when `config.min_bond > 0` (any bond-qualified keeper; allowlist
+  only in the `min_bond == 0` MVP path). Test
+  `permissionless_bonded_keeper_may_quote_when_min_bond_is_set`; mutation S4.4.
+- **I2 LVR-budget depth rule (R16/§5.10) — DONE.** `lvr_depth_budget` (Python) and
+  `lvr_depth_budget_bps` (Rust keeper) implement
+  `V_active ≤ 8(R−gas)/σ²`; wired into the depth throttle with neutral defaults so
+  historical study numbers are unchanged. Tests: doubling σ quarters the budget.
+- **I3 volatility kill-switch (M9/§8.3) — DONE.** `max_vol_q64`/`max_vol_short`
+  zero the depth (stop quoting) on a spike. Tests in keeper + reference.
+- **I4 per-update spread step (honest execution §7.3) — DONE.** `Config`
+  `max_spread_step_bps` bounds |Δhalf_spread| per update (`0` disables). Test
+  `spread_step_is_bounded_per_update`; mutation S4.4.
+- **I5 flow accumulator (§5.9) — DONE.** `QuoteState.flow_n: i128` records signed
+  net base sold and resets on every `update_quote`. Test
+  `flow_accumulator_tracks_net_base_and_resets`; mutation S4.4.
+- Sync: `Config` +4 B, `QuoteState` +16 B, `PendingConfig` +4 B (space
+  expressions + `account_spaces_match_serialized_sizes`); `docs/FORMULA.md`;
+  `docs/SECURITY_CHECKLIST.md` S4.4; CU regenerated; bundle regenerated.
+- Gate: fmt + clippy `-D warnings` clean, `anchor build` OK, **154 Rust / 198
+  Python** tests, docs consistency + freshness + banned-word + secrets scans
+  clean. Tag `final-candidate-4`.
+
+Remaining (unchanged): the *value thesis* (Option 1) is still not demonstrated;
+E8 real-pool data, one-hour proxy, and independent audit remain NOT DONE /
+EXTERNAL; the frontend dApp is implemented on branch `frontend` (mock data,
+old layout) but not integrated with `artifacts/public`.
