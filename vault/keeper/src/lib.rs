@@ -148,8 +148,12 @@ fn mul_q64(a: u128, b: u128) -> u128 {
 /// `allowed_value = 8 * (revenue_per_second - gas_per_second) / sigma^2`; the
 /// returned fraction is `min(10_000, 10_000 * allowed_value / value)`. Doubling
 /// `sigma` quarters the budget; a non-positive net revenue returns `0`.
-pub fn lvr_depth_budget_bps(revenue_per_second: u128, gas_per_second: u128,
-                            sigma_q64: u128, value: u128) -> u32 {
+pub fn lvr_depth_budget_bps(
+    revenue_per_second: u128,
+    gas_per_second: u128,
+    sigma_q64: u128,
+    value: u128,
+) -> u32 {
     if sigma_q64 == 0 {
         return BPS as u32;
     }
@@ -1563,7 +1567,10 @@ mod tests {
             params,
         )
         .unwrap();
-        assert_eq!(quote.depth_mult_bps, 0, "a volatility spike must stop quoting");
+        assert_eq!(
+            quote.depth_mult_bps, 0,
+            "a volatility spike must stop quoting"
+        );
     }
 
     fn sample_quote_and_bounds() -> (QuoteUpdate, PrevalidateBounds) {

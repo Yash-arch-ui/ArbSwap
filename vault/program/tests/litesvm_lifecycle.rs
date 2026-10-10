@@ -248,7 +248,7 @@ impl Fixture {
             max_staleness_seconds: 30,
             max_conf_bps: 10,
             max_anchor_step_bps: 100,
-        max_spread_step_bps: 10,
+            max_spread_step_bps: 10,
             min_spread_bps: 2,
             max_spread_bps: 50,
             max_quote_size: MAX_QUOTE_SIZE,
