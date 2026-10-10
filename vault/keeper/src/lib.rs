@@ -586,9 +586,7 @@ pub fn prevalidate_quote(
         return Err(PrevalidateError::SlotTooOld);
     }
     if update.publish_time < 0
-        || bounds
-            .now_publish_time
-            .saturating_sub(update.publish_time)
+        || bounds.now_publish_time.saturating_sub(update.publish_time)
             > bounds.max_staleness_seconds
     {
         return Err(PrevalidateError::StaleOracle);
@@ -632,7 +630,9 @@ pub fn prevalidate_quote(
         return Err(PrevalidateError::ZeroPrice);
     }
     let oracle = update.oracle_price_q64;
-    if anchor_price.abs_diff(oracle).saturating_mul(BPS_DENOM as u128)
+    if anchor_price
+        .abs_diff(oracle)
+        .saturating_mul(BPS_DENOM as u128)
         > oracle.saturating_mul(bounds.max_anchor_dev_bps as u128)
     {
         return Err(PrevalidateError::AnchorTooFarFromOracle);
@@ -680,10 +680,10 @@ pub fn prevalidate_quote(
     .ok_or(PrevalidateError::MathOverflow)?;
     let epsilon = reservation / 1_000_000;
     for level in update.ask_levels.iter().chain(update.bid_levels.iter()) {
-        let lo = arb_math::price_from_sqrt(level.sqrt_lo)
-            .map_err(|_| PrevalidateError::MathOverflow)?;
-        let hi = arb_math::price_from_sqrt(level.sqrt_hi)
-            .map_err(|_| PrevalidateError::MathOverflow)?;
+        let lo =
+            arb_math::price_from_sqrt(level.sqrt_lo).map_err(|_| PrevalidateError::MathOverflow)?;
+        let hi =
+            arb_math::price_from_sqrt(level.sqrt_hi).map_err(|_| PrevalidateError::MathOverflow)?;
         if !(lo.saturating_add(epsilon) >= lower && hi <= upper.saturating_add(epsilon)) {
             return Err(PrevalidateError::LevelOutOfBounds);
         }
@@ -709,12 +709,16 @@ pub fn prevalidate_quote(
             .ok_or(PrevalidateError::MathOverflow)?;
     }
     if ask_base_capacity.saturating_mul(BPS_DENOM as u128)
-        > bounds.available_base.saturating_mul(bounds.utilization_max_bps as u128)
+        > bounds
+            .available_base
+            .saturating_mul(bounds.utilization_max_bps as u128)
     {
         return Err(PrevalidateError::UtilizationExceeded);
     }
     if bid_quote_capacity.saturating_mul(BPS_DENOM as u128)
-        > bounds.available_quote.saturating_mul(bounds.utilization_max_bps as u128)
+        > bounds
+            .available_quote
+            .saturating_mul(bounds.utilization_max_bps as u128)
     {
         return Err(PrevalidateError::UtilizationExceeded);
     }

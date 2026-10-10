@@ -27,12 +27,16 @@ MUTATIONS = [
     (
         "F6 capacity/utilization guard",
         "    if ask_base_capacity.saturating_mul(BPS_DENOM as u128)\n"
-        "        > bounds.available_base.saturating_mul(bounds.utilization_max_bps as u128)\n"
+        "        > bounds\n"
+        "            .available_base\n"
+        "            .saturating_mul(bounds.utilization_max_bps as u128)\n"
         "    {\n"
         "        return Err(PrevalidateError::UtilizationExceeded);\n"
         "    }\n"
         "    if bid_quote_capacity.saturating_mul(BPS_DENOM as u128)\n"
-        "        > bounds.available_quote.saturating_mul(bounds.utilization_max_bps as u128)\n"
+        "        > bounds\n"
+        "            .available_quote\n"
+        "            .saturating_mul(bounds.utilization_max_bps as u128)\n"
         "    {\n"
         "        return Err(PrevalidateError::UtilizationExceeded);\n"
         "    }",
@@ -49,13 +53,13 @@ MUTATIONS = [
     ),
     (
         "F6 stale-oracle guard",
-        "if update.publish_time < 0\n"
-        "        || bounds\n"
-        "            .now_publish_time\n"
-        "            .saturating_sub(update.publish_time)\n"
+        "    if update.publish_time < 0\n"
+        "        || bounds.now_publish_time.saturating_sub(update.publish_time)\n"
         "            > bounds.max_staleness_seconds\n"
-        "    {",
-        "if false {",
+        "    {\n"
+        "        return Err(PrevalidateError::StaleOracle);\n"
+        "    }",
+        "    let _ = update.publish_time;",
         "prevalidate_rejects_a_stale_oracle",
     ),
 ]
