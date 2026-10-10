@@ -43,7 +43,7 @@ invariants in `litesvm_lifecycle.rs`. Commit: `7184cb3`.
 **Criterion (verbatim):** *"keeper-driven quotes on devnet match the simulator
 within tolerance; keeper-down test shows safe expiry."*
 **Verdict: PASS.** Live keeper ran 600 s / 29 updates / 0 failures
-(`docs/P3_AUDIT.md` §6); `keeper_outage_lets_the_quote_expire`. Commit: `36a3c79`.
+(`docs/DEVNET.md` §6); `keeper_outage_lets_the_quote_expire`. Commit: `36a3c79`.
 
 ### P4 Analytics, fees, dashboard
 **Criterion (verbatim):** *"dashboard reproduces the simulator charts on replayed
@@ -56,7 +56,7 @@ of the written gate; the HWM fee is now an off-chain report (C4.4). Commit: `ed8
 ### P5 Hardening and adversarial testing
 **Criterion (verbatim):** *"every E7 attack fails or is contained and
 documented."*
-**Verdict: PASS.** 7 bots + control contained (`docs/P5_REPORT.md`).
+**Verdict: PASS.** 7 bots + control contained (`docs/CLAIMS.md`).
 **EXTERNAL:** E8 fill gap (needs funded mainnet trades); proxy measured (C4.7).
 Commit: `7343e49`.
 
@@ -134,7 +134,7 @@ data/keys. Commit: `0a9c44e`.
 | C4.7 E8 proxy | **PASS (proxy)** | `e8_proxy.json` |
 | C4.8 devnet keeper 30 min | **SKIPPED** | `ARBSWAP_DEVNET_KEYPAIR` unset |
 | C5 frontend | **NOT DONE** | `frontend/` has no source |
-| C6 handoff + audit | **PASS** | this file, `docs/AUDIT_PACKAGE.md` |
+| C6 handoff + audit | **PASS** | this file, `docs/AUDIT_ACHIEVED_VS_PLAN.md` |
 
 ---
 
@@ -172,7 +172,7 @@ push main" text). One status per item.
 
 | Item | Status | Evidence / commit |
 |---|---|---|
-| F1 status honesty | **PASS** | `docs/STATUS.md` defines CLOSED-BY-DECISION; B2/B6 relabelled NOT DONE, high-vol no longer EXTERNAL; `docs/CLOSURE_REPORT.md`, `docs/AUDIT_ACHIEVED_VS_PLAN.md`, `docs/CLAIMS.md` |
+| F1 status honesty | **PASS** | `docs/STATUS.md` defines CLOSED-BY-DECISION; B2/B6 relabelled NOT DONE, high-vol no longer EXTERNAL; `docs/AUDIT_ACHIEVED_VS_PLAN.md`, `docs/AUDIT_ACHIEVED_VS_PLAN.md`, `docs/CLAIMS.md` |
 | F2 CU single source | **PASS** | all CU rendered from `artifacts/public/cu.json`; `check_docs_consistency.py` scans every doc + bans stale tokens; stale values fixed |
 | F3 bundle freshness | **PASS** | bundle regenerated at HEAD; `scripts/check_bundle_freshness.py` + CI; test suites re-run |
 | F4 retail diagnosis | **PASS** | `simulation/sim/diagnose.py` → `diagnosis.json` (dominant term volatility 42%); router volume-share flaw fixed + regression; Amendment 6 re-choice → **no feasible candidate** |

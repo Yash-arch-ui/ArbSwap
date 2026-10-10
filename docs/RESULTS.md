@@ -1,7 +1,7 @@
 # RESULTS.md — what the evidence shows, with limits
 
 Stranger-facing summary. Sources: `docs/HEADLINE.md`, `docs/CLAIMS.md`,
-`docs/METHODOLOGY.md`, `docs/P1_RESULTS.md`, `docs/P5_REPORT.md`. Every number
+`docs/METHODOLOGY.md`, `docs/P1_RESULTS.md`, `docs/CLAIMS.md`. Every number
 here is either **on-chain SUPPORTED** (a named passing test) or a **model output**
 (simulation). Nothing here is an audit or a product claim.
 
@@ -112,7 +112,7 @@ tables**. Provenance for each table is the `commit` in `artifacts.json`.
 
 | Superseded | Why it changed | Status |
 |---|---|---|
-| E1 ≈ +16 bps markout, +375% E1 (pre-`b083ba5`) | **price-150 bug**: every study venue was initialized at price 150 while the market traded ~100 | **SUPERSEDED** — see `docs/AUDIT_FULL.md` header |
+| E1 ≈ +16 bps markout, +375% E1 (pre-`b083ba5`) | **price-150 bug**: every study venue was initialized at price 150 while the market traded ~100 | **SUPERSEDED** — see `docs/SECURITY_CHECKLIST.md` header |
 | E1 ≈ −100% (early synthetic) | arbitrageur sizing + ladder-consumption correctness fix | **SUPERSEDED** |
 | `update_quote` ≈18k CU / `swap` ≈72k CU | old figures were a short/rejected update path measured with a different Cargo profile; a full two-sided ladder update is 48,209 CU under the deployed `cargo build-sbf` | **SUPERSEDED** — see `artifacts/public/cu.json` |
 | Calibration best −98.7 / 52.9 bps (synthetic) | synthetic flow uncalibrated | **SUPERSEDED** by real-flow calibration attempt |

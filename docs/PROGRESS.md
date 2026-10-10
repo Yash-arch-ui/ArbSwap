@@ -98,7 +98,7 @@ README with no data and no API keys.
   rotation CLOSED-BY-DECISION, cargo-fuzz CLOSED-BY-DECISION, devnet keeper
   SKIPPED (no keypair).
 - C5 frontend NOT DONE.
-- C6 handoff `docs/AUDIT_PACKAGE.md`; regenerated
+- C6 handoff `docs/AUDIT_ACHIEVED_VS_PLAN.md`; regenerated
   `docs/AUDIT_ACHIEVED_VS_PLAN.md`; claims + banned-word scan CLEAN; fresh-clone
   reproduction PASS; tag `final-candidate-1`.
 - Gate: 133 Rust / 189 Python, fmt+clippy clean, anchor build OK.

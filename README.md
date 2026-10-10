@@ -13,9 +13,9 @@ Formerly "TruQuote" (working name); all spec documents use the old name.
 | P0 | Repo, toolchain, assumptions | ✅ |
 | P1 | Python reference, vectors, simulator, replay/report pipeline | ⚠️ **PARTIAL** — contamination fixed + B1 calibrated (markout −0.02 / half-spread 2.41); stress windows not yet ≥2×; all pre-fix numbers superseded |
 | P2 | Anchor accounts, custody, Pyth guards, swaps, withdrawals, breakers | ✅ PASS — full deposit→update→swap→withdraw lifecycle on devnet (`docs/DEVNET.md`) |
-| P3 | Rust keeper core, replay, update gating, payload encoder | ✅ PASS — live keeper on devnet, 600 s / 29 updates / 0 failures (`docs/P3_AUDIT.md` §6) |
+| P3 | Rust keeper core, replay, update gating, payload encoder | ✅ PASS — live keeper on devnet, 600 s / 29 updates / 0 failures (`docs/DEVNET.md` §6) |
 | P4 | Analytics, fees, dashboard | ✅ PASS (SQLite indexer + live poller; metrics/attribution; interactive offline demo mode) |
-| P5 | Attacker bots, fuzzing, aggregator adapter | ✅ PASS (gate: every E7 attack contained/documented; aggregator parity; docs/P5_REPORT.md). Roadmap: cargo-fuzz, E8 fill data |
+| P5 | Attacker bots, fuzzing, aggregator adapter | ✅ PASS (gate: every E7 attack contained/documented; aggregator parity; docs/CLAIMS.md). Roadmap: cargo-fuzz, E8 fill data |
 | P6 | Reproducibility, demo, docs | ✅ PASS (gate: `./scripts/headline.sh` reproduces the headline chart from this README with no data/keys; demo backup MP4 + deck PDF in `docs/`) |
 
 ## Reproduce the headline chart (one command)
@@ -72,7 +72,7 @@ We do **not** claim:
   the paper's adverse selection; headline E1 magnitudes are **model outputs, not
   results**.
 - Live execution quality. Devnet lifecycle + a 600 s live keeper were run
-  (`docs/DEVNET.md`, `docs/P3_AUDIT.md`), but **the deployed program may differ
+  (`docs/DEVNET.md`, `docs/DEVNET.md`), but **the deployed program may differ
   from HEAD**: F7 (re-deploy + 30-minute keeper) was **SKIPPED** because
   `ARBSWAP_DEVNET_KEYPAIR` was unset. Last devnet evidence: commit `7184cb3`
   (P2 lifecycle) and `36a3c79` (live keeper), dated 2026-10-07; deployed program
@@ -174,18 +174,15 @@ speed; never claim an unmeasured result; report losing regimes.
 ## Documents
 
 - `docs/ARCHITECTURE.md` — component map, data flow, instruction surface, trust boundaries.
-- `simulation/analytics/README.md` — P4 indexer, metrics, and dashboard.
 - `docs/BUILD_PLAN.md` — the full specification (imported, verbatim).
 - `docs/ASSUMPTIONS.md` — what is verified vs assumed (read before coding).
 - `docs/FORMULA.md` — the math source map and open decisions.
-- `docs/AUDIT_FULL.md` — full evidence-based audit (phases 0-5 + addenda) and findings.
-- `docs/SECURITY.md` — tracked headline audit summary and known gaps.
+- `docs/SECURITY_CHECKLIST.md` — account-binding table, per-instruction checks, CU table, mutation table.
+- `docs/SECURITY.md` — tracked headline review summary and known gaps.
 - `docs/THREAT_MODEL.md` — threats, mitigations, tests.
-- `docs/SECURITY_CHECKLIST.md` — account-binding table, per-instruction checks, CU table.
 - `docs/CLAIMS.md` — claims ledger (status, evidence, limits).
-- `docs/RESULTS.md` — results with limits (model output vs on-chain SUPPORTED).
-- `docs/HEADLINE.md` — the single claim the evidence supports.
-- `docs/DEMO_SCRIPT.md` — 3-minute demo script, live-demo script, backup plan.
-- `docs/PITCH_DECK.md` — pitch deck source (rendered to HTML/PDF).
-- `docs/P5_REPORT.md`, `docs/P6_AUDIT.md` — phase evidence and gate verdicts.
-- `docs/AUDIT_ACHIEVED_VS_PLAN.md` — achieved vs not achieved vs MasterPlan + BuilderPlan, phase by phase, with data.
+- `docs/RESULTS.md`, `docs/P1_RESULTS.md` — results with limits (model output vs on-chain SUPPORTED).
+- `docs/HEADLINE.md`, `docs/THESIS.md` — the claim the evidence supports.
+- `docs/AUDIT_ACHIEVED_VS_PLAN.md` — achieved vs not achieved vs MasterPlan + BuilderPlan, phase by phase.
+- `docs/REMAINING_WORK.md` — what is still left vs the two plan files.
+- `simulation/analytics/README.md` — P4 indexer, metrics, and dashboard.
