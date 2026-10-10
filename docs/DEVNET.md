@@ -210,3 +210,21 @@ cd ../.. && cargo run -q -p arbswap-keeper -- live https://api.devnet.solana.com
   ~/.config/solana/id.json ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d \
   60 50 1000 1000 600
 ```
+
+## P3 — deployed-program provenance (2026-10-10)
+
+Read-only check (no keypair) with `scripts/devnet_program_hash.py`:
+
+| | |
+|---|---|
+| program id | `CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx` |
+| programdata | `GguKzds7FhirzVoo1Yp4EdBgXDqqCihZhEWpg9pjkMJ9` |
+| authority | `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH` |
+| on-chain ELF | 744,376 B, sha256 `c0080ccf…` |
+| HEAD `cargo build-sbf` ELF | 683,680 B, sha256 `c5ba3d1f…` |
+| verdict | **MISMATCH** — the deployed program predates I1–I5 and is the `anchor build` (idl-build) artifact, not the exact HEAD build |
+
+**Live redeploy is SKIPPED** (`ARBSWAP_DEVNET_KEYPAIR` unset, repo rule 6).
+Offline prep is complete: `scripts/redeploy_and_verify.sh` builds the exact HEAD
+with `cargo build-sbf`, deploys, and re-runs the byte comparison. The minimal
+remaining sequence is printed by that script when the keypair is absent.

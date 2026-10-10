@@ -190,3 +190,35 @@ Remaining (unchanged): the *value thesis* (Option 1) is still not demonstrated;
 E8 real-pool data, one-hour proxy, and independent audit remain NOT DONE /
 EXTERNAL; the frontend dApp is implemented on branch `frontend` (mock data,
 old layout) but not integrated with `artifacts/public`.
+
+## Backend completion sprint (BC0–BC4) — on `main`
+
+Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python).
+
+- **BC0 (P0 integration) — DONE.** Verified I1–I5 against the code; fixed the
+  live-path integration: the keeper now **emits no quote on zero depth**
+  (volatility kill-switch / zero budget = fail-closed; a zero-liquidity ladder
+  would be rejected on-chain), and the live loop accepts `max_vol_bps` and
+  `lvr_budget_bps` policy args (defaults neutral). `KeeperParams.max_vol_q64` +
+  `lvr_budget_bps` wired into `compute_quote`.
+- **BC1 (P1 E8) — tool upgraded.** `scripts/e8_proxy.py` now samples real Jupiter
+  routing quotes both directions, records a **round-trip quote-cost proxy** and
+  per-route persistence with 95% Wilson / bootstrap CIs, handles malformed/stale
+  responses, and writes raw + summary JSON. Fixed the SOL mint constant (a
+  46-char invalid literal would have made every call fail). A one-hour run is
+  in progress; the exact command is `--minutes 60 --interval 2`.
+- **BC2 (P2 calibration/eval) — DONE.** `simulation/sim/test_p2_artifacts.py`
+  guards the committed, reproducible artifacts: F5 T-A.i = not met / 0 of 5 days,
+  both high-vol windows ≥ 2× σ_ref, ArbSwap real-flow markout worse than B1,
+  calibration fit inside the accept window, and CU sampling stats present.
+- **BC3 (P3 CU + deploy) — DONE (offline) / SKIPPED (live).**
+  `scripts/measure_cu.sh` now samples `N=5` fresh runs and stores
+  min/median/max/range/stdev; `cu.json` holds the median plus stats. The variance
+  is real: transfer/account-init instructions spread up to 9,000 CU; the
+  `<1,000 CU` target is **not met** (~48k). Read-only devnet provenance
+  (`scripts/devnet_program_hash.py`): the deployed program (744,376 B,
+  `c0080ccf…`) **differs** from the exact HEAD build (683,680 B, `c5ba3d1f…`).
+  Live redeploy **SKIPPED** (`ARBSWAP_DEVNET_KEYPAIR` unset); offline prep
+  `scripts/redeploy_and_verify.sh`.
+- **BC4 (P4 tests) — DONE.** Flow-accumulator test now also asserts the rolling
+  window cap is independent of re-quoting; workspace tests green.
