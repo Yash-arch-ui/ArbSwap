@@ -261,11 +261,10 @@ export const VaultPage: React.FC = () => {
         </div>
         <div className="vault-stat-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span className="vault-stat-label">Hedged Alpha APY</span>
-            <span style={{ fontSize: 10, color: 'var(--uni-accent1)', background: 'rgba(240,180,0,0.1)', padding: '1px 6px', borderRadius: 4 }}>Model Est.</span>
+            <span className="vault-stat-label">Vault Status</span>
           </div>
-          <p className="vault-stat-value" style={{ color: 'var(--uni-accent1)' }}>+{vaultState.netHedgedApy}%</p>
-          <span className="vault-stat-subtext">Trading fees minus adverse selection</span>
+          <p className="vault-stat-value">{vaultState.status}</p>
+          <span className="vault-stat-subtext">Epoch {vaultState.epoch} · warm-up {vaultState.warmupSlots} slots</span>
         </div>
         <div className="vault-stat-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
