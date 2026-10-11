@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { Transaction, TransactionInstruction, PublicKey } from '@solana/web3.js';
 import { useProtocol } from '../context/ProtocolContext';
-import { solanaConnection, ARBSWAP_VAULT_PUBKEY } from '../chain/solana';
-import { MOCK_USER_TICKETS } from '../data/mockData';
+import { solanaConnection, ARBSWAP_VAULT_PUBKEY, loadShareBalance } from '../chain/solana';
 import type { WithdrawalTicket } from '../types/protocol';
 import './VaultPage.css';
 import './SwapPage.css';
@@ -25,9 +24,33 @@ export const VaultPage: React.FC = () => {
   const [depositSol, setDepositSol] = useState<string>('5.0');
   const [depositUsdc, setDepositUsdc] = useState<string>('711.90');
   const [withdrawShares, setWithdrawShares] = useState<string>('20000');
-  const [tickets, setTickets] = useState<WithdrawalTicket[]>(MOCK_USER_TICKETS);
+  const [tickets, setTickets] = useState<WithdrawalTicket[]>([]);
+  const [userShares, setUserShares] = useState<number | null>(null);
+  const [isLoadingShares, setIsLoadingShares] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [receipt, setReceipt] = useState<VaultReceipt | null>(null);
+
+  useEffect(() => {
+    if (!connected || !publicKey) {
+      setUserShares(null);
+      return;
+    }
+    let active = true;
+    setIsLoadingShares(true);
+    loadShareBalance(solanaConnection, publicKey)
+      .then((bal) => {
+        if (active) setUserShares(bal);
+      })
+      .catch(() => {
+        if (active) setUserShares(0);
+      })
+      .finally(() => {
+        if (active) setIsLoadingShares(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [connected, publicKey, receipt]);
 
   const solNum = parseFloat(depositSol) || 0;
   const usdcNum = parseFloat(depositUsdc) || 0;
@@ -206,22 +229,34 @@ export const VaultPage: React.FC = () => {
       {/* Top 4 Stats in reference style */}
       <div className="vault-stat-grid">
         <div className="vault-stat-card">
-          <span className="vault-stat-label">Total Value Locked</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="vault-stat-label">Total Value Locked</span>
+            <span style={{ fontSize: 10, color: 'var(--uni-neutral2)', background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: 4 }}>Model Est.</span>
+          </div>
           <p className="vault-stat-value">${vaultState.tvlUsd.toLocaleString()}</p>
           <span className="vault-stat-subtext">{vaultState.baseReserve.toLocaleString()} SOL + ${vaultState.quoteReserve.toLocaleString()} USDC</span>
         </div>
         <div className="vault-stat-card">
-          <span className="vault-stat-label">Hedged Alpha APY</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="vault-stat-label">Hedged Alpha APY</span>
+            <span style={{ fontSize: 10, color: 'var(--uni-accent1)', background: 'rgba(240,180,0,0.1)', padding: '1px 6px', borderRadius: 4 }}>Model Est.</span>
+          </div>
           <p className="vault-stat-value" style={{ color: 'var(--uni-accent1)' }}>+{vaultState.netHedgedApy}%</p>
           <span className="vault-stat-subtext">Trading fees minus adverse selection</span>
         </div>
         <div className="vault-stat-card">
-          <span className="vault-stat-label">LVR Avoided (7-Day)</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="vault-stat-label">LVR Avoided (7-Day)</span>
+            <span style={{ fontSize: 10, color: 'var(--uni-success)', background: 'rgba(0,229,176,0.1)', padding: '1px 6px', borderRadius: 4 }}>Model Est.</span>
+          </div>
           <p className="vault-stat-value" style={{ color: 'var(--uni-success)' }}>+${vaultState.lvrAvoided7dUsd.toLocaleString()}</p>
           <span className="vault-stat-subtext">Saved vs passive pool toxic flow</span>
         </div>
         <div className="vault-stat-card">
-          <span className="vault-stat-label">Current Epoch</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="vault-stat-label">Current Epoch</span>
+            <span style={{ fontSize: 10, color: 'var(--uni-success)', fontWeight: 600 }}>● Live Chain</span>
+          </div>
           <p className="vault-stat-value">Epoch {vaultState.epoch}</p>
           <span className="vault-stat-subtext">{vaultState.epochSlotsRemaining} slots remaining</span>
         </div>
@@ -424,20 +459,44 @@ export const VaultPage: React.FC = () => {
           </div>
 
           <div className="uni-card">
-            <h3 style={{ fontSize: 16, fontWeight: 535, marginBottom: 12 }}>Active Withdrawal Tickets</h3>
-            {tickets.map(t => (
-              <div key={t.id} className="vault-ticket-item">
-                <div>
-                  <span className="mono" style={{ fontWeight: 600 }}>{t.id}</span>
-                  <div style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>
-                    {t.shares.toLocaleString()} shares → {t.estimatedSol} SOL + ${t.estimatedUsdc} USDC
-                  </div>
-                </div>
-                <span className="mono" style={{ color: t.status === 'Ready' ? 'var(--uni-success)' : 'var(--uni-warning)', fontSize: 12 }}>
-                  {t.status} (Epoch {t.eligibleEpoch})
-                </span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 535, margin: 0 }}>Your Position & Tickets</h3>
+              <span style={{ fontSize: 10, color: 'var(--uni-success)', fontWeight: 600 }}>● Live On-Chain</span>
+            </div>
+
+            <div style={{ padding: '12px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', marginBottom: 14 }}>
+              <div style={{ fontSize: 12, color: 'var(--uni-neutral2)', marginBottom: 4 }}>Your LP Share Balance (Devnet)</div>
+              <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'var(--uni-mono)' }}>
+                {!connected ? (
+                  <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Connect wallet to view</span>
+                ) : isLoadingShares ? (
+                  <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Querying RPC...</span>
+                ) : (
+                  <span>{(userShares ?? 0).toLocaleString()} LP Shares</span>
+                )}
               </div>
-            ))}
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 535, marginBottom: 8, color: 'var(--uni-neutral1)' }}>Epoch Withdrawal Queue</div>
+            {tickets.length > 0 ? (
+              tickets.map(t => (
+                <div key={t.id} className="vault-ticket-item">
+                  <div>
+                    <span className="mono" style={{ fontWeight: 600 }}>{t.id}</span>
+                    <div style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>
+                      {t.shares.toLocaleString()} shares → {t.estimatedSol} SOL + ${t.estimatedUsdc} USDC
+                    </div>
+                  </div>
+                  <span className="mono" style={{ color: t.status === 'Ready' ? 'var(--uni-success)' : 'var(--uni-warning)', fontSize: 12 }}>
+                    {t.status} (Epoch {t.eligibleEpoch})
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--uni-neutral2)', fontStyle: 'italic', padding: '6px 0' }}>
+                {connected ? 'No active withdrawal tickets queued in current epoch.' : 'Connect wallet to view queued epoch redemption tickets.'}
+              </div>
+            )}
           </div>
         </div>
 

@@ -15,6 +15,8 @@ export const ARBSWAP_QUOTE_MINT = new PublicKey('EwGBJg2XqVYcPVnNDfvt5dSZwsFXL4m
 // Standard mints — WSOL is the canonical wrapped-SOL; USDC uses the devnet SPL token.
 export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 export const USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+// LP share mint issued by initialize_vault (docs/DEVNET.md)
+export const ARBSWAP_SHARE_MINT = new PublicKey('CtJyzcABFoFSihErnZMBp2BupkSMupkbbvYsfMzxJ4M3');
 
 // Derived PDAs
 export const [QUOTE_STATE_PDA] = PublicKey.findProgramAddressSync(
@@ -223,4 +225,21 @@ export async function loadWalletBalances(
   };
   const [wsol, usdc] = await Promise.all([read(WSOL_MINT), read(USDC_MINT)]);
   return { sol, wsol, usdc };
+}
+
+/**
+ * Read the connected wallet's ArbSwap LP share balance over RPC.
+ * Returns human units (0 if no account exists).
+ */
+export async function loadShareBalance(
+  connection: Connection,
+  owner: PublicKey,
+): Promise<number> {
+  try {
+    const res = await connection.getParsedTokenAccountsByOwner(owner, { mint: ARBSWAP_SHARE_MINT });
+    const amount = res.value[0]?.account.data.parsed.info.tokenAmount.uiAmount;
+    return amount ?? 0;
+  } catch {
+    return 0;
+  }
 }

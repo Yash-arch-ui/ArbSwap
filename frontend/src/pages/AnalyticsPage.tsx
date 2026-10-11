@@ -133,9 +133,14 @@ export const AnalyticsPage: React.FC = () => {
           <div className="glass-card chart-card">
             <div className="chart-header">
               <div>
-                <h3 className="chart-title">LVR Loss Avoidance (Daily USD)</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <h3 className="chart-title">LVR Loss Avoidance (Daily USD)</h3>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 4 }}>
+                    Simulation Output
+                  </span>
+                </div>
                 <p className="chart-subtitle">
-                  Realized arbitrage extraction: Passive AMM vs ArbSwap
+                  Empirical simulation comparison (held_out.json): Passive AMM vs ArbSwap
                 </p>
               </div>
               <div className="chart-legend">
