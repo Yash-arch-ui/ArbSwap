@@ -230,9 +230,9 @@ tests were strengthened with new tests (`per_swap_size_cap_is_enforced`,
 | Account space | halve `quote_state` space | `account_spaces_match_serialized_sizes` | caught |
 
 **Not mutated (covered by type system, not a runtime guard):** Token-2022
-rejection is the `Program<Token>` type (`token_2022_accounts_are_rejected`);
-the inverse-sqrt verification was not implemented (S2 reciprocal redesign
-deferred).
+rejection is the `Program<Token>` type (`token_2022_accounts_are_rejected`).
+The inverse-sqrt verification **is** implemented (C3/B2); its guard mutation is
+caught (S4.4).
 
 ## 3. Compute units (LiteSVM, program instruction only)
 

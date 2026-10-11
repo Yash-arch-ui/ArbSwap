@@ -27,7 +27,8 @@ Branch layout:
 | USDC mint (devnet) | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` |
 | Devnet USDC faucet | `https://faucet.circle.com` (20 USDC / address / 2 h) |
 | Devnet SOL faucet | `https://faucet.solana.com` |
-| Program admin | claimed by the operator key (`initialize_program`) |
+| Program admin | `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH` (already claimed, `initialize_program`) |
+| Upgrade authority (devnet) | `ddGs6hk5E4oPzSnwFfX4pD4DDhDTLTwRddv1VQym7bH` (dedicated key, `ARBSWAP_DEVNET_KEYPAIR`) |
 
 Mint addresses are from Circle's official docs; confirm before citing.
 
@@ -58,9 +59,11 @@ rm -rf target/cu
 ( cd vault/program && CARGO_TARGET_DIR="$PWD/../../target/cu" cargo build-sbf )
 cp target/cu/deploy/arbswap.so target/deploy/arbswap.so
 
-# 2.2 operator/upgrade authority key (path OUTSIDE the repo, never committed)
-export ARBSWAP_DEVNET_KEYPAIR="$HOME/.config/solana/id.json"
-solana balance --url devnet            # needs a few SOL
+# 2.2 operator/upgrade authority key (path OUTSIDE the repo, never committed).
+# Use a DEDICATED devnet keypair holding only devnet SOL — not the general
+# CLI default. Do not point this at $HOME/.config/solana/id.json.
+export ARBSWAP_DEVNET_KEYPAIR="$HOME/.config/solana/arbswap-devnet.json"
+solana balance --url devnet --keypair "$ARBSWAP_DEVNET_KEYPAIR"   # needs a few SOL
 
 # 2.3 deploy at the program id declared in Anchor.toml
 solana program deploy target/deploy/arbswap.so \
@@ -84,7 +87,17 @@ if the id is closed, generate a new keypair, `anchor keys sync`, and update
 
 ## 3. Backend: claim the program admin (one time)
 
-`initialize_program` must run before any vault can be created.
+`initialize_program` must run before any vault can be created. **On the current
+devnet deployment it is already claimed**; the `program_config` PDA exists:
+
+```
+program_config  J6MGfX1YvGq6yCP3eAqzbugpF83CTaBcTLKcmrxmBSok
+admin           8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH
+claim tx        xTLNxRQB27SudYvquutFq2tRNd6q6VkFCuXnzxWYBjwA3mydeXmnPyhZGaasXoMovmWMowpBWbE8DhH6KxzuaLA
+```
+
+Do **not** re-run it on an initialized program (the `[b"program"]` PDA init
+reverts). To bootstrap a *fresh* program id only:
 
 ```bash
 # program_config PDA = findProgramAddress([b"program"], programId)
@@ -92,9 +105,12 @@ if the id is closed, generate a new keypair, `anchor keys sync`, and update
 cargo run -q -p arbswap-keeper -- init-program \
   https://api.devnet.solana.com \
   2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm \
-  "$HOME/.config/solana/id.json" \
-  <program_config_pda>
+  "$ARBSWAP_DEVNET_KEYPAIR" \
+  J6MGfX1YvGq6yCP3eAqzbugpF83CTaBcTLKcmrxmBSok
 ```
+
+Verify with `solana account J6MGfX1YvGq6yCP3eAqzbugpF83CTaBcTLKcmrxmBSok --url devnet`
+(owner = program id, 41 bytes).
 
 ---
 

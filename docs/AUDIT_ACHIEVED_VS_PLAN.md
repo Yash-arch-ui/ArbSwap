@@ -123,11 +123,11 @@ data/keys. Commit: `0a9c44e`.
 | C1 single source of truth | **PASS** | `export_artifacts.py`, `render_docs.py`, `check_docs_consistency.py`; commit `eeb15c1` |
 | C2 pre-registered thesis test | **PASS** (honest outcome) | `docs/THESIS.md`; Amendment 3; commit `6423a93` |
 | C2.4 stress windows (2× real vol) | **EXTERNAL** (data) | `docs/THESIS.md` C2.4 |
-| C3 reciprocal-sqrt redesign | **NOT DONE** | CU re-measured (C1); redesign is roadmap |
+| C3 reciprocal-sqrt redesign | **PASS** | implemented as C3/B2 (`2d77d3e`); inverse-sqrt payload verified on-chain; 1M-case differential |
 | C3.2 CU re-measure | **PASS** | `cu.json` (LiteSVM); devnet CU not measured |
-| C4.1 mutation additions | PARTIAL | 44 caught; inverse-sqrt guard pending C3 |
-| C4.2 cargo-fuzz | CLOSED-BY-DECISION | `proptest` used; tool absent |
-| C4.3 admin rotation | CLOSED-BY-DECISION | A-24 (gap + required change) |
+| C4.1 mutation additions | **PASS** | 55 caught, incl. inverse-sqrt guard (S4.4); `artifacts/public/mutation.json` |
+| C4.2 cargo-fuzz | **PASS** | 3 targets in `fuzz/` + nightly CI (`3df287b`); `proptest` retained |
+| C4.3 admin rotation | **PASS** | `propose_admin`/`accept_admin`/`cancel_admin` + 4 tests + S4.2 mutation (`8e5c9d8`) |
 | C4.4 HWM fee + insurance | **PASS** | `performance_fee.py` + tests |
 | C4.5 A-08 | CLOSED-BY-DECISION | A-08 (feasibility verified) |
 | C4.6 prior art | **PASS** | `docs/PRIOR_ART.md` |
@@ -157,9 +157,9 @@ push main" text). One status per item.
 | Item | Status | Evidence / commit |
 |---|---|---|
 | B1 CU regression | **PASS** | cause = build-method artifact (`cargo build-sbf` 38,563 vs `anchor build` idl-build ≈51.3k), not a source regression; `scripts/measure_cu.sh`; `86bacdc` |
-| B2 compute redesign (verify-instead-of-compute) | **NOT DONE** | not implemented; exact capacity check retained. No technical reason exists (effort only), so it is NOT DONE, not CLOSED-BY-DECISION |
-| B3a mutation completeness | **PARTIAL** | B4 admin guards + F6 pre-validation guards mutated; inverse-sqrt guard N/A (B2 not done) |
-| B3b cargo-fuzz | **NOT DONE** | `cargo-fuzz` not installed; `proptest` used (`docs/SECURITY_CHECKLIST.md`) |
+| B2 compute redesign (verify-instead-of-compute) | **PASS** | implemented as C3/B2 (`2d77d3e`): keeper inverse-sqrt payload verified on-chain (`inv_sqrt_is_conservative`, `InvalidInverseSqrt`); 1M-case differential; mutation S4.4 |
+| B3a mutation completeness | **PASS** | B4 admin guards + F6 pre-validation guards + C3/B2 inverse-sqrt guard all mutated and caught (S4.2–S4.4); 55 caught (`artifacts/public/mutation.json`) |
+| B3b cargo-fuzz | **PASS** | 3 targets (`arb_math`, `walk_ladder`, `quote_validation`) in `fuzz/` + nightly CI job (`3df287b`); `proptest` retained |
 | B4 admin rotation | **PASS** | `propose_admin`/`accept_admin`/`cancel_admin` + 4 tests + S4.2 mutation; `8e5c9d8` |
 | B5 thesis evidence | **PASS / NOT MET (honest outcome)** | F5 ran high-vol windows (2026-02-06, 2026-01-31) + real-flow T-A.i bootstrap CIs: **T-A.i NOT MET**; F4 diagnosis + coefficient re-choice: **no feasible candidate** |
 | B6 E8 proxy 1 h | **NOT DONE** | 60-sample proxy exists (`e8_proxy.json`); the one-hour run was not done (reachable, so not CLOSED-BY-DECISION) |
@@ -172,7 +172,7 @@ push main" text). One status per item.
 
 | Item | Status | Evidence / commit |
 |---|---|---|
-| F1 status honesty | **PASS** | `docs/STATUS.md` defines CLOSED-BY-DECISION; B2/B6 relabelled NOT DONE, high-vol no longer EXTERNAL; `docs/AUDIT_ACHIEVED_VS_PLAN.md`, `docs/AUDIT_ACHIEVED_VS_PLAN.md`, `docs/CLAIMS.md` |
+| F1 status honesty | **PASS** | `docs/STATUS.md` defines CLOSED-BY-DECISION; B6 relabelled NOT DONE, high-vol no longer EXTERNAL; B2 since implemented (see C3/B2); `docs/AUDIT_ACHIEVED_VS_PLAN.md`, `docs/CLAIMS.md` |
 | F2 CU single source | **PASS** | all CU rendered from `artifacts/public/cu.json`; `check_docs_consistency.py` scans every doc + bans stale tokens; stale values fixed |
 | F3 bundle freshness | **PASS** | bundle regenerated at HEAD; `scripts/check_bundle_freshness.py` + CI; test suites re-run |
 | F4 retail diagnosis | **PASS** | `simulation/sim/diagnose.py` → `diagnosis.json` (dominant term volatility 42%); router volume-share flaw fixed + regression; Amendment 6 re-choice → **no feasible candidate** |

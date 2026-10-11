@@ -15,10 +15,14 @@ This repo uses one status per item. The words are defined so a reader can tell a
 
 Applying the table above:
 
-- **B2 (verify-instead-of-compute redesign)** — **NOT DONE.** The only reason
-  given ("large on-chain redesign") is effort, not a technical impossibility, and
-  the conservative-rounding equivalence is not proved here. It must not be
-  labelled CLOSED-BY-DECISION.
+- **B2 (verify-instead-of-compute redesign)** — **DONE** (implemented as C3/B2,
+  commit `2d77d3e`). The keeper supplies per-level Q64.64 inverse square roots,
+  verified on-chain with one multiply each (`inv_sqrt_is_conservative`;
+  `InvalidInverseSqrt` on an under-estimate) and the ask capacity is computed by
+  multiply+shift (`base_capacity_from_inverse_sqrts`), conservatively `>=` the
+  exact floor (1,000,000-case differential; `vault/math/tests/capacity_inverse.rs`).
+  Mutation S4.4 and `update_quote_rejects_an_under_estimated_inverse_sqrt` cover
+  the guard. `update_quote` median 38,563 CU (≤40k target met).
 - **B5 high-volatility real windows** — **NOT DONE.** Binance public archives are
   downloadable with `simulation/data/download_vision.py` (two are downloaded and
   used by the F5 amendment). "EXTERNAL (data)" was incorrect: the data is not
