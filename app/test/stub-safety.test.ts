@@ -112,14 +112,19 @@ describe('toml stub safety', () => {
     expect(asks).toHaveLength(6);
     expect(asks[0].offset_bps).toBe(0);
 
-    // The client decodes the vault + quote-state through fetchProtocolState
-    // (its own field mapping is covered by Part 2/3; here we only prove the
-    // built-in fetch path runs against fixture bytes without invoking toml).
+    // The client decodes the vault + quote-state through fetchProtocolState.
+    // This is the regression guard for the snake_case -> camelCase mapping
+    // (reading camelCase off the snake_case IDL left these `undefined`).
     const connection = mockConnection({
       [vault.toBase58()]: vaultBytes,
       [quoteState.toBase58()]: quoteBytes,
     });
     const state = await fetchProtocolState(connection);
     expect(state.exists).toBe(true);
+    expect(state.vaultData?.totalShares.toNumber()).toBe(1_234_567_890);
+    expect(state.vaultData?.epoch.toNumber()).toBe(42);
+    expect(state.vaultData?.status).toBe(1);
+    expect(state.quoteData?.version.toNumber()).toBe(7);
+    expect(state.quoteData?.askLevels).toHaveLength(6);
   });
 });

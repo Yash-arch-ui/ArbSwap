@@ -6,7 +6,7 @@ import { swap as swapOnChain } from '../chain/program';
 import './SwapPage.css';
 
 export const SwapPage: React.FC = () => {
-  const { quoteState, tokens, riskBreakers, refreshBalances } = useProtocol();
+  const { quoteState, tokens, riskBreakers, refreshBalances, vaultInitialized } = useProtocol();
   const { connection } = useConnection();
   const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
@@ -76,8 +76,16 @@ export const SwapPage: React.FC = () => {
     <div className="uni-swap-wrapper">
       <h1 className="uni-headline">Swap with active liquidity.</h1>
       <p className="uni-subheadline">
-        ArbSwap continuously reprices around the Pyth reference price with dynamic spreads. The price you are quoted is the price you get.
+        ArbSwap continuously reprices around the Pyth reference price with dynamic spreads.
       </p>
+
+      {!vaultInitialized && (
+        <div className="uni-card" style={{ marginBottom: 12 }}>
+          <strong>Vault not initialized.</strong> No on-chain vault exists for the
+          tSOL/tUSDC pair yet, so swaps are disabled and no live price is shown.
+          (TEST TOKEN, devnet.)
+        </div>
+      )}
 
       <div className="swap-layout">
         {/* ---- Left: Depth Ladder ---- */}
@@ -217,11 +225,13 @@ export const SwapPage: React.FC = () => {
           <button
             type="button"
             className={`uni-main-button ${parsedInAmount > 0 && !riskBreakers.circuitBreakerTripped ? 'accent' : 'disabled'}`}
-            disabled={parsedInAmount <= 0 || isSwapping || riskBreakers.circuitBreakerTripped}
+            disabled={!vaultInitialized || parsedInAmount <= 0 || isSwapping || riskBreakers.circuitBreakerTripped}
             onClick={handleSwap}
           >
             {riskBreakers.circuitBreakerTripped ? (
               '⚠ Circuit Breaker Active'
+            ) : !vaultInitialized ? (
+              'Vault not initialized'
             ) : !connected ? (
               'Connect Wallet'
             ) : isSwapping ? (

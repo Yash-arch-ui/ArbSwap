@@ -8,7 +8,7 @@ import {
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import idl from '../idl/arbswap.json';
-import { ARBSWAP_PROGRAM_ID, WSOL_MINT, USDC_MINT } from './solana';
+import { ARBSWAP_PROGRAM_ID, BASE_MINT, QUOTE_MINT } from './solana';
 
 export const PROGRAM_ID = ARBSWAP_PROGRAM_ID;
 const SYSTEM_PROGRAM_ID = SystemProgram.programId;
@@ -28,8 +28,8 @@ function accounts(program: Program): Record<string, AccountFetcher> {
   return program.account as unknown as Record<string, AccountFetcher>;
 }
 
-/** All PDA addresses for the canonical devnet WSOL/USDC vault. */
-export function deriveVaultAddresses(baseMint = WSOL_MINT, quoteMint = USDC_MINT) {
+/** All PDA addresses for the configured vault pair (TEST TOKEN, devnet). */
+export function deriveVaultAddresses(baseMint = BASE_MINT, quoteMint = QUOTE_MINT) {
   const programId = PROGRAM_ID;
   const [vault] = PublicKey.findProgramAddressSync(
     [Buffer.from('vault'), baseMint.toBuffer(), quoteMint.toBuffer()],
@@ -49,30 +49,100 @@ export function withdrawTicket(vault: PublicKey, user: PublicKey) {
   return PublicKey.findProgramAddressSync([Buffer.from('wd'), vault.toBuffer(), user.toBuffer()], PROGRAM_ID)[0];
 }
 
+/** Decoded on-chain `Config` bounds (snake_case IDL fields -> camelCase). */
+export interface OnChainConfig {
+  keeper: PublicKey;
+  treasury: PublicKey;
+  feeBps: number;
+  insuranceBps: number;
+  keeperBps: number;
+  protocolBps: number;
+  minLiquidity: BN;
+  warmupSlots: BN;
+  epochSlots: BN;
+  graceSlots: BN;
+  expirySlots: BN;
+  maxStalenessSeconds: BN;
+  maxConfBps: number;
+  maxAnchorStepBps: number;
+  maxSpreadStepBps: number;
+  minSpreadBps: number;
+  maxSpreadBps: number;
+  maxQuoteSize: BN;
+  maxInventoryBps: number;
+  utilizationMaxBps: number;
+  minBond: BN;
+  unbondCooldownSlots: BN;
+  maxUpdateSlotAge: number;
+  edgeWindowSlots: BN;
+  maxEdgeLossBps: number;
+  maxAnchorDevBps: number;
+  flowWindowSlots: BN;
+  maxWindowFlowBps: number;
+}
+
+export interface OnChainLevel {
+  offsetBps: number;
+  weightBps: number;
+  sqrtLo: BN;
+  sqrtHi: BN;
+  liquidity: BN;
+}
+
+export interface OnChainQuote {
+  version: BN;
+  updateSlot: BN;
+  expirySlot: BN;
+  halfSpreadBps: number;
+  askExtraBps: number;
+  bidExtraBps: number;
+  depthMultBps: number;
+  oraclePrice: BN;
+  anchorSqrtPrice: BN;
+  pResSqrt: BN;
+  oraclePublishTime: BN;
+  oracleConfBps: number;
+  askLevels: OnChainLevel[];
+  bidLevels: OnChainLevel[];
+}
+
+export interface OnChainVault {
+  admin: PublicKey;
+  baseMint: PublicKey;
+  quoteMint: PublicKey;
+  baseReserve: PublicKey;
+  quoteReserve: PublicKey;
+  shareMint: PublicKey;
+  shareLock: PublicKey;
+  totalShares: BN;
+  epoch: BN;
+  epochStart: BN;
+  status: number;
+  insuranceBase: BN;
+  insuranceQuote: BN;
+  keeperBase: BN;
+  keeperQuote: BN;
+  protocolBase: BN;
+  protocolQuote: BN;
+  baseReserveAmount: BN;
+  quoteReserveAmount: BN;
+}
+
 export interface OnChainProtocolState {
   exists: boolean;
   vault: PublicKey;
   config: PublicKey;
   quoteState: PublicKey;
-  vaultData?: {
-    baseMint: PublicKey; quoteMint: PublicKey;
-    baseReserve: PublicKey; quoteReserve: PublicKey;
-    shareMint: PublicKey; shareLock: PublicKey;
-    totalShares: BN; status: number;
-  };
-  quoteData?: {
-    version: BN; updateSlot: BN; expirySlot: BN;
-    halfSpreadBps: number; depthMultBps: number;
-    oraclePrice: BN; anchorSqrtPrice: BN; pResSqrt: BN;
-    askLevels: unknown[]; bidLevels: unknown[];
-  };
+  vaultData?: OnChainVault;
+  quoteData?: OnChainQuote;
+  configData?: OnChainConfig;
 }
 
-/** Fetch the vault/config/quote-state accounts for the WSOL/USDC vault. */
+/** Fetch and decode the vault/config/quote-state accounts for the configured pair. */
 export async function fetchProtocolState(
   connection: Connection,
-  baseMint = WSOL_MINT,
-  quoteMint = USDC_MINT,
+  baseMint = BASE_MINT,
+  quoteMint = QUOTE_MINT,
 ): Promise<OnChainProtocolState> {
   const { vault, config, quoteState } = deriveVaultAddresses(baseMint, quoteMint);
   const readOnlyWallet = {
@@ -84,27 +154,104 @@ export async function fetchProtocolState(
     connection, readOnlyWallet as unknown as Wallet, { commitment: 'confirmed' }));
   const info = await connection.getAccountInfo(vault);
   if (!info) return { exists: false, vault, config, quoteState };
-  const v = await accounts(program).vault.fetch(vault);
-  let quoteData: OnChainProtocolState['quoteData'];
-  try {
-    const q = await accounts(program).quoteState.fetch(quoteState);
-    quoteData = {
-      version: q.version as BN, updateSlot: q.updateSlot as BN, expirySlot: q.expirySlot as BN,
-      halfSpreadBps: q.halfSpreadBps as number, depthMultBps: q.depthMultBps as number,
-      oraclePrice: q.oraclePrice as BN, anchorSqrtPrice: q.anchorSqrtPrice as BN, pResSqrt: q.pResSqrt as BN,
-      askLevels: q.askLevels as unknown[], bidLevels: q.bidLevels as unknown[],
-    };
-  } catch { /* quote state not written yet */ }
-  return {
-    exists: true, vault, config, quoteState,
-    vaultData: {
-      baseMint: v.baseMint as PublicKey, quoteMint: v.quoteMint as PublicKey,
-      baseReserve: v.baseReserve as PublicKey, quoteReserve: v.quoteReserve as PublicKey,
-      shareMint: v.shareMint as PublicKey, shareLock: v.shareLock as PublicKey,
-      totalShares: v.totalShares as BN, status: v.status as number,
-    },
-    quoteData,
+
+  // NOTE: `program.account.*.fetch` returns Anchor-normalised **camelCase**
+  // field names for this IDL (the raw `BorshCoder.accounts.decode` returns
+  // snake_case instead).
+  const v = (await accounts(program).vault.fetch(vault)) as Record<string, unknown>;
+  const baseReserve = v.baseReserve as PublicKey;
+  const quoteReserve = v.quoteReserve as PublicKey;
+  const readAmount = async (acct: PublicKey): Promise<BN> => {
+    try {
+      const bal = await connection.getTokenAccountBalance(acct);
+      return new BN(bal.value.amount);
+    } catch {
+      return new BN(0);
+    }
   };
+  const [baseReserveAmount, quoteReserveAmount] = await Promise.all([
+    readAmount(baseReserve),
+    readAmount(quoteReserve),
+  ]);
+  const vaultData: OnChainVault = {
+    admin: v.admin as PublicKey,
+    baseMint: v.baseMint as PublicKey,
+    quoteMint: v.quoteMint as PublicKey,
+    baseReserve,
+    quoteReserve,
+    shareMint: v.shareMint as PublicKey,
+    shareLock: v.shareLock as PublicKey,
+    totalShares: v.totalShares as BN,
+    epoch: v.epoch as BN,
+    epochStart: v.epochStart as BN,
+    status: v.status as number,
+    insuranceBase: v.insuranceBase as BN,
+    insuranceQuote: v.insuranceQuote as BN,
+    keeperBase: v.keeperBase as BN,
+    keeperQuote: v.keeperQuote as BN,
+    protocolBase: v.protocolBase as BN,
+    protocolQuote: v.protocolQuote as BN,
+    baseReserveAmount,
+    quoteReserveAmount,
+  };
+
+  let quoteData: OnChainQuote | undefined;
+  try {
+    const q = (await accounts(program).quoteState.fetch(quoteState)) as Record<string, unknown>;
+    quoteData = {
+      version: q.version as BN,
+      updateSlot: q.updateSlot as BN,
+      expirySlot: q.expirySlot as BN,
+      halfSpreadBps: q.halfSpreadBps as number,
+      askExtraBps: q.askExtraBps as number,
+      bidExtraBps: q.bidExtraBps as number,
+      depthMultBps: q.depthMultBps as number,
+      oraclePrice: q.oraclePrice as BN,
+      anchorSqrtPrice: q.anchorSqrtPrice as BN,
+      pResSqrt: q.pResSqrt as BN,
+      oraclePublishTime: q.oraclePublishTime as BN,
+      oracleConfBps: q.oracleConfBps as number,
+      askLevels: (q.askLevels as OnChainLevel[]) ?? [],
+      bidLevels: (q.bidLevels as OnChainLevel[]) ?? [],
+    };
+  } catch { /* quote_state not written yet */ }
+
+  let configData: OnChainConfig | undefined;
+  try {
+    const c = (await accounts(program).config.fetch(config)) as Record<string, unknown>;
+    configData = {
+      keeper: c.keeper as PublicKey,
+      treasury: c.treasury as PublicKey,
+      feeBps: c.feeBps as number,
+      insuranceBps: c.insuranceBps as number,
+      keeperBps: c.keeperBps as number,
+      protocolBps: c.protocolBps as number,
+      minLiquidity: c.minLiquidity as BN,
+      warmupSlots: c.warmupSlots as BN,
+      epochSlots: c.epochSlots as BN,
+      graceSlots: c.graceSlots as BN,
+      expirySlots: c.expirySlots as BN,
+      maxStalenessSeconds: c.maxStalenessSeconds as BN,
+      maxConfBps: c.maxConfBps as number,
+      maxAnchorStepBps: c.maxAnchorStepBps as number,
+      maxSpreadStepBps: c.maxSpreadStepBps as number,
+      minSpreadBps: c.minSpreadBps as number,
+      maxSpreadBps: c.maxSpreadBps as number,
+      maxQuoteSize: c.maxQuoteSize as BN,
+      maxInventoryBps: c.maxInventoryBps as number,
+      utilizationMaxBps: c.utilizationMaxBps as number,
+      minBond: c.minBond as BN,
+      unbondCooldownSlots: c.unbondCooldownSlots as BN,
+      maxUpdateSlotAge: c.maxUpdateSlotAge as number,
+      edgeWindowSlots: c.edgeWindowSlots as BN,
+      maxEdgeLossBps: c.maxEdgeLossBps as number,
+      maxAnchorDevBps: c.maxAnchorDevBps as number,
+      flowWindowSlots: c.flowWindowSlots as BN,
+      maxWindowFlowBps: c.maxWindowFlowBps as number,
+    };
+  } catch { /* config decode failed; leave undefined */ }
+
+  return { exists: true, vault, config, quoteState, vaultData, quoteData, configData };
 }
 
 async function ensureAta(connection: Connection, mint: PublicKey, owner: PublicKey) {
@@ -122,9 +269,9 @@ export async function deposit(
   const { vault, config } = deriveVaultAddresses();
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
-  if (!state.vaultData) throw new Error('vault not initialized (no state for WSOL/USDC)');
-  const userBase = (await ensureAta(connection, WSOL_MINT, owner)).ata;
-  const userQuote = (await ensureAta(connection, USDC_MINT, owner)).ata;
+  if (!state.vaultData) throw new Error('vault not initialized for the configured pair (tSOL/tUSDC TEST TOKEN, devnet)');
+  const userBase = (await ensureAta(connection, BASE_MINT, owner)).ata;
+  const userQuote = (await ensureAta(connection, QUOTE_MINT, owner)).ata;
   const userShares = getAssociatedTokenAddressSync(state.vaultData.shareMint, owner);
   return program.methods
     .deposit(new BN(baseAmount.toString()), new BN(quoteAmount.toString()), new BN(minShares.toString()))
@@ -151,9 +298,9 @@ export async function swap(
   const { vault, config, quoteState } = deriveVaultAddresses();
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
-  if (!state.vaultData) throw new Error('vault not initialized (no state for WSOL/USDC)');
-  const traderBase = (await ensureAta(connection, WSOL_MINT, owner)).ata;
-  const traderQuote = (await ensureAta(connection, USDC_MINT, owner)).ata;
+  if (!state.vaultData) throw new Error('vault not initialized for the configured pair (tSOL/tUSDC TEST TOKEN, devnet)');
+  const traderBase = (await ensureAta(connection, BASE_MINT, owner)).ata;
+  const traderQuote = (await ensureAta(connection, QUOTE_MINT, owner)).ata;
   return program.methods
     .swap(side as never, new BN(amountIn.toString()), new BN(minOut.toString()), new BN(minVersion.toString()))
     .accounts({
@@ -179,7 +326,7 @@ export async function requestWithdraw(
   const { vault } = deriveVaultAddresses();
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
-  if (!state.vaultData) throw new Error('vault not initialized (no state for WSOL/USDC)');
+  if (!state.vaultData) throw new Error('vault not initialized for the configured pair (tSOL/tUSDC TEST TOKEN, devnet)');
   const userShares = getAssociatedTokenAddressSync(state.vaultData.shareMint, owner);
   return program.methods
     .requestWithdraw(new BN(shares.toString()))
@@ -199,9 +346,9 @@ export async function claimWithdraw(connection: Connection, wallet: unknown): Pr
   const { vault } = deriveVaultAddresses();
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
-  if (!state.vaultData) throw new Error('vault not initialized (no state for WSOL/USDC)');
-  const userBase = getAssociatedTokenAddressSync(WSOL_MINT, owner);
-  const userQuote = getAssociatedTokenAddressSync(USDC_MINT, owner);
+  if (!state.vaultData) throw new Error('vault not initialized for the configured pair (tSOL/tUSDC TEST TOKEN, devnet)');
+  const userBase = getAssociatedTokenAddressSync(BASE_MINT, owner);
+  const userQuote = getAssociatedTokenAddressSync(QUOTE_MINT, owner);
   return program.methods
     .claimWithdraw()
     .accounts({

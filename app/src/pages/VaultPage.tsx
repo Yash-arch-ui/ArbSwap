@@ -7,7 +7,7 @@ import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain } 
 import type { WithdrawalTicket } from '../types/protocol';
 
 export const VaultPage: React.FC = () => {
-  const { vaultState, quoteState, tokens, refreshBalances } = useProtocol();
+  const { vaultState, quoteState, tokens, refreshBalances, vaultInitialized } = useProtocol();
   const { connection } = useConnection();
   const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
@@ -79,9 +79,17 @@ export const VaultPage: React.FC = () => {
       <div>
         <h1 className="uni-headline">Active Market-Making Vault</h1>
         <p className="uni-subheadline">
-          Deposit SOL and USDC pro-rata. The vault continuously quotes two-sided liquidity on Solana and captures trading fees with bounded risk.
+          Deposit tSOL and tUSDC pro-rata. The vault continuously quotes two-sided liquidity and captures trading fees with bounded risk.
         </p>
       </div>
+
+      {!vaultInitialized && (
+        <div className="uni-card">
+          <strong>Vault not initialized.</strong> No on-chain vault exists for the
+          tSOL/tUSDC pair yet, so deposit and withdrawal are disabled.
+          (TEST TOKEN, devnet.)
+        </div>
+      )}
 
       {/* Top 4 Stats in reference style */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
@@ -178,8 +186,8 @@ export const VaultPage: React.FC = () => {
                 <span className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>~{estimatedShares.toLocaleString()} shares</span>
               </div>
 
-              <button type="button" className="uni-main-button accent" onClick={handleDeposit}>
-                {!connected ? 'Connect wallet' : 'Deposit pro-rata'}
+              <button type="button" className="uni-main-button accent" onClick={handleDeposit} disabled={!vaultInitialized}>
+                {!vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Deposit pro-rata'}
               </button>
             </div>
           ) : (
@@ -213,8 +221,8 @@ export const VaultPage: React.FC = () => {
                 </div>
               </div>
 
-              <button type="button" className="uni-main-button accent" onClick={handleWithdraw}>
-                {!connected ? 'Connect wallet' : 'Queue withdrawal for next epoch'}
+              <button type="button" className="uni-main-button accent" onClick={handleWithdraw} disabled={!vaultInitialized}>
+                {!vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Queue withdrawal for next epoch'}
               </button>
             </div>
           )}

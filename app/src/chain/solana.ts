@@ -9,10 +9,11 @@ export const SOLANA_DEVNET_RPC = 'https://api.devnet.solana.com';
  */
 export const ARBSWAP_PROGRAM_ID = new PublicKey('2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm');
 
-// Mints the vault trades. On devnet these must match the vault's configured
-// base/quote mints; the defaults below are the canonical devnet SOL/USDC.
-export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-export const USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+// Vault pair. These MUST match the deployed vault's configured base/quote
+// mints. On this devnet deployment they are the ArbSwap test tokens
+// (TEST TOKEN, devnet — worthless): tSOL (9 dp) / tUSDC (6 dp).
+export const BASE_MINT = new PublicKey('76XvqdSVi2LhYWgeWjx6E1V2c7oBeB6ndUEp6xC44jp2'); // tSOL
+export const QUOTE_MINT = new PublicKey('q3xHxvxCBvYCMwuA6dFtTDHHwbqkrruTYWAWXdPuNFX'); // tUSDC
 
 export interface ArbSwapConfig {
   programId: PublicKey;
@@ -27,13 +28,14 @@ export const ARBSWAP_CONFIG: ArbSwapConfig = {
 };
 
 /**
- * Read the connected wallet's SOL, wrapped-SOL and USDC balances over RPC.
- * Returns human units (not lamports/atoms). Missing token accounts read as 0.
+ * Read the connected wallet's native SOL (fees), and the vault pair balances
+ * (tSOL base / tUSDC quote — TEST TOKEN, devnet). Human units; missing accounts
+ * read as 0.
  */
 export async function loadWalletBalances(
   connection: Connection,
   owner: PublicKey,
-): Promise<{ sol: number; wsol: number; usdc: number }> {
+): Promise<{ sol: number; base: number; quote: number }> {
   const LAMPORTS = 1_000_000_000;
   const sol = (await connection.getBalance(owner)) / LAMPORTS;
   const read = async (mint: PublicKey): Promise<number> => {
@@ -41,6 +43,6 @@ export async function loadWalletBalances(
     const amount = res.value[0]?.account.data.parsed.info.tokenAmount.uiAmount;
     return amount ?? 0;
   };
-  const [wsol, usdc] = await Promise.all([read(WSOL_MINT), read(USDC_MINT)]);
-  return { sol, wsol, usdc };
+  const [base, quote] = await Promise.all([read(BASE_MINT), read(QUOTE_MINT)]);
+  return { sol, base, quote };
 }
