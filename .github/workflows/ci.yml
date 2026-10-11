@@ -105,6 +105,8 @@ jobs:
         run: npm run lint
       - name: Build (typecheck + bundle)
         run: npm run build
+      - name: Tests (vitest)
+        run: npm test
       - name: Audit gate (allowlist, fails on unlisted high/critical)
         run: node ../scripts/frontend_audit_gate.mjs
       - name: SBOM (CycloneDX)
