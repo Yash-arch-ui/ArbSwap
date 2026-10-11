@@ -1,0 +1,602 @@
+[
+  {
+    "arb_markout_2s_bps": 2.7822413308555767,
+    "arb_volume_share": 0.00010444221637814393,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.3,
+    "regime": "calm",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 2.780346250900147,
+    "arb_volume_share": 0.00013478845236145604,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.5,
+    "regime": "calm",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 2.346533927022188,
+    "arb_volume_share": 0.0006118428244351398,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 1.0,
+    "regime": "calm",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 1.9981190294698628,
+    "arb_volume_share": 0.01708827359705335,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 2.0,
+    "regime": "calm",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 1.9390764075814833,
+    "arb_volume_share": 0.18686127562532653,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "calm",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.3,
+    "regime": "calm",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.5,
+    "regime": "calm",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 1.0,
+    "regime": "calm",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 4.73390412843953,
+    "arb_volume_share": 0.0012957112572906198,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 2.0,
+    "regime": "calm",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 4.003047556262747,
+    "arb_volume_share": 0.10834451295326339,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "calm",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.3,
+    "regime": "calm",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.5,
+    "regime": "calm",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 1.0,
+    "regime": "calm",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 2.0,
+    "regime": "calm",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 6.735165953617092,
+    "arb_volume_share": 0.010376025887249576,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "calm",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.3,
+    "regime": "calm",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.5,
+    "regime": "calm",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 1.0,
+    "regime": "calm",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 2.0,
+    "regime": "calm",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 4.0,
+    "regime": "calm",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.3,
+    "regime": "calm",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.5,
+    "regime": "calm",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 1.0,
+    "regime": "calm",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 2.0,
+    "regime": "calm",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 4.0,
+    "regime": "calm",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 2.140172509097343,
+    "arb_volume_share": 0.00023473156350104112,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.3,
+    "regime": "trend",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 2.159828383640375,
+    "arb_volume_share": 0.00036567666951260676,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.5,
+    "regime": "trend",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 1.8296726478634195,
+    "arb_volume_share": 0.0006530746218503902,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 1.0,
+    "regime": "trend",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 1.7746739002334633,
+    "arb_volume_share": 0.0020799807561784297,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 2.0,
+    "regime": "trend",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 2.018262647048802,
+    "arb_volume_share": 0.022527343236208516,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "trend",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 6.60405794725203,
+    "arb_volume_share": 2.1741511544107984e-05,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.3,
+    "regime": "trend",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 5.674659144234049,
+    "arb_volume_share": 0.00010252763329050168,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.5,
+    "regime": "trend",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 5.655575278984405,
+    "arb_volume_share": 0.0001094724660474867,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 1.0,
+    "regime": "trend",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 4.00067477077614,
+    "arb_volume_share": 0.0006675583557215602,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 2.0,
+    "regime": "trend",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 3.952885480454088,
+    "arb_volume_share": 0.011579230298373605,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "trend",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.3,
+    "regime": "trend",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.5,
+    "regime": "trend",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 1.0,
+    "regime": "trend",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 8.606264573152535,
+    "arb_volume_share": 6.982802042441088e-05,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 2.0,
+    "regime": "trend",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 6.298465129305708,
+    "arb_volume_share": 0.005498442218803898,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "trend",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.3,
+    "regime": "trend",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.5,
+    "regime": "trend",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 1.0,
+    "regime": "trend",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 2.0,
+    "regime": "trend",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 4.0,
+    "regime": "trend",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.3,
+    "regime": "trend",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.5,
+    "regime": "trend",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 1.0,
+    "regime": "trend",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 2.0,
+    "regime": "trend",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 4.0,
+    "regime": "trend",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 4.037264841284335,
+    "arb_volume_share": 0.0005743509024095908,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.3,
+    "regime": "crash",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 4.035332441755702,
+    "arb_volume_share": 0.0005975280052175704,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.5,
+    "regime": "crash",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 4.2333411759722255,
+    "arb_volume_share": 0.0006823932042378534,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 1.0,
+    "regime": "crash",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 4.214856270067274,
+    "arb_volume_share": 0.0009527626308573204,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 2.0,
+    "regime": "crash",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 4.152001570346969,
+    "arb_volume_share": 0.0017293798449609507,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "crash",
+    "vault_fee_bps": 1
+  },
+  {
+    "arb_markout_2s_bps": 6.239590527880337,
+    "arb_volume_share": 0.00045964245204054623,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.3,
+    "regime": "crash",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 6.252360157665567,
+    "arb_volume_share": 0.0004820560367139736,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.5,
+    "regime": "crash",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 6.303703552348943,
+    "arb_volume_share": 0.0005776091962124862,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 1.0,
+    "regime": "crash",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 5.9706188012916686,
+    "arb_volume_share": 0.0007625942041965349,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 2.0,
+    "regime": "crash",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 6.214202119378833,
+    "arb_volume_share": 0.0015278581001000487,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "crash",
+    "vault_fee_bps": 3
+  },
+  {
+    "arb_markout_2s_bps": 8.538379112348826,
+    "arb_volume_share": 0.00030889755260788863,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.3,
+    "regime": "crash",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 8.55011792760854,
+    "arb_volume_share": 0.0003203045398591626,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.5,
+    "regime": "crash",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 8.513505972183115,
+    "arb_volume_share": 0.0003756436401395299,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 1.0,
+    "regime": "crash",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 8.222203374034066,
+    "arb_volume_share": 0.0005692433102224772,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 2.0,
+    "regime": "crash",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 7.970022603914779,
+    "arb_volume_share": 0.0012229024252584377,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "crash",
+    "vault_fee_bps": 5
+  },
+  {
+    "arb_markout_2s_bps": 15.306060193897759,
+    "arb_volume_share": 0.00010316102829265232,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.3,
+    "regime": "crash",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 15.306060193897759,
+    "arb_volume_share": 0.00010660959962962709,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 0.5,
+    "regime": "crash",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 15.306060193897759,
+    "arb_volume_share": 0.00011706935222543331,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 1.0,
+    "regime": "crash",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 15.46265619101137,
+    "arb_volume_share": 0.00016510514511485137,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 2.0,
+    "regime": "crash",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 14.10409193983925,
+    "arb_volume_share": 0.000539412198617031,
+    "deploy_ok": true,
+    "prop_half_spread_bps": 4.0,
+    "regime": "crash",
+    "vault_fee_bps": 10
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.3,
+    "regime": "crash",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 0.5,
+    "regime": "crash",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 1.0,
+    "regime": "crash",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 2.0,
+    "regime": "crash",
+    "vault_fee_bps": 20
+  },
+  {
+    "arb_markout_2s_bps": 0.0,
+    "arb_volume_share": 0.0,
+    "deploy_ok": false,
+    "prop_half_spread_bps": 4.0,
+    "regime": "crash",
+    "vault_fee_bps": 20
+  }
+]

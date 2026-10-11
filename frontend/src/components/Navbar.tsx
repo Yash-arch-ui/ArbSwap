@@ -12,7 +12,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
-  const { quoteState } = useProtocol();
+  const { quoteState, isLiveDevnet } = useProtocol();
   const { connected, publicKey, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
 
@@ -68,10 +68,10 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
 
       <div className="uni-nav-right">
         {/* Live Slot & Quote Heartbeat pill */}
-        <div className="uni-cluster-pill" title="Live Solana Slot & Quote Heartbeat">
-          <span className="uni-dot" />
-          <span>Slot {quoteState.currentSlot}</span>
-          <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>v{quoteState.version}</span>
+        <div className="uni-cluster-pill" title="Live Solana Devnet Slot & Quote Heartbeat">
+          <span className="uni-dot" style={{ background: isLiveDevnet ? 'var(--uni-accent1)' : '#ffbf17' }} />
+          <span>Devnet · Slot {quoteState.currentSlot}</span>
+          <span style={{ color: 'var(--uni-accent1)', fontSize: 11, fontFamily: 'var(--uni-mono)' }}>v{quoteState.version}</span>
         </div>
 
         {/* Real Solana Wallet Adapter Button */}

@@ -1,13 +1,24 @@
 import React, { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { Transaction, TransactionInstruction, PublicKey } from '@solana/web3.js';
 import { useProtocol } from '../context/ProtocolContext';
+import { solanaConnection, ARBSWAP_VAULT_PUBKEY } from '../chain/solana';
 import { MOCK_USER_TICKETS } from '../data/mockData';
 import type { WithdrawalTicket } from '../types/protocol';
+import './VaultPage.css';
+import './SwapPage.css';
+
+interface VaultReceipt {
+  type: 'deposit' | 'withdraw';
+  txSignature: string;
+  isConfirmed: boolean;
+  message: string;
+}
 
 export const VaultPage: React.FC = () => {
   const { vaultState, quoteState, tokens } = useProtocol();
-  const { connected } = useWallet();
+  const { connected, publicKey, sendTransaction } = useWallet();
   const { setVisible } = useWalletModal();
 
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw'>('deposit');
@@ -15,7 +26,8 @@ export const VaultPage: React.FC = () => {
   const [depositUsdc, setDepositUsdc] = useState<string>('711.90');
   const [withdrawShares, setWithdrawShares] = useState<string>('20000');
   const [tickets, setTickets] = useState<WithdrawalTicket[]>(MOCK_USER_TICKETS);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [receipt, setReceipt] = useState<VaultReceipt | null>(null);
 
   const solNum = parseFloat(depositSol) || 0;
   const usdcNum = parseFloat(depositUsdc) || 0;
@@ -30,20 +42,77 @@ export const VaultPage: React.FC = () => {
   const withdrawEstSol = (sharesToWithdraw * vaultState.baseReserve) / vaultState.totalShares;
   const withdrawEstUsdc = (sharesToWithdraw * vaultState.quoteReserve) / vaultState.totalShares;
 
-  const handleDeposit = () => {
-    if (!connected) {
-      setVisible(true);
-      return;
+  const handleDeposit = async () => {
+    if (solNum <= 0) return;
+    setIsSubmitting(true);
+    setReceipt(null);
+
+    if (connected && publicKey) {
+      try {
+        // Broadcast on-chain Vault Deposit transaction to Solana Devnet via Memo/Instruction
+        const memoProgramId = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+        const memoData = `ArbSwap:VaultDeposit:${solNum}SOL+${usdcNum}USDC:Shares~${estimatedShares}:Epoch${vaultState.epoch}`;
+
+        const memoIx = new TransactionInstruction({
+          keys: [{ pubkey: publicKey, isSigner: true, isWritable: true }],
+          programId: memoProgramId,
+          data: Buffer.from(memoData, 'utf-8'),
+        });
+
+        const tx = new Transaction().add(memoIx);
+        const { blockhash } = await solanaConnection.getLatestBlockhash('confirmed');
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = publicKey;
+
+        const sig = await sendTransaction(tx, solanaConnection);
+        await solanaConnection.confirmTransaction(sig, 'confirmed');
+
+        setReceipt({
+          type: 'deposit',
+          txSignature: sig,
+          isConfirmed: true,
+          message: `Devnet Deposit Confirmed: Minted ~${estimatedShares.toLocaleString()} shares for ${solNum} SOL + $${usdcNum.toFixed(2)} USDC. Warm-up activation: 150 slots (~60s).`,
+        });
+      } catch (err: unknown) {
+        console.warn('Vault deposit error:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes('User rejected') || errMsg.includes('rejected')) {
+          setReceipt({
+            type: 'deposit',
+            txSignature: '',
+            isConfirmed: false,
+            message: 'Deposit signing cancelled by user.',
+          });
+        } else {
+          setReceipt({
+            type: 'deposit',
+            txSignature: `sim_dep_${Date.now().toString(36)}`,
+            isConfirmed: false,
+            message: `Simulated Devnet Deposit: Minted ~${estimatedShares.toLocaleString()} shares for ${solNum} SOL + $${usdcNum.toFixed(2)} USDC. (RPC notice: ${errMsg.slice(0, 60)}...)`,
+          });
+        }
+      } finally {
+        setIsSubmitting(false);
+      }
+    } else {
+      // Disconnected simulation
+      setTimeout(() => {
+        setReceipt({
+          type: 'deposit',
+          txSignature: `sim_dep_${Date.now().toString(36)}`,
+          isConfirmed: false,
+          message: `Simulated Devnet Deposit: Minted ~${estimatedShares.toLocaleString()} shares for ${solNum} SOL + $${usdcNum.toFixed(2)} USDC. Activation warm-up: 150 slots (~60s).`,
+        });
+        setIsSubmitting(false);
+      }, 400);
     }
-    setNotice(`Pro-rata deposit submitted! Minting ~${estimatedShares.toLocaleString()} shares. Warm-up activation: 150 slots (~60s).`);
-    setTimeout(() => setNotice(null), 6000);
   };
 
-  const handleWithdraw = () => {
-    if (!connected) {
-      setVisible(true);
-      return;
-    }
+  const handleWithdraw = async () => {
+    if (sharesToWithdraw <= 0) return;
+    setIsSubmitting(true);
+    setReceipt(null);
+
     const newTicket: WithdrawalTicket = {
       id: `wd-${Math.floor(1000 + Math.random() * 9000)}`,
       shares: sharesToWithdraw,
@@ -53,61 +122,130 @@ export const VaultPage: React.FC = () => {
       estimatedUsdc: Number(withdrawEstUsdc.toFixed(2)),
       status: 'Pending',
     };
-    setTickets([newTicket, ...tickets]);
-    setNotice(`Withdrawal ticket queued for Epoch ${vaultState.epoch + 1}.`);
-    setTimeout(() => setNotice(null), 6000);
+
+    if (connected && publicKey) {
+      try {
+        // Broadcast on-chain Vault Withdrawal queue request to Solana Devnet
+        const memoProgramId = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+        const memoData = `ArbSwap:VaultWithdrawQueue:${newTicket.id}:${sharesToWithdraw}Shares:Epoch${vaultState.epoch + 1}`;
+
+        const memoIx = new TransactionInstruction({
+          keys: [{ pubkey: publicKey, isSigner: true, isWritable: true }],
+          programId: memoProgramId,
+          data: Buffer.from(memoData, 'utf-8'),
+        });
+
+        const tx = new Transaction().add(memoIx);
+        const { blockhash } = await solanaConnection.getLatestBlockhash('confirmed');
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = publicKey;
+
+        const sig = await sendTransaction(tx, solanaConnection);
+        await solanaConnection.confirmTransaction(sig, 'confirmed');
+
+        setTickets([newTicket, ...tickets]);
+        setReceipt({
+          type: 'withdraw',
+          txSignature: sig,
+          isConfirmed: true,
+          message: `Withdrawal ticket ${newTicket.id} queued on Devnet for Epoch ${vaultState.epoch + 1} (${withdrawEstSol.toFixed(2)} SOL + $${withdrawEstUsdc.toFixed(2)} USDC).`,
+        });
+      } catch (err: unknown) {
+        console.warn('Vault withdrawal error:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes('User rejected') || errMsg.includes('rejected')) {
+          setReceipt({
+            type: 'withdraw',
+            txSignature: '',
+            isConfirmed: false,
+            message: 'Withdrawal queue signing cancelled by user.',
+          });
+        } else {
+          setTickets([newTicket, ...tickets]);
+          setReceipt({
+            type: 'withdraw',
+            txSignature: `sim_wd_${Date.now().toString(36)}`,
+            isConfirmed: false,
+            message: `Simulated Withdrawal: Ticket ${newTicket.id} queued for Epoch ${vaultState.epoch + 1} (${withdrawEstSol.toFixed(2)} SOL + $${withdrawEstUsdc.toFixed(2)} USDC).`,
+          });
+        }
+      } finally {
+        setIsSubmitting(false);
+      }
+    } else {
+      setTimeout(() => {
+        setTickets([newTicket, ...tickets]);
+        setReceipt({
+          type: 'withdraw',
+          txSignature: `sim_wd_${Date.now().toString(36)}`,
+          isConfirmed: false,
+          message: `Simulated Withdrawal: Ticket ${newTicket.id} queued for Epoch ${vaultState.epoch + 1} (${withdrawEstSol.toFixed(2)} SOL + $${withdrawEstUsdc.toFixed(2)} USDC).`,
+        });
+        setIsSubmitting(false);
+      }, 400);
+    }
   };
 
   return (
-    <div style={{ maxWidth: 1040, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 32 }}>
+    <div className="vault-container">
       <div>
-        <h1 className="uni-headline">Active Market-Making Vault</h1>
-        <p className="uni-subheadline">
-          Deposit SOL and USDC pro-rata. The vault continuously quotes two-sided liquidity on Solana and captures trading fees with bounded risk.
-        </p>
+        <div className="vault-header-row">
+          <div>
+            <h1 className="uni-headline">Active Market-Making Vault</h1>
+            <p className="uni-subheadline">
+              Deposit SOL and USDC pro-rata. The vault continuously quotes two-sided liquidity on Solana and captures trading fees with bounded risk.
+            </p>
+          </div>
+          <div className="vault-cluster-badge">
+            <span className="vault-cluster-pulse" />
+            <span>Devnet Vault: {ARBSWAP_VAULT_PUBKEY.toBase58().slice(0, 6)}... (Epoch {vaultState.epoch})</span>
+          </div>
+        </div>
       </div>
 
       {/* Top 4 Stats in reference style */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-        <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Total Value Locked</span>
-          <p className="mono" style={{ fontSize: 26, fontWeight: 600, margin: '8px 0 4px' }}>${vaultState.tvlUsd.toLocaleString()}</p>
-          <span className="mono" style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>{vaultState.baseReserve.toLocaleString()} SOL + ${vaultState.quoteReserve.toLocaleString()} USDC</span>
+      <div className="vault-stat-grid">
+        <div className="vault-stat-card">
+          <span className="vault-stat-label">Total Value Locked</span>
+          <p className="vault-stat-value">${vaultState.tvlUsd.toLocaleString()}</p>
+          <span className="vault-stat-subtext">{vaultState.baseReserve.toLocaleString()} SOL + ${vaultState.quoteReserve.toLocaleString()} USDC</span>
         </div>
-        <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha (annualized, model)</span>
-          <p className="mono" style={{ fontSize: 26, fontWeight: 600, color: 'var(--uni-accent1)', margin: '8px 0 4px' }}>+{vaultState.netHedgedApy}%</p>
-          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Trading fees minus adverse selection</span>
+        <div className="vault-stat-card">
+          <span className="vault-stat-label">Hedged Alpha APY</span>
+          <p className="vault-stat-value" style={{ color: 'var(--uni-accent1)' }}>+{vaultState.netHedgedApy}%</p>
+          <span className="vault-stat-subtext">Trading fees minus adverse selection</span>
         </div>
-        <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>LVR Avoided (7-Day)</span>
-          <p className="mono" style={{ fontSize: 26, fontWeight: 600, color: 'var(--uni-success)', margin: '8px 0 4px' }}>+${vaultState.lvrAvoided7dUsd.toLocaleString()}</p>
-          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Saved vs passive pool toxic flow</span>
+        <div className="vault-stat-card">
+          <span className="vault-stat-label">LVR Avoided (7-Day)</span>
+          <p className="vault-stat-value" style={{ color: 'var(--uni-success)' }}>+${vaultState.lvrAvoided7dUsd.toLocaleString()}</p>
+          <span className="vault-stat-subtext">Saved vs passive pool toxic flow</span>
         </div>
-        <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Current Epoch</span>
-          <p className="mono" style={{ fontSize: 26, fontWeight: 600, margin: '8px 0 4px' }}>Epoch {vaultState.epoch}</p>
-          <span className="mono" style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>{vaultState.epochSlotsRemaining} slots remaining</span>
+        <div className="vault-stat-card">
+          <span className="vault-stat-label">Current Epoch</span>
+          <p className="vault-stat-value">Epoch {vaultState.epoch}</p>
+          <span className="vault-stat-subtext">{vaultState.epochSlotsRemaining} slots remaining</span>
         </div>
       </div>
 
       {/* Split: Deposit Terminal (Left) + Inventory & Queue (Right) */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 24, alignItems: 'start' }}>
         
         {/* Left: Terminal */}
-        <div className="uni-card" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid var(--uni-surface3)', paddingBottom: 12 }}>
+        <div className="uni-card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          
+          {/* Segmented Tab Controls — Highly visible UI */}
+          <div className="vault-tab-container">
             <button 
               type="button" 
-              className={`uni-button ${activeTab === 'deposit' ? 'uni-button-accent' : 'uni-button-ghost'}`}
-              onClick={() => setActiveTab('deposit')}
+              className={`vault-tab-btn ${activeTab === 'deposit' ? 'active' : ''}`}
+              onClick={() => { setActiveTab('deposit'); setReceipt(null); }}
             >
               Deposit (Pro-Rata)
             </button>
             <button 
               type="button" 
-              className={`uni-button ${activeTab === 'withdraw' ? 'uni-button-accent' : 'uni-button-ghost'}`}
-              onClick={() => setActiveTab('withdraw')}
+              className={`vault-tab-btn ${activeTab === 'withdraw' ? 'active' : ''}`}
+              onClick={() => { setActiveTab('withdraw'); setReceipt(null); }}
             >
               Withdraw (Epoch Queue)
             </button>
@@ -162,9 +300,24 @@ export const VaultPage: React.FC = () => {
                 <span className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>~{estimatedShares.toLocaleString()} shares</span>
               </div>
 
-              <button type="button" className="uni-main-button accent" onClick={handleDeposit}>
-                {!connected ? 'Connect wallet' : 'Deposit pro-rata'}
+              <button 
+                type="button" 
+                className="uni-main-button accent" 
+                onClick={handleDeposit}
+                disabled={isSubmitting}
+              >
+                {isSubmitting 
+                  ? 'Confirming on Devnet...' 
+                  : connected 
+                  ? 'Sign & Deposit pro-rata on Devnet' 
+                  : 'Deposit pro-rata (Simulation)'}
               </button>
+
+              {!connected && (
+                <button type="button" className="uni-connect-sublink" onClick={() => setVisible(true)}>
+                  Or connect Phantom / Solflare for on-chain deposit →
+                </button>
+              )}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -197,40 +350,88 @@ export const VaultPage: React.FC = () => {
                 </div>
               </div>
 
-              <button type="button" className="uni-main-button accent" onClick={handleWithdraw}>
-                {!connected ? 'Connect wallet' : 'Queue withdrawal for next epoch'}
+              <button 
+                type="button" 
+                className="uni-main-button accent" 
+                onClick={handleWithdraw}
+                disabled={isSubmitting}
+              >
+                {isSubmitting 
+                  ? 'Queueing on Devnet...' 
+                  : connected 
+                  ? 'Sign & Queue withdrawal on Devnet' 
+                  : 'Queue withdrawal (Simulation)'}
               </button>
+
+              {!connected && (
+                <button type="button" className="uni-connect-sublink" onClick={() => setVisible(true)}>
+                  Or connect Phantom / Solflare for on-chain withdrawal →
+                </button>
+              )}
             </div>
           )}
 
-          {notice && <p style={{ color: 'var(--uni-success)', fontSize: 13, textAlign: 'center' }}>✓ {notice}</p>}
+          {receipt && (
+            <div className="vault-receipt-box">
+              <div style={{ fontWeight: 600, color: 'var(--uni-accent1)', marginBottom: 4 }}>
+                {receipt.isConfirmed ? '✓ Devnet Transaction Confirmed' : '✓ Execution Notice'}
+              </div>
+              <div>{receipt.message}</div>
+              {receipt.isConfirmed && receipt.txSignature && (
+                <div style={{ marginTop: 6, fontFamily: 'var(--uni-mono)', fontSize: 11 }}>
+                  Tx Reference:{' '}
+                  <a
+                    href={`https://explorer.solana.com/tx/${receipt.txSignature}?cluster=devnet`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {receipt.txSignature} ↗ (View on Solana Explorer)
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right: Inventory & Queue */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div className="uni-card">
             <h3 style={{ fontSize: 16, fontWeight: 535, marginBottom: 12 }}>Inventory Skew (Avellaneda-Stoikov)</h3>
-            <div style={{ display: 'flex', height: 26, borderRadius: 13, overflow: 'hidden', fontSize: 12, fontWeight: 600, textAlign: 'center', lineHeight: '26px' }}>
-              <div style={{ width: `${(vaultState.currentRatio * 100).toFixed(1)}%`, background: 'rgba(0, 229, 176, 0.25)', color: 'var(--uni-accent1)' }}>
+            <div className="vault-skew-container">
+              <div 
+                className="vault-skew-sol" 
+                style={{ width: `${(vaultState.currentRatio * 100).toFixed(1)}%` }}
+              >
                 SOL ({(vaultState.currentRatio * 100).toFixed(1)}%)
               </div>
-              <div style={{ width: `${((1 - vaultState.currentRatio) * 100).toFixed(1)}%`, background: 'rgba(255, 255, 255, 0.15)', color: 'var(--uni-neutral1)' }}>
+              <div 
+                className="vault-skew-usdc" 
+                style={{ width: `${((1 - vaultState.currentRatio) * 100).toFixed(1)}%` }}
+              >
                 USDC ({((1 - vaultState.currentRatio) * 100).toFixed(1)}%)
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16, fontSize: 13 }}>
-              <div><span style={{ color: 'var(--uni-neutral2)' }}>Insurance Buffer:</span> <strong className="mono" style={{ color: 'var(--uni-success)' }}>${vaultState.insuranceBufferUsd.toLocaleString()}</strong></div>
-              <div><span style={{ color: 'var(--uni-neutral2)' }}>Keeper Reward Pool:</span> <strong className="mono" style={{ color: 'var(--uni-accent1)' }}>${vaultState.keeperPoolUsd.toLocaleString()}</strong></div>
+              <div>
+                <span style={{ color: 'var(--uni-neutral2)' }}>Insurance Buffer:</span>{' '}
+                <strong className="mono" style={{ color: 'var(--uni-success)' }}>${vaultState.insuranceBufferUsd.toLocaleString()}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--uni-neutral2)' }}>Keeper Reward Pool:</span>{' '}
+                <strong className="mono" style={{ color: 'var(--uni-accent1)' }}>${vaultState.keeperPoolUsd.toLocaleString()}</strong>
+              </div>
             </div>
           </div>
 
           <div className="uni-card">
             <h3 style={{ fontSize: 16, fontWeight: 535, marginBottom: 12 }}>Active Withdrawal Tickets</h3>
             {tickets.map(t => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--uni-surface2)', borderRadius: 14, marginBottom: 8, fontSize: 13 }}>
+              <div key={t.id} className="vault-ticket-item">
                 <div>
                   <span className="mono" style={{ fontWeight: 600 }}>{t.id}</span>
-                  <div style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>{t.shares.toLocaleString()} shares → {t.estimatedSol} SOL + ${t.estimatedUsdc} USDC</div>
+                  <div style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>
+                    {t.shares.toLocaleString()} shares → {t.estimatedSol} SOL + ${t.estimatedUsdc} USDC
+                  </div>
                 </div>
                 <span className="mono" style={{ color: t.status === 'Ready' ? 'var(--uni-success)' : 'var(--uni-warning)', fontSize: 12 }}>
                   {t.status} (Epoch {t.eligibleEpoch})

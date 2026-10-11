@@ -1,0 +1,172 @@
+/* ======================================================
+   VaultPage.css — Active MM Vault UI
+   ====================================================== */
+
+.vault-container {
+  max-width: 1040px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 20px 20px 80px;
+}
+
+.vault-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.vault-cluster-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--uni-surface2);
+  border: 1px solid var(--uni-surface3);
+  font-size: 11px;
+  font-family: var(--uni-mono);
+  color: var(--uni-neutral1);
+}
+
+.vault-cluster-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--uni-accent1);
+  box-shadow: 0 0 8px var(--uni-accent1);
+}
+
+/* Stat Grid */
+.vault-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.vault-stat-card {
+  background: var(--uni-surface2);
+  border: 1px solid var(--uni-surface3);
+  border-radius: 20px;
+  padding: 20px;
+}
+
+.vault-stat-label {
+  font-size: 13px;
+  color: var(--uni-neutral2);
+  display: block;
+}
+
+.vault-stat-value {
+  font-size: 26px;
+  font-weight: 600;
+  margin: 8px 0 4px;
+  font-family: var(--uni-mono);
+  color: var(--uni-neutral1);
+}
+
+.vault-stat-subtext {
+  font-size: 12px;
+  color: var(--uni-neutral2);
+  font-family: var(--uni-mono);
+}
+
+/* Tab Group — Highly visible, beautiful segmented tabs */
+.vault-tab-container {
+  display: flex;
+  background: var(--uni-surface1);
+  border: 1px solid var(--uni-surface3);
+  border-radius: 16px;
+  padding: 4px;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.vault-tab-btn {
+  flex: 1;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--uni-neutral2);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  font-family: inherit;
+}
+
+.vault-tab-btn:hover {
+  color: var(--uni-neutral1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vault-tab-btn.active {
+  background: var(--uni-surface3-solid);
+  color: var(--uni-accent1);
+  font-weight: 600;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(0, 229, 176, 0.2);
+}
+
+/* Action Notice & Receipt */
+.vault-receipt-box {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(0, 229, 176, 0.08);
+  border: 1px solid rgba(0, 229, 176, 0.25);
+  font-size: 12.5px;
+  color: var(--uni-neutral1);
+  line-height: 1.5;
+}
+
+.vault-receipt-box a {
+  color: var(--uni-accent1);
+  text-decoration: underline;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+/* Skew bar */
+.vault-skew-container {
+  display: flex;
+  height: 28px;
+  border-radius: 14px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 28px;
+  font-family: var(--uni-mono);
+  border: 1px solid var(--uni-surface3);
+}
+
+.vault-skew-sol {
+  background: rgba(0, 229, 176, 0.25);
+  color: var(--uni-accent1);
+  transition: width 0.3s;
+}
+
+.vault-skew-usdc {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--uni-neutral1);
+  transition: width 0.3s;
+}
+
+/* Ticket rows */
+.vault-ticket-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--uni-surface2);
+  border: 1px solid var(--uni-surface3);
+  border-radius: 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}

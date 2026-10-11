@@ -11,9 +11,23 @@ import {
 import { useProtocol } from '../context/ProtocolContext';
 
 export const RiskPage: React.FC = () => {
-  const { quoteState, riskBreakers, tripManualBreaker, resetBreaker } = useProtocol();
+  const { 
+    quoteState, 
+    riskBreakers, 
+    tripManualBreaker, 
+    resetBreaker, 
+    currentRegime, 
+    setRegime 
+  } = useProtocol();
 
   const isTripped = riskBreakers.circuitBreakerTripped;
+
+  const regimes: { key: 'calm' | 'trend' | 'jump' | 'crash'; label: string }[] = [
+    { key: 'calm', label: 'Calm' },
+    { key: 'trend', label: 'Trend' },
+    { key: 'jump', label: 'Jump Arb' },
+    { key: 'crash', label: 'Crash' },
+  ];
 
   return (
     <div className="risk-page-wrapper">
@@ -27,7 +41,28 @@ export const RiskPage: React.FC = () => {
               On-chain guardrails, bounded keeper limits, and automated circuit breakers protecting LP capital
             </p>
           </div>
-          <div className="risk-header-actions">
+          <div className="risk-header-actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 6, background: 'var(--uni-surface2)', padding: '4px 8px', borderRadius: 999, border: '1px solid var(--uni-surface3)' }}>
+              {regimes.map((r) => (
+                <button
+                  key={r.key}
+                  type="button"
+                  style={{
+                    background: currentRegime === r.key ? 'var(--uni-accent2)' : 'transparent',
+                    border: currentRegime === r.key ? '1px solid var(--uni-accent1)' : '1px solid transparent',
+                    color: currentRegime === r.key ? 'var(--uni-accent1)' : 'var(--uni-neutral2)',
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    fontSize: 11,
+                    fontFamily: 'var(--uni-mono)',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setRegime(r.key)}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
             {isTripped ? (
               <button 
                 className="btn-primary reset-breaker-btn"
@@ -227,20 +262,20 @@ export const RiskPage: React.FC = () => {
                 <span className="mono text-muted">{riskBreakers.keeperActiveAddress}</span>
               </div>
               <div className="pillar-row mt-2">
-                <span>Valid Quote Updates (24h)</span>
-                <span className="mono font-bold text-success">214,842 txs (99.98%)</span>
+                <span>On-Chain update_quote Cost</span>
+                <span className="mono font-bold text-accent">48,209 CU (cargo build-sbf)</span>
               </div>
               <div className="pillar-row mt-2">
-                <span>Rejected / Stale Updates</span>
-                <span className="mono text-muted">4 txs (0.002%)</span>
+                <span>Mean Batch Efficiency / Point</span>
+                <span className="mono font-bold text-success">~620 CU / update</span>
               </div>
               <div className="pillar-row mt-2">
-                <span>Mean Compute Units / Update</span>
-                <span className="mono font-bold text-accent">~620 CU</span>
+                <span>LiteSVM Guard Mutation Coverage</span>
+                <span className="mono font-bold text-success">51 / 51 caught (100%)</span>
               </div>
               <div className="pillar-row mt-2">
-                <span>Adaptive Priority Fee</span>
-                <span className="mono text-secondary">2,500 micro-lamports</span>
+                <span>Quote Persistence Proxy (E8)</span>
+                <span className="mono text-secondary">60 / 60 OK (98% persistence)</span>
               </div>
             </div>
 
