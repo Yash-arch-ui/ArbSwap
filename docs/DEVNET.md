@@ -106,3 +106,42 @@ solana program set-upgrade-authority 2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiN
   (`ddGs6hk5…`) before this deploy; the program_config **admin** is unchanged.
 - No keys, seed phrases or secrets are stored in this repository, logs or the
   artifact bundle.
+
+# Part 2 / Step 2 — own TEST TOKENS (Option B)
+
+Quotes follow the **real Pyth SOL/USD devnet price** while both tokens are
+**TEST TOKEN, devnet** (worthless; classic SPL Token only — Token-2022 is
+rejected by the program).
+
+## S2.1 test mints (created 2026-10-11)
+
+| | tSOL (base) | tUSDC (quote) |
+|---|---|---|
+| Mint | `76XvqdSVi2LhYWgeWjx6E1V2c7oBeB6ndUEp6xC44jp2` | `q3xHxvxCBvYCMwuA6dFtTDHHwbqkrruTYWAWXdPuNFX` |
+| Decimals | 9 | 6 |
+| Program | `Tokenkeg…` (classic SPL, Token-2022 not used) | same |
+| Mint authority | `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH` | same |
+| Freeze authority | (not set) | (not set) |
+| Creation signature | `4RxJNsfK85xSBEULQQiW3cTJmyPe8cy3N6XcVNh8efsimnRqWrwkUMB4uKCazobbjw93iMQfZFP89jG4hgWFKSks` | `4y6UuQFsSinEfTbpQbdzKshY6JTQLFHJqH3kUBzAXMSPkyFrMZhVe82Lir63zvDk9qEXkQn5UsLsjvTCYfi2XFS6` |
+
+Mint-authority key files (the devnet admin keypair, `ARBSWAP_DEVNET_KEYPAIR`,
+pubkey `8R3V…`) stay **outside the repo**.
+
+## S2.1b Pyth oracle (verified from official Pyth docs, 2026-10-11)
+
+- SOL/USD price feed id: `0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d`
+- Solana receiver program (devnet): `rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ`
+- Price-feed program (devnet): `pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT`
+
+Keepers post real Pyth prices (Hermes); the **tokens are test tokens**.
+`scripts/test_tokens.sh` mints under a hard per-call cap, prints balances, and
+refuses to run on any cluster except devnet.
+
+## Mint-authority rotation — before any public release
+
+The test-token mint authority is the single devnet admin key (`8R3V…`), NOT
+revoked yet (Step 2 needs it to mint + fund vaults). **Before any public
+release or real funds**: rotate the mint authority to a fresh key and revoke it
+(leaving the mint with no mint authority), or burn supply and destroy the
+mints. The upgrade authority is likewise one devnet dev-key; see the
+upgrade-authority note above (multisig or immutable before any real funds).

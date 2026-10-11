@@ -285,3 +285,21 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   (no CU/number drift), so no backend rebuild was done in Part 1; re-publishing
   the bundle at the integration HEAD is deferred to Step 2 (it also updates the
   advertised test counts in README/CLAIMS).
+
+## Part 2 / Step 2 — own TEST TOKENS (Option B) — on `integration`
+
+- **S2.1 — DONE (mints + oracle + script).** Created two classic SPL test
+  mints with the devnet admin key (`8R3V…`) as mint authority and NO freeze
+  authority: tSOL `76Xvqd…` (dec 9) and tUSDC `q3xHxvx…` (dec 6); signatures and
+  decimals recorded in `docs/DEVNET.md`. Verified the real Pyth SOL/USD devnet
+  feed id (`0xef0d…b56d`) and receiver/price-feed programs
+  (`rec5EKMGg6…`, `pythWSnsw…`) from official Pyth docs. Quotes follow the real
+  price; the tokens are TEST TOKEN, devnet. Wrote `scripts/test_tokens.sh`
+  (devnet-only guard, hard per-call caps, prints balances, refuses over-cap).
+- **NOTE (operator funding):** the devnet airdrop was rate-limited this session;
+  the operator key (`8R3V…`, the program admin) was seeded with devnet SOL
+  transferred from the session's own devnet key (`ddGs6hk5…`) — own devnet funds,
+  not a faucet bypass and no mainnet/third-party funds.
+- **NEXT (S2.2+):** pool sizing from the frozen config, `initialize_vault`, first
+  deposit + warm-up, 30-minute supervised keeper run, then expiry/swap/withdrawal
+  smoke tests and publishing. Blocked on continuing this session's flow.
