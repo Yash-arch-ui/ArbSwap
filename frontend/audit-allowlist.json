@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "note": "Findings that are NOT shipped in the browser bundle (see docs/WEB_ASSUMPTIONS.md). The CI gate fails on any high/critical finding not listed here, or whose review_by has passed. Do not add anything that is both in the bundle and reachable from user input.",
+  "waivers": [
+    { "package": "@coral-xyz/anchor", "advisories": [], "review_by": "2026-11-10", "reason": "Anchor CLI toolchain; no untrusted TOML parsed by the dApp; not in bundle" },
+    { "package": "toml", "advisories": ["GHSA-82x6-q7mm-w9cf", "GHSA-v5mp-jgw5-2x6j"], "review_by": "2026-11-10", "reason": "aliased to a browser stub; absent from the bundle" },
+    { "package": "bigint-buffer", "advisories": ["GHSA-3gc7-fjrx-p6mg"], "review_by": "2026-11-10", "reason": "not in bundle; no untrusted-length buffers in the client path" },
+    { "package": "@solana/buffer-layout-utils", "advisories": [], "review_by": "2026-11-10", "reason": "transitive of @solana/spl-token; not in bundle" },
+    { "package": "@solana/spl-token", "advisories": [], "review_by": "2026-11-10", "reason": "client uses only the ATA helpers; vulnerable path not reached; not in bundle" },
+    { "package": "braces", "advisories": ["GHSA-vfj7-8cjw-p6xm"], "review_by": "2026-11-10", "reason": "build-time micromatch chain; not in bundle" },
+    { "package": "micromatch", "advisories": [], "review_by": "2026-11-10", "reason": "build-time; not in bundle" },
+    { "package": "metro", "advisories": [], "review_by": "2026-11-10", "reason": "react-native toolchain; not installed/bundled" },
+    { "package": "metro-config", "advisories": [], "review_by": "2026-11-10", "reason": "react-native toolchain; not installed/bundled" },
+    { "package": "metro-file-map", "advisories": [], "review_by": "2026-11-10", "reason": "react-native toolchain; not installed/bundled" },
+    { "package": "metro-transform-worker", "advisories": [], "review_by": "2026-11-10", "reason": "react-native toolchain; not installed/bundled" },
+    { "package": "react-native", "advisories": [], "review_by": "2026-11-10", "reason": "mobile-adapter peer; not installed/bundled" },
+    { "package": "@react-native/community-cli-plugin", "advisories": [], "review_by": "2026-11-10", "reason": "react-native toolchain; not installed/bundled" },
+    { "package": "@react-native/virtualized-lists", "advisories": [], "review_by": "2026-11-10", "reason": "react-native; not installed/bundled" },
+    { "package": "@solana-mobile/mobile-wallet-adapter-protocol", "advisories": [], "review_by": "2026-11-10", "reason": "mobile wallet adapter; not installed/bundled" },
+    { "package": "@solana-mobile/mobile-wallet-adapter-protocol-web3js", "advisories": [], "review_by": "2026-11-10", "reason": "mobile wallet adapter; not installed/bundled" },
+    { "package": "@solana-mobile/wallet-adapter-mobile", "advisories": [], "review_by": "2026-11-10", "reason": "mobile wallet adapter; not installed/bundled" },
+    { "package": "@solana-mobile/wallet-standard-mobile", "advisories": [], "review_by": "2026-11-10", "reason": "mobile wallet adapter; not installed/bundled" }
+  ]
+}
