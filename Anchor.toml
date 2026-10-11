@@ -5,11 +5,11 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-arbswap = "CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx"
-
 [programs.devnet]
-arbswap = "CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx"
+arbswap = "2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm"
+
+[programs.localnet]
+arbswap = "2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm"
 
 [provider]
 cluster = "localnet"

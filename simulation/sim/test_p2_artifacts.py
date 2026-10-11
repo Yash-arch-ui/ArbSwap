@@ -62,3 +62,13 @@ def test_cu_artifact_carries_sampling_statistics():
         assert stats["n"] >= 5, f"{name} has too few samples"
         assert stats["min"] <= stats["median"] <= stats["max"]
         assert stats["range"] == stats["max"] - stats["min"]
+
+
+def test_real_flow_residual_is_reproducible_and_the_artifact_is_removed():
+    # F-08: disabling the arbitrageur inflates the passive residual; with it on
+    # (a real pool is arbitraged) the residual is sane. Both are recorded.
+    rf = _load("real_flow_calibration.json")
+    assert abs(rf["residual_informed_on_bps"]) < 100.0
+    assert rf["residual_informed_off_bps"] > 1_000.0
+    for row in rf["rows"]:
+        assert row["informed_off"]["markout_2s_bps"] > row["informed_on"]["markout_2s_bps"]

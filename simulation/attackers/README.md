@@ -40,4 +40,4 @@ rejection, donation / share-inflation, bond/slash/reward, and warm-up.
 ```
 
 Gate (P5): every E7 attack fails or is contained, and is documented — see
-`docs/P5_REPORT.md`.
+`docs/CLAIMS.md`.

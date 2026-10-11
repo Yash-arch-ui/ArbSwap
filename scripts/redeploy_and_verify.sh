@@ -8,7 +8,7 @@
 #
 # Read-only provenance check (needs no keypair):
 #   .venv/bin/python scripts/devnet_program_hash.py \
-#       --program-id CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx \
+#       --program-id 2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm \
 #       --so target/deploy/arbswap.so
 #
 # Full redeploy + verify:
@@ -17,7 +17,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-PROGRAM_ID="${PROGRAM_ID:-CCR33kX4Q9iucvgN4kRga2txmtu32vxy3bXpKyxPdBQx}"
+PROGRAM_ID="${PROGRAM_ID:-2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm}"
 RPC="${RPC:-https://api.devnet.solana.com}"
 
 echo "== build exact HEAD (deployed method: cargo build-sbf, no idl-build) =="

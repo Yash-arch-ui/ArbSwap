@@ -8,7 +8,11 @@ from simulation.sim import thesis
 def test_calibration_is_closed_by_decision():
     cal = thesis.calibration_residual()
     assert cal["status"] == "CLOSED-BY-DECISION"
-    assert cal["real_flow_residual"]["markout_bps"] < 0
+    residual = cal["real_flow_residual"]
+    # The corrected residual (arbitrageur on) is sane; disabling the arbitrageur
+    # inflates it (the historical artifact).
+    assert abs(residual["markout_bps"]) < 100.0
+    assert residual["markout_bps_arb_off"] > 1_000.0
 
 
 def test_render_has_decision_and_all_criteria():

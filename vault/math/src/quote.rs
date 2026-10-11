@@ -160,6 +160,61 @@ fn mul_u256_u64(a: U256, b: u64) -> U256 {
     U256(out)
 }
 
+/// `ceil(2^128 / sqrt_scaled)`: the Q64.64 inverse square root, rounded **up**.
+/// Supplied by the keeper so the program can verify it with one multiply.
+pub fn inv_sqrt_q64_ceil(sqrt_scaled: u128) -> MathResult<u128> {
+    if sqrt_scaled == 0 {
+        return Err(MathError::Domain);
+    }
+    let numerator = U256::from_u128(1).shl(128);
+    let (quotient, remainder) = numerator
+        .div_rem(U256::from_u128(sqrt_scaled))
+        .ok_or(MathError::DivideByZero)?;
+    let mut value = quotient.to_u128().ok_or(MathError::Overflow)?;
+    if !remainder.is_zero() {
+        value = value.checked_add(1).ok_or(MathError::Overflow)?;
+    }
+    Ok(value)
+}
+
+/// Verify a keeper-supplied Q64.64 inverse square root is **not an
+/// under-estimate**: `mul_q64(sqrt, inv) >= 1.0`. One multiplication.
+pub fn inv_sqrt_is_conservative(sqrt_scaled: u128, inv: u128) -> bool {
+    U256::mul_u128(sqrt_scaled, inv)
+        .shr(64)
+        .to_u128()
+        .is_some_and(|product| product >= Q64)
+}
+
+fn mul_q64_ceil(a: u128, b: u128) -> Option<u128> {
+    let product = U256::mul_u128(a, b);
+    let addend = U256::from_u128(Q64 - 1);
+    product.checked_add(&addend)?.shr(64).to_u128()
+}
+
+/// Ask-side base capacity from verified inverse square roots, using only
+/// multiply + shift (no 256-bit division). Every step rounds **up** and the
+/// inverses themselves are over-estimates, so the result is `>=` the exact
+/// `Level::base_capacity` (conservative: the utilization cap can only reject an
+/// over-deep ladder, never accept one). On overflow it saturates to
+/// `u128::MAX`, which also fails the cap check (reject).
+pub fn base_capacity_from_inverse_sqrts(
+    liquidity: u128,
+    sqrt_lo: u128,
+    sqrt_hi: u128,
+    inv_lo: u128,
+    inv_hi: u128,
+) -> MathResult<u128> {
+    if sqrt_lo == 0 || sqrt_lo >= sqrt_hi || liquidity == 0 {
+        return Err(MathError::Domain);
+    }
+    let delta = sqrt_hi - sqrt_lo;
+    let a = mul_q64_ceil(liquidity, delta).unwrap_or(u128::MAX);
+    let b = mul_q64_ceil(a, inv_lo).unwrap_or(u128::MAX);
+    let c = mul_q64_ceil(b, inv_hi).unwrap_or(u128::MAX);
+    Ok(c >> 64)
+}
+
 /// Result of walking a ladder side.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SwapResult {

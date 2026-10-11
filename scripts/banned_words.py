@@ -31,12 +31,9 @@ BANNED = {
 SKIP_FILES = {
     "docs/BUILD_PLAN.md", "BuilderPlan.md", "MasterPlan.md", "README.md",
     "docs/CLAIMS.md", "docs/DEMO_SCRIPT.md", "docs/HEADLINE.md",
-    "docs/AUDIT_FULL.md", "docs/AUDIT_ACHIEVED_VS_PLAN.md",
-    "docs/PITCH_DECK.md", "docs/STAGE_REPORT.md", "docs/LEFTOVER_TASKS.md",
-    "docs/SECURITY.md", "docs/P3_AUDIT.md", "docs/AUDIT_PACKAGE.md",
-    "docs/PRIOR_ART.md", "docs/THESIS.md",
-    "TARGETIDEATASKS.md", "TARGETIDEATASKS_P2.md", "docs/READING_NOTES.md",
-    "simulation/data/README.md",
+    "docs/AUDIT_ACHIEVED_VS_PLAN.md", "docs/PITCH_DECK.md", "docs/SECURITY.md",
+    "docs/PRIOR_ART.md", "docs/THESIS.md", "docs/REMAINING_WORK.md",
+    "TARGETIDEATASKS.md", "TARGETIDEATASKS_P2.md", "simulation/data/README.md",
 }
 
 # Line contexts that are legitimate (declarations, negations, fail-closed terms).

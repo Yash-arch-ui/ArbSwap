@@ -258,8 +258,14 @@ pub struct QuoteUpdate {
 }
 
 /// Exact Borsh payload consumed by the P2 `update_quote` instruction.
+///
+/// C3/B2: each level also carries the Q64.64 inverse square roots the program
+/// verifies with one multiply. They are derived here so the keeper payload
+/// struct stays unchanged; the bid inverses are unused by the program (written
+/// as 0).
 pub fn encode_update_quote_instruction(update: &QuoteUpdate) -> Vec<u8> {
-    let mut data = Vec::with_capacity(8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 96);
+    let mut data =
+        Vec::with_capacity(8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 160);
     let mut hash = Sha256::new();
     hash.update(b"global:update_quote");
     data.extend_from_slice(&hash.finalize()[..8]);
@@ -283,13 +289,26 @@ pub fn encode_update_quote_instruction(update: &QuoteUpdate) -> Vec<u8> {
         put_u128(&mut data, level.sqrt_lo);
         put_u128(&mut data, level.sqrt_hi);
         put_u128(&mut data, level.liquidity);
+        put_inverse(&mut data, level.sqrt_lo, level.sqrt_hi);
     }
     for level in &update.bid_levels {
         put_u128(&mut data, level.sqrt_lo);
         put_u128(&mut data, level.sqrt_hi);
         put_u128(&mut data, level.liquidity);
+        // Bid capacity is computed on-chain without inverses.
+        put_u128(&mut data, 0);
+        put_u128(&mut data, 0);
     }
     data
+}
+
+/// Write `inv_lo, inv_hi = ceil(2^128 / sqrt)` (0 when a sqrt is unusable, so
+/// the program's conservative check rejects it).
+fn put_inverse(out: &mut Vec<u8>, sqrt_lo: u128, sqrt_hi: u128) {
+    let inv_lo = arb_math::inv_sqrt_q64_ceil(sqrt_lo).unwrap_or(0);
+    let inv_hi = arb_math::inv_sqrt_q64_ceil(sqrt_hi).unwrap_or(0);
+    put_u128(out, inv_lo);
+    put_u128(out, inv_hi);
 }
 
 fn put_u32(out: &mut Vec<u8>, value: u32) {
@@ -1194,7 +1213,7 @@ mod tests {
         assert_eq!(&payload[..8], &Sha256::digest(b"global:update_quote")[..8]);
         assert_eq!(
             payload.len(),
-            8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 96
+            8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 160
         );
     }
     #[test]

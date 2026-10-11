@@ -1,5 +1,5 @@
 {
-  "commit": "e95f61014ea6b6b5c04ea5d0e2ae461fc77586b2",
+  "commit": "2a71c37578d0cdae32b5b77057bc1a20f8148c08",
   "data_sha256": {
     "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
     "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -17,7 +17,7 @@
   "files": {
     "cu.json": {
       "schema": "../schema/cu.json",
-      "sha256": "c4ee7b6d3c9d6c20315270ef06eb552dea23cdf8e7c7afcc02b023d4aa72b4b8"
+      "sha256": "552b7775b4baa7f8613d514d4037192aa6a15489fa09a4f6ffa042956297fa2d"
     },
     "e8_proxy.json": {
       "schema": "../schema/e8_proxy.json",
@@ -29,7 +29,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "4536c5cac87b9eccc77d307cab39221bf1cb1c469e9a72438500236f2038b55f"
+      "sha256": "0da8d5859557b86f3b0cb5ad5b3375ca2fee5db33cda1080f93b17388dc5648e"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -37,7 +37,7 @@
     },
     "mutation.json": {
       "schema": "../schema/mutation.json",
-      "sha256": "ad2e82866c8f11e071e2222fb531bd2c4fea52be9533d0f7e88f5c883e05c562"
+      "sha256": "2c004839159a5e6ed43a0b8ca989716de8eda5d267c273e905340a886b99e91d"
     },
     "routed_world.json": {
       "schema": "../schema/routed_world.json",
@@ -45,16 +45,16 @@
     },
     "test_counts.json": {
       "schema": "../schema/test_counts.json",
-      "sha256": "fe4f7d4c05cb51cc58e529999b1064e25540f77b4f63d743f4946f287971f461"
+      "sha256": "a548949a7544b1918a124530964f81d59d66cd3857702c3e3ee9f3b409f357da"
     },
     "thesis.json": {
       "schema": "../schema/thesis.json",
-      "sha256": "407a84754f6584f4db18bd45432210e39ae3dce1acfbb30b2f5f5eb97efc7f31"
+      "sha256": "d2f76da1188ba701ecc7a3774b81df4ab90d3e0cd593a76c249c87686f6754cd"
     }
   },
   "flow_type": "synthetic (real price path)",
   "generated": "2026-10-10",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "e95f610"
+  "short": "2a71c37"
 }

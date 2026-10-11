@@ -170,7 +170,7 @@ export const AnalyticsPage: React.FC = () => {
           <div className="card-header-row">
             <div>
               <h3>Microstructural Comparison Matrix</h3>
-              <p className="matrix-sub text-muted">Audited metrics on Solana SOL/USDC trading pairs</p>
+              <p className="matrix-sub text-muted">Model metrics on Solana SOL/USDC trading pairs</p>
             </div>
             <span className="badge badge-neutral mono">Paper Reference: arXiv:2609.38056</span>
           </div>

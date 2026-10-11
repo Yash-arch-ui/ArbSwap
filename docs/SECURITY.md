@@ -2,7 +2,7 @@
 
 **Audited commit** `8d89791` (branch `main`); audit + hardening work on
 `audit/fixes` → `chore/repo-layout` → `audit/hardening2`. Full detail:
-`docs/AUDIT_FULL.md` (+ Addenda 1-2). This is a **same-agent review, NOT an
+`docs/SECURITY_CHECKLIST.md` (+ Addenda 1-2). This is a **same-agent review, NOT an
 independent audit**; external review is required before **real funds** (test
 funds are not gated on it).
 
@@ -41,7 +41,7 @@ pre-registration (crash=W3, trend=W4, calm=W6), `docs/P1_RESULTS.md` regenerated
 
 ## Honesty rejections / survivorship (Item 2)
 - The ~55% fill rate is **honesty-limited, not capacity-limited** (capacity
-  rejects = 0). See the tolerance-vs-rejection table in `docs/AUDIT_FULL.md`.
+  rejects = 0). See the tolerance-vs-rejection table in `docs/SECURITY_CHECKLIST.md`.
 - Post-rejection gap is **non-positive by construction**; the would-be gap of
   rejected fills averages **+0.25 bps** (tail p95 **+6.3 bps**) — so fill-rate
   must be read together with the trader's `min_out` tolerance.

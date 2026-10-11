@@ -53,6 +53,8 @@ pub fn anchor_ladder(
         .expect("hi price");
         level.sqrt_lo = arb_math::sqrt_q64(lo_price).expect("sqrt_lo");
         level.sqrt_hi = arb_math::sqrt_q64(hi_price).expect("sqrt_hi");
+        level.inv_lo = arb_math::inv_sqrt_q64_ceil(level.sqrt_lo).expect("inv_lo");
+        level.inv_hi = arb_math::inv_sqrt_q64_ceil(level.sqrt_hi).expect("inv_hi");
         let capacity = total_base_capacity * WEIGHTS[index] as u128 / 10_000;
         level.liquidity =
             arb_math::Level::liquidity_for_base_capacity(level.sqrt_lo, level.sqrt_hi, capacity)
@@ -87,6 +89,8 @@ pub fn anchor_bid_ladder(
         .expect("lo price");
         level.sqrt_lo = arb_math::sqrt_q64(lo_price).expect("sqrt_lo");
         level.sqrt_hi = arb_math::sqrt_q64(hi_price).expect("sqrt_hi");
+        level.inv_lo = arb_math::inv_sqrt_q64_ceil(level.sqrt_lo).expect("inv_lo");
+        level.inv_hi = arb_math::inv_sqrt_q64_ceil(level.sqrt_hi).expect("inv_hi");
         let capacity = total_quote_capacity * WEIGHTS[index] as u128 / 10_000;
         level.liquidity =
             arb_math::Level::liquidity_for_quote_capacity(level.sqrt_lo, level.sqrt_hi, capacity)

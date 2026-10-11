@@ -21,8 +21,9 @@ pub use fixed::{
     sqrt_price_scaled, sqrt_q64, tdiv, MathError, MathResult, BPS_DENOMINATOR as FIXED_BPS, Q64,
 };
 pub use quote::{
-    deposit_shares, fee_amount, first_deposit_shares, mean_price_q64, walk_ladder,
-    withdrawal_amounts, Level, Side, SwapResult,
+    base_capacity_from_inverse_sqrts, deposit_shares, fee_amount, first_deposit_shares,
+    inv_sqrt_is_conservative, inv_sqrt_q64_ceil, mean_price_q64, walk_ladder, withdrawal_amounts,
+    Level, Side, SwapResult,
 };
 
 /// Basis-point denominator: 1 bps = 1/10,000.

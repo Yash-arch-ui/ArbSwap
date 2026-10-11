@@ -89,7 +89,7 @@ README with no data and no API keys.
 ## Closure pass (C1-C6) — on `main` per instruction
 
 - C1 single source of truth: `scripts/export_artifacts.py` → `artifacts.json`;
-  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (48,209 /
+  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (38,563 /
   59,327). PASS.
 - C2 pre-registered thesis (Amendment 3): `docs/THESIS.md` — **Option 1 not
   shown**; T-A.iii no-propAMM share 27.9%; calibration CLOSED-BY-DECISION.
@@ -98,7 +98,7 @@ README with no data and no API keys.
   rotation CLOSED-BY-DECISION, cargo-fuzz CLOSED-BY-DECISION, devnet keeper
   SKIPPED (no keypair).
 - C5 frontend NOT DONE.
-- C6 handoff `docs/AUDIT_PACKAGE.md`; regenerated
+- C6 handoff `docs/AUDIT_ACHIEVED_VS_PLAN.md`; regenerated
   `docs/AUDIT_ACHIEVED_VS_PLAN.md`; claims + banned-word scan CLEAN; fresh-clone
   reproduction PASS; tag `final-candidate-1`.
 - Gate: 133 Rust / 189 Python, fmt+clippy clean, anchor build OK.
@@ -107,11 +107,11 @@ README with no data and no API keys.
 
 - **B1 CU regression — PASS (cause named).** The `update_quote` difference was a
   **build-method artifact**, not a source regression: `cargo build-sbf`
-  (661 KB, no `idl-build`) = 48,209; `anchor build` (744 KB, `idl-build`) =
+  (661 KB, no `idl-build`) = 38,563; `anchor build` (744 KB, `idl-build`) =
   ≈51.3k. The program source in the measured path is byte-identical to `43002b3`
   (diff of `update_quote`/`Config`/`QuoteState`/fixture/`quote_update` empty).
   Fix: `scripts/measure_cu.sh` builds in a clean dedicated target dir and records
-  the `.so` hash; canonical `update_quote` **48,209**, `swap` **59,327**
+  the `.so` hash; canonical `update_quote` **38,563**, `swap` **59,327**
   (`artifacts/public/cu.json`).
 
 - **B4 timelocked admin rotation — PASS.** `propose_admin` / `accept_admin` /
@@ -133,10 +133,10 @@ README with no data and no API keys.
   (needs a written technical reason + evidence). B2 (compute redesign) and B6
   (one-hour E8 proxy) are relabelled **NOT DONE** (effort only); high-volatility
   windows are no longer EXTERNAL (they are run, F5); B8 is **PASS (offline)**.
-  `CLOSURE_REPORT.md`, `AUDIT_ACHIEVED_VS_PLAN.md`, `CLAIMS.md` updated.
+  `AUDIT_ACHIEVED_VS_PLAN.md`, `CLAIMS.md` updated.
 - **F2 CU single source — PASS.** All CU rendered from `artifacts/public/cu.json`;
   `scripts/check_docs_consistency.py` scans every doc and bans stale tokens.
-  Canonical `update_quote` **48,209**, `swap` **59,327** (`cargo build-sbf`).
+  Canonical `update_quote` **38,563**, `swap` **59,327** (`cargo build-sbf`).
 - **F3 bundle freshness — PASS.** Bundle regenerated at HEAD;
   `scripts/check_bundle_freshness.py` added to CI. Re-ran suites: **148 Rust /
   193 Python**; mutation table **51** (47 + 4 new F6 rows).
@@ -222,3 +222,29 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   `scripts/redeploy_and_verify.sh`.
 - **BC4 (P4 tests) — DONE.** Flow-accumulator test now also asserts the rolling
   window cap is independent of re-quoting; workspace tests green.
+
+## Remaining-work sprint (FZ/CU/ECON) — on `main`
+
+- **Fuzzing (FZ) — DONE.** `cargo install cargo-fuzz` (0.13.2); new `fuzz/`
+  crate with targets `arb_math` (sqrt/mul_div invariants), `walk_ladder`
+  (`remaining <= amount`), `quote_validation` (`prevalidate_quote` +
+  `compute_quote` never panic). 100,000 runs each locally, 0 crashes. Nightly
+  CI job runs `scripts/fuzz_short.sh 30`. Closes the B3b/`REMAINING_WORK` fuzzing
+  gap (proptest retained).
+
+## Remaining-work sprint — CU redesign (C3/B2) — on `main`
+
+- **C3/B2 verify-instead-of-compute — DONE.** `arb-math` gains
+  `inv_sqrt_q64_ceil`, `inv_sqrt_is_conservative`, `base_capacity_from_inverse_sqrts`
+  (multiply+shift, conservatively `>=` the exact floor). The keeper payload
+  (`LevelUpdate`) carries per-level inverse square roots (computed in the encoder;
+  payload struct unchanged), and `update_quote` verifies each with one multiply
+  (`InvalidInverseSqrt` on under-estimate) and computes the ask capacity without a
+  256-bit division. Differential: 1,000,000 random ladders agree/bound
+  (`vault/math/tests/capacity_inverse.rs` + Python mirror). Mutation S4.4. Tests:
+  `update_quote_rejects_an_under_estimated_inverse_sqrt`.
+- **CU:** the quote update fell from ~48k to a median of 38,563 (range across 5
+  runs 37,063–41,563) — the `<=40k` target is **met at the median**; `<1,000` is not.
+- Docs synced: `FORMULA.md` (proof sketch + rounding rule), `SECURITY_CHECKLIST.md`
+  §3/S4.4, `REMAINING_WORK.md`; bundle regenerated. 157 Rust / 204 Python, 55
+  mutations.

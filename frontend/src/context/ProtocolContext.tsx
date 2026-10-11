@@ -1,6 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import type { QuoteState, VaultState, RiskBreakers, Token } from '../types/protocol';
 import { INITIAL_QUOTE_STATE, INITIAL_VAULT_STATE, INITIAL_RISK_BREAKERS, TOKENS } from '../data/mockData';
+import { loadWalletBalances } from '../chain/solana';
 
 interface ProtocolContextType {
   quoteState: QuoteState;
@@ -9,6 +11,8 @@ interface ProtocolContextType {
   tokens: { SOL: Token; USDC: Token };
   walletConnected: boolean;
   walletAddress: string | null;
+  balancesLoading: boolean;
+  refreshBalances: () => Promise<void>;
   connectWallet: () => void;
   disconnectWallet: () => void;
   tripManualBreaker: (reason: string) => void;
@@ -18,23 +22,49 @@ interface ProtocolContextType {
 const ProtocolContext = createContext<ProtocolContextType | undefined>(undefined);
 
 export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { connection } = useConnection();
+  const { connected, publicKey, connect, disconnect } = useWallet();
   const [quoteState, setQuoteState] = useState<QuoteState>(INITIAL_QUOTE_STATE);
   const [vaultState] = useState<VaultState>(INITIAL_VAULT_STATE);
   const [riskBreakers, setRiskBreakers] = useState<RiskBreakers>(INITIAL_RISK_BREAKERS);
-  const [tokens] = useState(TOKENS);
-  const [walletConnected, setWalletConnected] = useState<boolean>(true);
-  const [walletAddress, setWalletAddress] = useState<string | null>('7xK9...3Mqd');
+  const [tokens, setTokens] = useState(TOKENS);
+  const [balancesLoading, setBalancesLoading] = useState(false);
 
+  // ---- live wallet balances (SOL / wrapped SOL / USDC) ----------------------
+  const refreshBalances = useCallback(async () => {
+    if (!publicKey) {
+      setTokens(TOKENS);
+      return;
+    }
+    setBalancesLoading(true);
+    try {
+      const { sol, wsol, usdc } = await loadWalletBalances(connection, publicKey);
+      setTokens((prev) => ({
+        SOL: { ...prev.SOL, balance: Number(sol.toFixed(4)) },
+        USDC: { ...prev.USDC, balance: Number(usdc.toFixed(2)) },
+        // `wsol` is exposed through the SOL entry's `mint` account when needed.
+      }));
+      void wsol;
+    } catch {
+      // RPC hiccup: keep the last known balances.
+    } finally {
+      setBalancesLoading(false);
+    }
+  }, [connection, publicKey]);
+
+  useEffect(() => {
+    void refreshBalances();
+  }, [refreshBalances]);
+
+  // ---- model/demo quote ticker (NOT live data; labelled as such in the UI) --
   useEffect(() => {
     const interval = setInterval(() => {
       setQuoteState((prev) => {
         const nextSlot = prev.currentSlot + 1;
         const isExpiring = nextSlot >= prev.expirySlot;
-        
         const randomTick = (Math.random() - 0.49) * 0.04;
         const newOraclePrice = Number((prev.oraclePrice + randomTick).toFixed(2));
         const newResPrice = Number((newOraclePrice * (1 + 0.0002)).toFixed(2));
-
         return {
           ...prev,
           currentSlot: nextSlot,
@@ -42,32 +72,25 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           reservationPrice: newResPrice,
           oraclePublishTime: Math.floor(Date.now() / 1000),
           status: isExpiring ? 'Aging' : 'Fresh',
-          ...(nextSlot % 4 === 0 ? {
-            version: prev.version + 1,
-            updateSlot: nextSlot,
-            expirySlot: nextSlot + 10,
-            status: 'Fresh',
-          } : {})
+          ...(nextSlot % 4 === 0
+            ? { version: prev.version + 1, updateSlot: nextSlot, expirySlot: nextSlot + 10, status: 'Fresh' }
+            : {}),
         };
       });
-
       setRiskBreakers((prev) => ({
         ...prev,
         oracleCurrentStalenessSec: Number((0.3 + Math.random() * 0.3).toFixed(1)),
       }));
     }, 400);
-
     return () => clearInterval(interval);
   }, []);
 
   const connectWallet = () => {
-    setWalletConnected(true);
-    setWalletAddress('7xK9...3Mqd');
+    void connect().catch(() => undefined);
   };
 
   const disconnectWallet = () => {
-    setWalletConnected(false);
-    setWalletAddress(null);
+    void disconnect().catch(() => undefined);
   };
 
   const tripManualBreaker = (reason: string) => {
@@ -93,8 +116,10 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         vaultState,
         riskBreakers,
         tokens,
-        walletConnected,
-        walletAddress,
+        walletConnected: connected,
+        walletAddress: publicKey ? publicKey.toBase58() : null,
+        balancesLoading,
+        refreshBalances,
         connectWallet,
         disconnectWallet,
         tripManualBreaker,
