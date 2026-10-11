@@ -364,3 +364,30 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 - **S2.3: BLOCKED.** Unblock via (a) same-decimals test tokens, or (b) an
   authorized keeper/program decimal fix with a regression test (reported
   separately). Not proceeding to `initialize_vault`.
+
+## Part 2 / Step 2 — S2.3 decimal-normalization fix (backend) — on `integration`
+
+- **Root cause (verified):** `vault/keeper/src/lib.rs::compute_quote` built
+  `reservation_price`, `anchor_sqrt_price`, the ladder and the payload
+  `oracle_price_q64` from the raw Pyth **human** price, while
+  `KeeperParams::base_atom_scale` scaled only the inventory skew. For a 9/6 pair
+  the ladder and the on-chain edge valuation were 10^3 too high.
+- **Fix (keeper-only; no program change, no redeploy):** normalize the oracle
+  price **once** to `P_raw = P * 10^(d_q - d_b)` (`normalize_price_q64`,
+  integer/floor) and use it for the skew, ladder, directional add-on and payload.
+  `base_atom_scale: u128` → `base_decimals: u8` + `quote_decimals: u8`; `live`
+  reads decimals from the vault's mint accounts (authoritative), `single` takes
+  them as args. Files: `vault/keeper/src/lib.rs`, `vault/keeper/src/main.rs`,
+  `vault/e2e/src/main.rs`.
+- **Before/after (level 1, 9/6, $109.2529):** ask quote cap 10,928,567.87 →
+  10,928.57 tUSDC; bid base cap 0.1000 → 100.03 tSOL; `available_value`
+  ~437,011,000 → 437,011.61 tUSDC.
+- **Tests:** Rust keeper unit tests (`normalize_price_q64_handles_decimal_pairs`,
+  `nine_six_ladder_is_priced_in_raw_units`), Python parity for 9/6, 6/6, 6/9 +
+  long/short skew (`simulation/sim/test_keeper_parity.py`), sizing-tool regression
+  (`simulation/sim/test_pool_sizing.py`).
+- **Compatibility:** no `InitParams`/account-layout/IDL change; keeper CLI
+  `single`/`live` arg change only. Deployed program unchanged (`9a05056e…` still
+  MATCH); the keeper binary must be rebuilt for the S2.5 run.
+- **S2.3: UNBLOCKED** for tSOL(9)/tUSDC(6), pending operator authorization for
+  the state-changing steps (not performed here).

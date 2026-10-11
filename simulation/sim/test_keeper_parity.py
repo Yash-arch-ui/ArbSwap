@@ -53,10 +53,23 @@ def expected(
     quote: int,
     *,
     previous_price_q64: int = 0,
-    base_atom_scale: int = 1,
+    base_decimals: int = 0,
+    quote_decimals: int = 0,
 ) -> dict[str, int | list[tuple[int, int, int]]]:
-    # Inventory imbalance on the base *value* in quote atoms (F-03).
-    base_value = base * price_q64 // Q64 // base_atom_scale
+    # S2.3: normalize the human oracle price ONCE to the raw quote-atoms-per-
+    # base-atom price `P_raw = P * 10^(dq-db)` (integer; division floors).
+    def normalize(p: int) -> int:
+        if p == 0 or base_decimals == quote_decimals:
+            return p
+        if quote_decimals > base_decimals:
+            return p * 10 ** (quote_decimals - base_decimals)
+        return p // 10 ** (base_decimals - quote_decimals)
+
+    price_raw = normalize(price_q64)
+    previous_raw = normalize(previous_price_q64)
+    # Inventory imbalance on the base *value* in quote atoms. `price_raw` already
+    # carries the token-decimal scale, so it is applied exactly once.
+    base_value = base * price_raw // Q64
     denominator = base_value + quote
     if base_value >= quote:
         q_bps = min(BPS, (base_value - quote) * BPS // denominator)
@@ -67,7 +80,7 @@ def expected(
     scaled = INVENTORY_COEFF * q_bps
     skew = (abs(scaled) // BPS) * (1 if scaled >= 0 else -1)
     factor = BPS - skew
-    reservation = price_q64 * factor // BPS
+    reservation = price_raw * factor // BPS
 
     # sigma = 0 for `single`, so the volatility term is zero; the confidence
     # term and the *inventory* term both contribute (F-09 alignment).
@@ -80,12 +93,12 @@ def expected(
     )
     spread = max(SPREAD_MIN, min(SPREAD_MAX, raw_spread))
 
-    if previous_price_q64 == 0 or price_q64 == 0:
+    if previous_raw == 0 or price_raw == 0:
         ask_extra = bid_extra = 0
     else:
-        move_bps = abs(price_q64 - previous_price_q64) * BPS // previous_price_q64
-        ask_extra = move_bps * DIRECTIONAL_COEFF // BPS if price_q64 > previous_price_q64 else 0
-        bid_extra = move_bps * DIRECTIONAL_COEFF // BPS if previous_price_q64 > price_q64 else 0
+        move_bps = abs(price_raw - previous_raw) * BPS // previous_raw
+        ask_extra = move_bps * DIRECTIONAL_COEFF // BPS if price_raw > previous_raw else 0
+        bid_extra = move_bps * DIRECTIONAL_COEFF // BPS if previous_raw > price_raw else 0
 
     sigma = 0
     sigma_factor = BPS if sigma == 0 else BPS
@@ -122,7 +135,7 @@ def expected(
         bid_levels.append((lo, hi, liquidity))
         previous = offset
     return {
-        "anchor": math.isqrt(price_q64 << 64),
+        "anchor": math.isqrt(price_raw << 64),
         "reservation": math.isqrt(reservation << 64),
         "spread": spread,
         "ask_extra": ask_extra,
@@ -139,13 +152,14 @@ def rust_quote(
     quote: int,
     *,
     previous_price_q64: int = 0,
-    base_atom_scale: int = 1,
+    base_decimals: int = 0,
+    quote_decimals: int = 0,
 ) -> dict[str, int | list[tuple[int, int, int]]]:
     result = subprocess.run(
         [
             "cargo", "run", "-q", "-p", "arbswap-keeper", "--", "single",
             str(price_q64), str(base), str(quote),
-            str(previous_price_q64), str(base_atom_scale),
+            str(previous_price_q64), str(base_decimals), str(quote_decimals),
         ],
         cwd=ROOT, check=True, text=True, capture_output=True,
     )
@@ -178,26 +192,55 @@ def test_keeper_matches_independent_python_quote_construction():
 
 
 def test_keeper_inventory_skew_is_decimal_aware():
-    """F-03 regression: SOL has 9 decimals, USDC 6.
+    """S2.3 regression: 9-decimal base / 6-decimal quote.
 
-    A balanced 1000 SOL / 150,000 USDC vault must quote *at* the anchor. With
-    the old `base * price_q64` (no Q64 shift, no scale) the imbalance saturated
-    and the reservation was pushed to its bound for every realistic reserve.
+    A balanced 1000 SOL / 150,000 USDC vault must quote *at* the anchor, and the
+    ladder must use the raw quote-atoms-per-base-atom price (`P / 10^3`), not
+    the human price — the pre-fix 10^3 mis-scaling.
     """
     price = 150 * Q64
     base = 1_000 * 10**9        # 1000 SOL in 9-decimal atoms
     quote = 150_000 * 10**6     # 150,000 USDC in 6-decimal atoms
-    got = rust_quote(price, base, quote, base_atom_scale=10**3)
-    want = expected(price, base, quote, base_atom_scale=10**3)
+    got = rust_quote(price, base, quote, base_decimals=9, quote_decimals=6)
+    want = expected(price, base, quote, base_decimals=9, quote_decimals=6)
     assert got == want
     assert got["reservation"] == got["anchor"], "balanced vault must not be skewed"
 
-    # 100,000 USDC against the same 1000 SOL is a clearly long-base vault
-    # (~20% imbalance, enough that the 5 bps inventory coefficient bites), so
-    # the reservation must drop below the anchor.
-    long_base = rust_quote(price, base, 100_000 * 10**6, base_atom_scale=10**3)
+    # 50,000 USDC against the same 1000 SOL is a clearly long-base vault (~100%
+    # imbalance), so the whole-bps inventory skew is non-zero and the reservation
+    # must drop below the anchor.
+    long_base = rust_quote(price, base, 50_000 * 10**6, base_decimals=9, quote_decimals=6)
     assert long_base["reservation"] < long_base["anchor"]
-    assert long_base == expected(price, base, 100_000 * 10**6, base_atom_scale=10**3)
+    assert long_base == expected(price, base, 50_000 * 10**6, base_decimals=9, quote_decimals=6)
+
+    # 300,000 USDC against the same 1000 SOL is a short-base vault: q < 0, so the
+    # reservation must rise above the anchor.
+    short_base = rust_quote(price, base, 300_000 * 10**6, base_decimals=9, quote_decimals=6)
+    assert short_base["reservation"] > short_base["anchor"]
+    assert short_base == expected(price, base, 300_000 * 10**6, base_decimals=9, quote_decimals=6)
+
+
+def test_keeper_supports_decimal_pairs():
+    """S2.3: the normalization path must work for 9/6, 6/6 and 6/9."""
+    price = 150 * Q64
+    # A balanced pool at the human price for each decimal pairing.
+    # 9/6: 1000 base tokens, 150,000 quote tokens.
+    # 6/6: 1,000 base tokens, 150,000 quote tokens.
+    # 6/9: 1,000 base tokens, 150,000 quote tokens.
+    for base_dec, quote_dec, base_tokens, quote_tokens in (
+        (9, 6, 1_000, 150_000),
+        (6, 6, 1_000, 150_000),
+        (6, 9, 1_000, 150_000),
+    ):
+        base = base_tokens * 10**base_dec
+        quote = quote_tokens * 10**quote_dec
+        got = rust_quote(price, base, quote, base_decimals=base_dec, quote_decimals=quote_dec)
+        want = expected(price, base, quote, base_decimals=base_dec, quote_decimals=quote_dec)
+        assert got == want, (base_dec, quote_dec)
+        assert got["reservation"] == got["anchor"], (base_dec, quote_dec)
+        # The anchor is the raw-unit price, sqrt(P * 10^(dq-db)) in Q64.64.
+        expected_raw = price * 10 ** (quote_dec - base_dec) if quote_dec >= base_dec else price // 10 ** (base_dec - quote_dec)
+        assert abs(got["anchor"] - math.isqrt(expected_raw << 64)) <= 1
 
 
 def test_keeper_directional_addon_is_encoded():

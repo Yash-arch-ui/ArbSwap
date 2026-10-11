@@ -4,12 +4,12 @@
 //! - `replay <csv>`: deterministic quote decisions from a recorded
 //!   `slot,publish_time,price_q64,confidence_bps,base,quote` feed (or a raw
 //!   `timestamp,price` CSV). No network.
-//! - `single <price_q64> <base> <quote> [previous_price] [base_atom_scale]`:
+//! - `single <price_q64> <base> <quote> [previous_price] [base_decimals] [quote_decimals]`:
 //!   one quote for differential tests against the Python reference.
 //! - `live <hermes_url> <rpc_url> <program_id> <vault> <config> <quote_state>
 //!   <base_reserve> <quote_reserve> <price_update> <keeper_bond> <keeper.json>
-//!   [base_atom_scale] [priority_micro_lamports_per_cu]`: the streaming loop.
-//!   Reads Pyth Hermes, reads reserves over JSON-RPC, and submits `update_quote`.
+//!   [priority_micro_lamports_per_cu]`: the streaming loop. Token decimals are
+//!   read from the vault's mint accounts (authoritative).
 //!
 //! The default transports are dry-run/replay; nothing here embeds a private key.
 
@@ -39,6 +39,7 @@ fn main() {
             args.next().expect("single requires quote"),
             args.next(),
             args.next(),
+            args.next(),
         ),
         Some("live") => live(args.collect()),
         Some("init-program") => init_program(args.collect()),
@@ -46,12 +47,12 @@ fn main() {
             println!("arbswap-keeper replay <csv>");
             println!(
                 "arbswap-keeper single <price_q64> <base_reserve> <quote_reserve> \
-                      [previous_price_q64] [base_atom_scale]"
+                      [previous_price_q64] [base_decimals] [quote_decimals]"
             );
             println!(
                 "arbswap-keeper live <rpc_url> <program_id> <vault> <config> <quote_state> \
                  <base_reserve> <quote_reserve> <price_feed> <keeper_bond> <keeper.json> \
-                 <feed_id_hex> [max_staleness_s] [max_conf_bps] [base_atom_scale] \
+                 <feed_id_hex> [max_staleness_s] [max_conf_bps] \
                  [priority_micro_lamports_per_cu] [run_seconds] [max_vol_bps] [lvr_budget_bps]"
             );
             println!("CSV: slot,publish_time,price_q64,confidence_bps,base_reserve,quote_reserve");
@@ -64,7 +65,8 @@ fn single_quote(
     base: String,
     quote: String,
     previous: Option<String>,
-    base_scale: Option<String>,
+    base_dec: Option<String>,
+    quote_dec: Option<String>,
 ) {
     let tick = OracleTick {
         slot: 1,
@@ -76,9 +78,12 @@ fn single_quote(
         .map(|value| value.parse().expect("previous_price_q64"))
         .unwrap_or(0);
     let params = KeeperParams {
-        base_atom_scale: base_scale
-            .map(|value| value.parse().expect("base_atom_scale"))
-            .unwrap_or(1),
+        base_decimals: base_dec
+            .map(|value| value.parse().expect("base_decimals"))
+            .unwrap_or(0),
+        quote_decimals: quote_dec
+            .map(|value| value.parse().expect("quote_decimals"))
+            .unwrap_or(0),
         ..KeeperParams::default()
     };
     let next = compute_quote(
@@ -376,6 +381,26 @@ fn read_vault(rpc_url: &str, vault: &Address) -> Option<arbswap::Vault> {
     arbswap::Vault::try_deserialize(&mut &data[..]).ok()
 }
 
+/// S2.3: read an SPL mint's `decimals` byte (Mint layout offset 44) via RPC.
+/// Used so the human oracle price is normalized with authoritative decimals.
+fn rpc_mint_decimals(rpc_url: &str, mint: &anchor_lang::prelude::Pubkey) -> Option<u8> {
+    let v = rpc_call(
+        rpc_url,
+        "getAccountInfo",
+        serde_json::json!([mint.to_string(), {"encoding": "base64"}]),
+    )?;
+    let b64 = v
+        .get("result")?
+        .get("value")?
+        .get("data")?
+        .as_array()?
+        .first()?
+        .as_str()?;
+    let data = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    // SPL Mint: mint_authority COption (4+32) + supply (8) => decimals at 44.
+    data.get(44).copied()
+}
+
 /// Read the vault `Config` so the keeper can mirror the on-chain `update_quote`
 /// bounds offline (F6). A missing/undecodable config means "do not quote".
 fn read_config(rpc_url: &str, config: &Address) -> Option<arbswap::Config> {
@@ -453,33 +478,39 @@ fn live(args: Vec<String>) {
         .get(12)
         .map(|v| v.parse().expect("max_conf_bps"))
         .unwrap_or(50);
-    let base_atom_scale: u128 = args
-        .get(13)
-        .map(|v| v.parse().expect("base_atom_scale"))
-        .unwrap_or(1);
+    // S2.3: token decimals are read from the vault's mint accounts
+    // (authoritative), not supplied by the caller, so the human oracle price is
+    // normalized to the raw quote-atoms-per-base-atom price exactly once.
+    let vault_meta = read_vault(&rpc_url, &vault)
+        .unwrap_or_else(|| panic!("vault {vault} not found; cannot read mint decimals"));
+    let base_decimals = rpc_mint_decimals(&rpc_url, &vault_meta.base_mint)
+        .unwrap_or_else(|| panic!("base mint {} not found", vault_meta.base_mint));
+    let quote_decimals = rpc_mint_decimals(&rpc_url, &vault_meta.quote_mint)
+        .unwrap_or_else(|| panic!("quote mint {} not found", vault_meta.quote_mint));
     let priority_micro_lamports_per_cu: u64 = args
-        .get(14)
+        .get(13)
         .map(|v| v.parse().expect("priority"))
         .unwrap_or(1_000);
     let run_seconds: u64 = args
-        .get(15)
+        .get(14)
         .map(|v| v.parse().expect("run_seconds"))
         .unwrap_or(0);
     // P0/I2-I3: operator policy for the depth throttle. `max_vol_bps = 0`
     // disables the volatility kill-switch; `lvr_budget_bps` is the active-depth
     // cap from the LVR budget (10_000 = full depth, neutral default).
     let max_vol_bps: u32 = args
-        .get(16)
+        .get(15)
         .map(|v| v.parse().expect("max_vol_bps"))
         .unwrap_or(0);
     let lvr_budget_bps: u32 = args
-        .get(17)
+        .get(16)
         .map(|v| v.parse().expect("lvr_budget_bps"))
         .unwrap_or(10_000);
     let interval = Duration::from_millis(400);
 
     let params = KeeperParams {
-        base_atom_scale,
+        base_decimals,
+        quote_decimals,
         max_vol_q64: if max_vol_bps == 0 {
             u128::MAX
         } else {

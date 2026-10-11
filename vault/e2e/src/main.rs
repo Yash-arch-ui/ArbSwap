@@ -549,7 +549,8 @@ fn run_loop(
         confidence_bps: pyth.conf_bps,
     };
     let kparams = arbswap_keeper::KeeperParams {
-        base_atom_scale: 10u128.pow((BASE_DECIMALS - QUOTE_DECIMALS) as u32),
+        base_decimals: BASE_DECIMALS,
+        quote_decimals: QUOTE_DECIMALS,
         ..Default::default()
     };
     let q = arbswap_keeper::compute_quote(

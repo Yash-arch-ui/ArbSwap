@@ -263,6 +263,15 @@ Keeper (`keeper/src/lib.rs`) parity fixes:
   realistic reserve. `base_atom_scale = 10^(base_decimals - quote_decimals)`
   (`1000` for SOL 9 / USDC 6). Regression: a balanced 1000 SOL / 150,000 USDC
   vault now quotes at the anchor (`keeper` unit test + Python parity test).
+- **S2.3 (decimals, supersedes the `base_atom_scale` field):** F-03 scaled only
+  the inventory skew, so the ladder and the payload still used the human price
+  and a 9/6 pool was priced/valued 10^3 too high. The keeper now normalizes the
+  oracle price **once** to `P_raw = P * 10^(d_q - d_b)`
+  (`normalize_price_q64`; `KeeperParams` carries `base_decimals`/`quote_decimals`)
+  and uses it for the skew, the ladder and the payload. The on-chain edge
+  valuation is then correct (it is decimal-agnostic). Regressions:
+  `simulation/sim/test_keeper_parity.py` (9/6, 6/6, 6/9),
+  `simulation/sim/test_pool_sizing.py`, keeper unit tests.
 - **F-09 (spread):** the volatility term keeps sub-basis-point resolution
   (`coeff * sigma_fraction * 10^4`); the previous form floored sigma to whole
   bps and divided by 10^4 again, so it was always zero. Spread now clamps to

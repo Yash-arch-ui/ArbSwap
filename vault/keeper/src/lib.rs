@@ -6,9 +6,10 @@
 //! fixed-point values, matching the on-chain `arb-math` conventions.
 //!
 //! Parity with `simulation/reference/quote_math.py` (Task 5):
-//! - the inventory skew values the base reserve in quote atoms, applying the
-//!   Q64 shift and `KeeperParams::base_atom_scale` so mixed SOL(9)/USDC(6)
-//!   reserves are compared in one unit (audit F-03);
+//! - S2.3: the human oracle price is normalized **once** into the raw
+//!   `quote-atoms per base-atom` price (`normalize_price_q64`), and that single
+//!   price feeds the inventory skew, the ladder and the serialized payload, so a
+//!   mixed-decimal SOL(9)/USDC(6) vault is priced and valued in one unit;
 //! - the volatility term keeps sub-basis-point resolution, so a realistic
 //!   sigma is no longer floored to zero (audit F-09);
 //! - spread is clamped to `[spread_min_bps, spread_max_bps]`, the directional
@@ -201,10 +202,11 @@ pub struct KeeperParams {
     /// throttle returns zero (stop quoting). `u128::MAX` disables it.
     pub max_vol_q64: u128,
     pub sigma_target_q64: u128,
-    /// `10^(base_decimals - quote_decimals)`. Divides the base reserve value so
-    /// a SOL(9)/USDC(6) inventory is compared in the quote token's units
-    /// (audit F-03). `1` when both tokens share a scale.
-    pub base_atom_scale: u128,
+    /// Token decimals. The human oracle price is converted to the raw
+    /// `quote-atoms per base-atom` price via `normalize_price_q64`; the
+    /// conversion is applied exactly once (audit S2.3).
+    pub base_decimals: u8,
+    pub quote_decimals: u8,
     pub grace_slots: u64,
     pub expiry_slots: u64,
     pub offsets_bps: [u32; LEVELS],
@@ -230,7 +232,8 @@ impl Default for KeeperParams {
             lvr_budget_bps: 10_000,
             max_vol_q64: u128::MAX,
             sigma_target_q64: 1 << 60,
-            base_atom_scale: 1,
+            base_decimals: 0,
+            quote_decimals: 0,
             grace_slots: 2,
             expiry_slots: 10,
             offsets_bps: [2, 5, 10, 20, 40, 80],
@@ -384,16 +387,26 @@ pub fn compute_quote(
     previous_price_q64: u128,
     params: KeeperParams,
 ) -> Option<QuoteUpdate> {
-    if tick.price_q64 == 0 || base == 0 || quote == 0 || params.base_atom_scale == 0 {
+    if tick.price_q64 == 0 || base == 0 || quote == 0 {
         return None;
     }
-    // Base reserve valued in quote atoms: `base * P / 2^64 / base_atom_scale`.
-    // `price_q64` is Q64.64, so the raw product must be shifted down; and when
-    // the two tokens have different decimals (SOL 9, USDC 6) the base amount is
-    // rescaled before it is compared with the quote reserve (audit F-03). With
-    // the old `base * price_q64` the ratio was off by 2^64 and the skew
-    // saturated at its bound for every realistic reserve.
-    let base_value = mul_div(base, tick.price_q64, Q64)?.checked_div(params.base_atom_scale)?;
+    // S2.3: normalize the human oracle price (quote per base, Q64.64) ONCE into
+    // the raw unit price (quote atoms per base atom) used by the inventory
+    // valuation, the ladder and the serialized payload. `P_raw = P * 10^(dq-db)`.
+    let price_raw =
+        normalize_price_q64(tick.price_q64, params.base_decimals, params.quote_decimals)?;
+    let previous_raw = if previous_price_q64 == 0 {
+        0
+    } else {
+        normalize_price_q64(
+            previous_price_q64,
+            params.base_decimals,
+            params.quote_decimals,
+        )?
+    };
+    // Base reserve valued in quote atoms: `base * P_raw / 2^64`. `P_raw` already
+    // carries the token-decimal scale, so it is applied here exactly once.
+    let base_value = mul_div(base, price_raw, Q64)?;
     let denominator = base_value.checked_add(quote)?;
     if denominator == 0 {
         return None;
@@ -409,7 +422,7 @@ pub fn compute_quote(
     } else {
         BPS.saturating_add((-skew) as u128)
     };
-    let reservation_price = mul_div(tick.price_q64, reservation_factor, BPS)?;
+    let reservation_price = mul_div(price_raw, reservation_factor, BPS)?;
 
     let sigma = state.sigma_q64();
     // F-09: match `quote_math.compute_half_spread` exactly. The reference works
@@ -439,11 +452,8 @@ pub fn compute_quote(
         .min(params.spread_max_bps as u128)
         .max(params.spread_min_bps as u128);
 
-    let (ask_extra_bps, bid_extra_bps) = directional_addon(
-        tick.price_q64,
-        previous_price_q64,
-        params.directional_coeff_bps,
-    );
+    let (ask_extra_bps, bid_extra_bps) =
+        directional_addon(price_raw, previous_raw, params.directional_coeff_bps);
     let ask_spread = spread.saturating_add(ask_extra_bps as u128);
 
     // Depth throttle (Section 5.9): min(sigma-target factor, confidence factor,
@@ -491,7 +501,7 @@ pub fn compute_quote(
     }
 
     let reservation_sqrt = sqrt_q64(reservation_price).ok()?;
-    let anchor_sqrt = sqrt_q64(tick.price_q64).ok()?;
+    let anchor_sqrt = sqrt_q64(price_raw).ok()?;
     // h1: two-sided ladder. The ask side sells base (bounded by the base
     // reserve); the bid side spends quote (bounded by the quote reserve). Both
     // use the same utilization cap and depth throttle as the on-chain check.
@@ -552,7 +562,7 @@ pub fn compute_quote(
     Some(QuoteUpdate {
         slot: tick.slot,
         publish_time: tick.publish_time,
-        oracle_price_q64: tick.price_q64,
+        oracle_price_q64: price_raw,
         confidence_bps: tick.confidence_bps,
         anchor_sqrt_price: anchor_sqrt,
         reservation_sqrt_price: reservation_sqrt,
@@ -575,6 +585,30 @@ fn mul_div(a: u128, b: u128, c: u128) -> Option<u128> {
             .div_rem(arb_math::wide::U256::from_u128(c))?
             .0
             .to_u128()
+    }
+}
+
+/// `10^exp` for the small exponents token decimals use; `None` on overflow.
+fn pow10(exp: u32) -> Option<u128> {
+    let mut out = 1u128;
+    for _ in 0..exp {
+        out = out.checked_mul(10)?;
+    }
+    Some(out)
+}
+
+/// S2.3: convert a human oracle price `P` (quote per base, Q64.64) into the raw
+/// `quote-atoms per base-atom` price `P_raw = P * 10^(quote_decimals - base_decimals)`.
+/// Integer-only; the power-of-ten factor is applied exactly once. Division
+/// floors, so a valued base reserve is never larger than the exact value.
+pub fn normalize_price_q64(price_q64: u128, base_decimals: u8, quote_decimals: u8) -> Option<u128> {
+    if price_q64 == 0 || base_decimals == quote_decimals {
+        return Some(price_q64);
+    }
+    if quote_decimals > base_decimals {
+        price_q64.checked_mul(pow10((quote_decimals - base_decimals) as u32)?)
+    } else {
+        Some(price_q64 / pow10((base_decimals - quote_decimals) as u32)?)
     }
 }
 
@@ -1226,7 +1260,8 @@ mod tests {
             confidence_bps: 1,
         };
         let params = KeeperParams {
-            base_atom_scale: 1_000,
+            base_decimals: 9,
+            quote_decimals: 6,
             ..KeeperParams::default()
         };
         let balanced = compute_quote(
@@ -1242,6 +1277,52 @@ mod tests {
         assert_eq!(
             balanced.reservation_sqrt_price, balanced.anchor_sqrt_price,
             "a balanced vault must quote at the anchor"
+        );
+    }
+
+    #[test]
+    fn normalize_price_q64_handles_decimal_pairs() {
+        let p = 150 * Q64;
+        assert_eq!(normalize_price_q64(p, 9, 6), Some(p / 1_000));
+        assert_eq!(normalize_price_q64(p, 6, 6), Some(p));
+        assert_eq!(normalize_price_q64(p, 6, 9), Some(p * 1_000));
+        assert_eq!(normalize_price_q64(0, 9, 6), Some(0));
+    }
+
+    #[test]
+    fn nine_six_ladder_is_priced_in_raw_units() {
+        // S2.3 regression: at $150 the 9/6 ask level's human quote/base ratio
+        // must be ~150, not ~150,000 (the pre-fix 10^3 mis-scaling).
+        let tick = OracleTick {
+            slot: 1,
+            publish_time: 1,
+            price_q64: 150 * Q64,
+            confidence_bps: 1,
+        };
+        let params = KeeperParams {
+            base_decimals: 9,
+            quote_decimals: 6,
+            ..KeeperParams::default()
+        };
+        let q = compute_quote(
+            tick,
+            VolatilityState::default(),
+            1_000_000_000_000,
+            150_000_000_000,
+            0,
+            0,
+            params,
+        )
+        .unwrap();
+        let l1 = q.ask_levels[0];
+        let base = l1.base_capacity().unwrap();
+        let quote = l1.quote_capacity().unwrap();
+        // human ratio = (quote atoms / 1e6) / (base atoms / 1e9)
+        let human_ratio_bps = quote * 1_000 * BPS / base; // USD * BPS
+        assert!(
+            (human_ratio_bps as i128 - 150 * BPS as i128).abs() < BPS as i128,
+            "level-1 human price should be ~150 USD, got {} bps",
+            human_ratio_bps
         );
     }
 

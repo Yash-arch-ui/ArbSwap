@@ -82,9 +82,34 @@ base. The denominator must be positive; the result is bounded by [-1, 1].
 
 **Status:** SPEC. This is the normalized form used by ArbSwap.
 
-**Status (F-03 FIXED, p2 pass):** the keeper is now decimals-aware
-(`KeeperParams::base_atom_scale`); a balanced SOL(9)/USDC(6) vault quotes at the
-anchor. Mixed-decimal parity is covered by `test_keeper_parity.py`.
+**Status (F-03 FIXED, p2 pass):** the keeper values the base reserve in quote
+atoms; a balanced SOL(9)/USDC(6) vault quotes at the anchor. Mixed-decimal parity
+is covered by `test_keeper_parity.py`.
+
+**Status (S2.3 FIXED):** the human oracle price `P` is normalized **once** to
+the raw-unit price `P_raw = P × 10^(d_q − d_b)` (integer; division floors), and
+that single price feeds the inventory valuation, the ladder bounds, the
+directional add-on and the serialized payload (`oracle_price_q64`,
+`anchor_sqrt_price`). No path applies the token-decimal scale a second time.
+This replaces `KeeperParams::base_atom_scale` (which scaled only the skew) with
+`base_decimals`/`quote_decimals`. Regression: `test_keeper_parity.py`
+(9/6, 6/6, 6/9), `scripts/pool_sizing.py`, and the keeper unit tests
+`normalize_price_q64_handles_decimal_pairs` / `nine_six_ladder_is_priced_in_raw_units`.
+Unit contract:
+
+```text
+P        = human quote per human base        (Q64.64)
+P_raw    = P * 10^(d_q - d_b)                 (raw quote-atoms per base-atom)
+base_val = base_reserve_raw * P_raw / 2^64    (quote atoms)   for q and r
+level prices are sqrt(P_raw), so a level's quote/base ratio
+         in human units is the human price P.
+```
+
+The on-chain program is decimal-agnostic: it stores `sqrt_lo/sqrt_hi` and
+`liquidity`, and values reserves as `(base_raw * oracle_price) >> 64 + quote_raw`
+(`vault/program/src/lib.rs`, edge-loss breaker). Supplying `P_raw` in the
+payload therefore makes the on-chain edge valuation correct in quote atoms
+without any program change.
 
 ### 2.2 Reservation price
 

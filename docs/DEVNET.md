@@ -277,12 +277,43 @@ The mixed-decimal on-chain tests (`vault/program/tests/litesvm_lifecycle.rs:171-
 mint base 9 / quote 6) build the ladder directly with a chosen anchor and do not
 exercise the keeper's price path, so they do not catch this.
 
-**Decision: S2.3 is BLOCKED** for a tSOL(9)/tUSDC(6) vault. Options (not done
-here): (a) use same-decimals test tokens (base_atom_scale = 1) for the devnet
-demo; or (b) an authorized backend fix — supply the raw-atom price to the ladder
-and the `oracle_price`/`anchor_sqrt_price` payload (and make the skew consistent)
-— with a regression test, reported separately. This checkpoint changes no
-protocol formula.
+**Decision (S2.2): S2.3 was BLOCKED** on this defect. It is **FIXED in S2.3**
+(see the next section); the fix is keeper-side and needs no program redeploy.
+
+## S2.3 FIX — decimal normalization (keeper)
+
+**Root cause.** `vault/keeper/src/lib.rs::compute_quote` built `sqrt_lo/sqrt_hi`,
+`reservation_price`, `anchor_sqrt_price` and the payload `oracle_price_q64` from
+the raw Pyth **human** price `P`, while the token-decimal scale
+(`KeeperParams::base_atom_scale`) was applied only to the inventory-skew value.
+For a 9/6 pair the ladder was therefore priced 10^3 too high and the on-chain
+edge valuation 10^3 too high.
+
+**Fix.** The human price is normalized **once** to `P_raw = P × 10^(d_q − d_b)`
+by `normalize_price_q64` (integer; division floors); `P_raw` feeds the inventory
+valuation, the ladder, the directional add-on and the serialized payload. The
+`base_atom_scale: u128` field is replaced by `base_decimals: u8` /
+`quote_decimals: u8`. In `live`, the decimals are read from the vault's mint
+accounts via RPC (authoritative); `single` takes them as arguments. The
+program is **unchanged** (it is decimal-agnostic), so no redeploy is required.
+
+**Before/after (level 1, 2,000 tSOL base / 218,505.807 tUSDC quote at $109.2529,
+full depth; `scripts/pool_sizing.py`):**
+
+| | before (human-price ladder) | after (raw-atom ladder) |
+|---|---|---|
+| level-1 ask quote capacity | 10,928,567.87 tUSDC | 10,928.57 tUSDC |
+| level-1 ask human price | ~109,285 tUSDC/tSOL | ~109.29 tUSDC/tSOL |
+| level-1 bid base capacity | 0.1000 tSOL | 100.03 tSOL |
+| on-chain `available_value` | ~437,011,000 tUSDC | 437,011.61 tUSDC |
+
+The report's 10^3 error is gone: level-1 ask human price returns `109.2857`
+(≈ the oracle) instead of `109,285.7`.
+
+**Round-trip.** base 2,000 tSOL / quote 218,505.807 tUSDC at $109.2529:
+level-1 human quote/base ratio `109.2857` (≈ oracle `109.2529`, difference is the
+2 bps spread); demo 10 tSOL ≤ half of level 1; flow cap 200 tSOL; `available_value`
+437,011.61 tUSDC; edge bound (50 bps) 2,185.06 tUSDC.
 
 ## S2.3 preflight (read from source; nothing submitted)
 
@@ -343,5 +374,21 @@ matching.
 sha256 `9a05056e4c50630f6618c975d0ecec931b421159f7d3c813383ad5670677730a`;
 local `target/deploy/arbswap.so` **identical** → **MATCH**. Program id
 `2mwpYHpZ…`, upgrade authority `ddGs6hk5…`. IDL `target/idl/arbswap.json` matches
-the local build (`address` = program id). No layout/version concern from the
-build; the only blocker is the decimal scaling above.
+the local build (`address` = program id).
+
+**Provenance note (S2.3):** the S2.3 change is **keeper-only** — the program
+source is unchanged, so the deployed program still matches the program build
+(`9a05056e…`) and **no redeploy is needed** to use the corrected keeper. The
+keeper binary changed and must be rebuilt for the S2.5 live run. The exact-HEAD
+hash match describes the program build, not the keeper.
+
+## S2.3 decision
+
+The keeper now normalizes the human oracle price exactly once
+(`normalize_price_q64`), the on-chain edge valuation is correct in quote atoms
+once the payload carries `P_raw` (no program change), and the 9/6 regression
+tests (Rust unit, Python parity, sizing tool) show the 10^3 error is gone.
+**S2.3: UNBLOCKED** for a tSOL(9)/tUSDC(6) vault, subject to operator
+authorization for the state-changing steps (init/funding/deposit/keeper/smoke),
+which are **not** performed here.
+
