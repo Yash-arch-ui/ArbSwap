@@ -1,5 +1,6 @@
 import { AnchorProvider, Program, BN } from '@coral-xyz/anchor';
 import type { Wallet } from '@coral-xyz/anchor/dist/cjs/provider';
+import { Buffer } from 'buffer';
 import {
   Connection,
   PublicKey,
