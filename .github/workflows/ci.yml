@@ -84,3 +84,32 @@ jobs:
           anchor keys sync
       - name: Anchor build
         run: anchor build
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install (no scripts)
+        run: npm ci --ignore-scripts
+      - name: Lockfile is in sync
+        run: npm ci --ignore-scripts --dry-run
+      - name: Lint
+        run: npm run lint
+      - name: Build (typecheck + bundle)
+        run: npm run build
+      - name: Audit gate (allowlist, fails on unlisted high/critical)
+        run: node ../scripts/frontend_audit_gate.mjs
+      - name: SBOM (CycloneDX)
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-sbom
+          path: app/sbom.json
