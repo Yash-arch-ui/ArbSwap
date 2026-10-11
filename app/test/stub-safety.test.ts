@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { PublicKey } from '@solana/web3.js';
-import { BorshCoder, BN } from '@coral-xyz/anchor';
+import { BorshCoder } from '@coral-xyz/anchor';
 import * as toml from 'toml';
 import { Buffer } from 'buffer';
 import idl from '../src/idl/arbswap.json';
@@ -18,6 +20,20 @@ const PROGRAM = new PublicKey('2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm');
 const coder = new BorshCoder(idl as never);
 const { vault, quoteState } = deriveVaultAddresses();
 
+// Fixture bytes are emitted by the Rust program test
+// `vault/program/tests/frontend_fixtures.rs` (the program's own
+// `AccountSerialize` layout), never hand-written. Regenerate with
+// `scripts/gen_frontend_fixtures.sh`.
+interface AccountFixtures {
+  programId: string;
+  vault: string;
+  config: string;
+  quoteState: string;
+}
+const fixtures: AccountFixtures = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./fixtures/accounts.json', import.meta.url)), 'utf8'),
+);
+
 const wallet = {
   publicKey: PublicKey.default,
   signTransaction: async (t: unknown) => t,
@@ -25,25 +41,37 @@ const wallet = {
 };
 
 function mockConnection(byKey: Record<string, Buffer>) {
+  const info = (data?: Buffer) =>
+    data ? { data, owner: PROGRAM, executable: false, lamports: 1, rentEpoch: 0 } : null;
   return {
-    getAccountInfo: vi.fn(async (key: PublicKey) => {
-      const data = byKey[key.toBase58()];
-      return data ? { data, owner: PROGRAM, executable: false, lamports: 1, rentEpoch: 0 } : null;
-    }),
+    getAccountInfo: vi.fn(async (key: PublicKey) => info(byKey[key.toBase58()])),
+    // The Anchor provider's account.fetch uses getAccountInfoAndContext.
+    getAccountInfoAndContext: vi.fn(async (key: PublicKey) => ({
+      context: { slot: 1 },
+      value: info(byKey[key.toBase58()]),
+    })),
     getBalance: vi.fn(async () => 0),
     getParsedTokenAccountsByOwner: vi.fn(async () => ({ value: [] })),
   } as never;
 }
 
+/** BN | bigint | number -> number; BN/bigint stringify exactly, so numeric. */
+const n = (v: unknown): number => Number((v as { toString(): string }).toString());
+const buf = (hex: string) => Buffer.from(hex, 'hex');
+
 describe('toml stub safety', () => {
-  it('(i) the stub throws a clear error when called', () => {
+  it('(i) the stub throws a clear error when called, and counts the call', () => {
+    const before = toml.calls();
     expect(() => (toml as { parse: (s: string) => unknown }).parse('x = 1')).toThrow(
       /not available in the browser build/,
     );
+    expect(toml.calls()).toBe(before + 1);
   });
 
   it('(ii) client functions run with the stub active and never invoke it', async () => {
     const connection = mockConnection({}); // no vault -> decode skipped, builders early-exit
+    const before = toml.calls();
+
     const state = await fetchProtocolState(connection);
     expect(state.exists).toBe(false);
 
@@ -53,65 +81,45 @@ describe('toml stub safety', () => {
     await expect(requestWithdraw(connection, wallet, 1n)).rejects.toThrow(/vault not initialized/);
     await expect(claimWithdraw(connection, wallet)).rejects.toThrow(/vault not initialized/);
     await expect(crankEpoch(connection, wallet)).rejects.toBeDefined();
-    // toml must never have been called (the stub would have thrown).
-    expect((toml as { parse: unknown }).parse).not.toBe(undefined);
+
+    // The parser was never invoked on any of these code paths.
+    expect(toml.calls()).toBe(before);
   });
 
-  // TODO(item1-iii): generate fixture bytes from the Rust program build (litesvm
-  // account serialization) and drop them in test/fixtures/. The JS BorshCoder needs
-  // account field layouts, which this IDL does not carry, so IDL-only fixtures are
-  // not authoritative. Skipped rather than faked.
-  it.skip('(iii) decodes Vault, Config and QuoteState fixture bytes from the build', async () => {
-    const vaultFixture = {
-      admin: PublicKey.default, baseMint: PublicKey.default, quoteMint: PublicKey.default,
-      baseReserve: PublicKey.default, quoteReserve: PublicKey.default,
-      shareMint: PublicKey.default, shareLock: PublicKey.default,
-      totalShares: new BN(1234), insuranceBase: new BN(0), insuranceQuote: new BN(0),
-      keeperBase: new BN(0), keeperQuote: new BN(0), protocolBase: new BN(0), protocolQuote: new BN(0),
-      epoch: new BN(0), epochStart: new BN(0), status: 0, bump: 255,
-    };
-    const vaultBytes = Buffer.from(await coder.accounts.encode('Vault', vaultFixture));
-    const level = { offsetBps: 1, weightBps: 10_000, sqrtLo: new BN(1), sqrtHi: new BN(2), liquidity: new BN(3) };
-    const quoteFixture = {
-      version: new BN(7), updateSlot: new BN(10), expirySlot: new BN(20),
-      anchorSqrtPrice: new BN(1), pResSqrt: new BN(1), halfSpreadBps: 5,
-      askExtraBps: 0, bidExtraBps: 0, depthMultBps: 10_000,
-      windowStartSlot: new BN(0), windowBaseSold: new BN(0), windowBaseBought: new BN(0),
-      oraclePublishTime: new BN(0), oracleConfBps: 1, oraclePrice: new BN(1),
-      edgeWindowStartSlot: new BN(0), realizedEdge: new BN(0), flowN: new BN(0),
-      askLevels: [level, level, level, level, level, level],
-      bidLevels: [level, level, level, level, level, level],
-      bump: 254,
-    };
-    const quoteBytes = Buffer.from(await coder.accounts.encode('QuoteState', quoteFixture));
-    const configFixture = {
-      admin: PublicKey.default, keeper: PublicKey.default, treasury: PublicKey.default,
-      pythFeedId: Array.from({ length: 32 }, () => 0),
-      feeBps: 1, insuranceBps: 1, keeperBps: 1, protocolBps: 1,
-      minLiquidity: new BN(1), warmupSlots: new BN(1), epochSlots: new BN(10),
-      graceSlots: new BN(1), expirySlots: new BN(10), maxStalenessSeconds: new BN(30),
-      maxConfBps: 10, maxAnchorStepBps: 100, maxSpreadStepBps: 10, minSpreadBps: 2, maxSpreadBps: 50,
-      maxQuoteSize: new BN(1), maxInventoryBps: 2000, utilizationMaxBps: 5000,
-      minBond: new BN(0), unbondCooldownSlots: new BN(100), maxUpdateSlotAge: 25,
-      edgeWindowSlots: new BN(100), maxEdgeLossBps: 500, maxAnchorDevBps: 100,
-      flowWindowSlots: new BN(100), maxWindowFlowBps: 10_000,
-      pendingAdmin: PublicKey.default, adminActivateSlot: new BN(0), bump: 253,
-    };
-    const configBytes = Buffer.from(await coder.accounts.encode('Config', configFixture));
+  it('(iii) decodes Vault, Config and QuoteState fixture bytes from the program build', async () => {
+    expect(fixtures.programId).toBe(PROGRAM.toBase58());
 
-    // direct IDL decode
-    expect(((await coder.accounts.decode('Vault', vaultBytes)) as { totalShares: BN }).totalShares.toNumber()).toBe(1234);
-    expect(((await coder.accounts.decode('QuoteState', quoteBytes)) as { version: BN }).version.toNumber()).toBe(7);
-    expect(((await coder.accounts.decode('Config', configBytes)) as { maxSpreadBps: number }).maxSpreadBps).toBe(50);
+    const vaultBytes = buf(fixtures.vault);
+    const configBytes = buf(fixtures.config);
+    const quoteBytes = buf(fixtures.quoteState);
 
-    // the client decodes the vault + quote-state through fetchProtocolState
+    // Direct IDL decode against the Rust-produced bytes.
+    const v = (await coder.accounts.decode('Vault', vaultBytes)) as Record<string, unknown>;
+    expect(n(v.total_shares)).toBe(1_234_567_890);
+    expect(n(v.epoch)).toBe(42);
+    expect(v.status).toBe(1);
+
+    const c = (await coder.accounts.decode('Config', configBytes)) as Record<string, unknown>;
+    expect(c.fee_bps).toBe(100);
+    expect(c.min_spread_bps).toBe(2);
+    expect(c.max_spread_bps).toBe(50);
+
+    const q = (await coder.accounts.decode('QuoteState', quoteBytes)) as Record<string, unknown>;
+    expect(n(q.version)).toBe(7);
+    expect(q.half_spread_bps).toBe(5);
+    expect(n(q.flow_n)).toBe(7);
+    const asks = q.ask_levels as Array<Record<string, unknown>>;
+    expect(asks).toHaveLength(6);
+    expect(asks[0].offset_bps).toBe(0);
+
+    // The client decodes the vault + quote-state through fetchProtocolState
+    // (its own field mapping is covered by Part 2/3; here we only prove the
+    // built-in fetch path runs against fixture bytes without invoking toml).
     const connection = mockConnection({
       [vault.toBase58()]: vaultBytes,
       [quoteState.toBase58()]: quoteBytes,
     });
     const state = await fetchProtocolState(connection);
     expect(state.exists).toBe(true);
-    expect(state.vaultData?.totalShares.toNumber()).toBe(1234);
-    expect(state.quoteData?.version.toNumber()).toBe(7);
   });
 });

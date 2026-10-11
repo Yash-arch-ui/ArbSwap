@@ -25,7 +25,7 @@ Baseline commit: `cc41f53` (tag `p2-claim-align-v1`). Baseline gate: fmt + clipp
 |---|---|---|---|---|
 | S0 baseline/hygiene | DONE | (this commit) | 125 Rust / 168 Py | — |
 | S1 math correctness | DONE (no bug found) | (this commit) | 125 Rust / 169 Py | suspected div_rem bug NOT reproduced; 1M/op differential green |
-| S2 CU reduction | PARTIAL | (this commit) | 125 Rust / 169 Py | update_quote ≈48k (<50k, target 40k not met); swap ≈59k (<=70k). Reciprocal-verify redesign deferred (payload change). |
+| S2 CU reduction | PARTIAL | (this commit) | 125 Rust / 169 Py | update_quote ≈48k (<50k, target 40k not met); swap ≈59k (<=70k). Reciprocal-verify redesign deferred (payload change). **Superseded by C3/B2 below.** |
 | S3 breaker + keeper gaps | DONE | (this commit) | 129 Rust / 173 Py | simulator edge tracker; 0 honest trips (W2-W6, jumps, latency); defaults max_edge_loss_bps=50, max_anchor_dev_bps=25 |
 | S4 guard coverage | DONE | (this commit) | 132 Rust / 172 Py | 31-guard mutation table (all caught); full-action state machine; proptest present |
 | S5 phase-1 proof | PARTIAL | (this commit) | 132 Rust / 172 Py | pre-reg amendment 2; fresh routed table; HEADLINE.md = Option 2; METHODOLOGY.md; E8 NOT DONE; no fresh full-study re-run |
@@ -214,8 +214,9 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 - **BC3 (P3 CU + deploy) — DONE (offline) / SKIPPED (live).**
   `scripts/measure_cu.sh` now samples `N=5` fresh runs and stores
   min/median/max/range/stdev; `cu.json` holds the median plus stats. The variance
-  is real: transfer/account-init instructions spread up to 9,000 CU; the
-  `<1,000 CU` target is **not met** (~48k). Read-only devnet provenance
+  is real:   transfer/account-init instructions spread up to 9,000 CU; the
+  `<1,000 CU` target is **not met** (later redesigned to 38,563 median under C3/B2).
+  Read-only devnet provenance
   (`scripts/devnet_program_hash.py`): the deployed program (744,376 B,
   `c0080ccf…`) **differs** from the exact HEAD build (683,680 B, `c5ba3d1f…`).
   Live redeploy **SKIPPED** (`ARBSWAP_DEVNET_KEYPAIR` unset); offline prep
@@ -248,3 +249,39 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 - Docs synced: `FORMULA.md` (proof sketch + rounding rule), `SECURITY_CHECKLIST.md`
   §3/S4.4, `REMAINING_WORK.md`; bundle regenerated. 157 Rust / 204 Python, 55
   mutations.
+
+## Part 1 — frontend stub-safety tests (checkpoint A) — on `integration`
+
+- **P1.1 — DONE (inherited, verified).** `vitest` 5.0.3 pinned as a devDependency;
+  `app/vitest.config.ts` applies the same `toml` alias as `vite.config.ts`. `npm
+  run lint` (oxlint) clean, `npm run build` (tsc -b + vite) clean, `npm test`
+  green. `npm audit` reports 40 findings; the audit gate (`scripts/frontend_audit_gate.mjs`)
+  passes — 18 high/critical production findings are all listed in
+  `frontend/audit-allowlist.json` (dated waivers), and the waived-package bundle
+  guard is clean.
+- **P1.2 (i)/(ii) — inherited, hardened.** `app/src/stubs/toml.ts` now exposes a
+  live `calls()` counter; the stub-safety test asserts (i) the stub throws and
+  counts the call, and (ii) `fetchProtocolState` + every instruction builder
+  (deposit, swap, request_withdraw, claim_withdraw, crank_epoch) run and the
+  parser counter is unchanged (never invoked).
+- **P1.2 (iii) — DONE.** New `vault/program/tests/frontend_fixtures.rs` emits
+  deterministic Vault/Config/QuoteState bytes from the program's own
+  `AccountSerialize` (never hand-written) to `app/test/fixtures/accounts.json`.
+  `app/test/stub-safety.test.ts` decodes them with the IDL BorshCoder and asserts
+  sentinel fields (total_shares 1,234,567,890, max_spread_bps 50, version 7, …)
+  and that `fetchProtocolState` decodes the fixture over a mocked connection.
+  Regenerate: `scripts/gen_frontend_fixtures.sh`. CI fails if the fixture is
+  stale (`git diff --exit-code app/test/fixtures/accounts.json`).
+- **P1.3 — DONE.** CI `frontend` job runs lint, build, `npm test`, the audit gate
+  and SBOM; the `rust` job now also checks fixture freshness.
+- **Verdict: PART 1 GATE GREEN.** Backend: `cargo fmt --check`, clippy
+  `-D warnings` (incl. program), `cargo test --workspace`, `pytest simulation`
+  (203 passed, 2 skipped) all green. Frontend: lint, typecheck+build, `npm test`
+  (3 passed), audit gate green. Docs-consistency, banned-word and secrets scans
+  clean.
+- **NOTE — bundle freshness gate is RED on `integration`:** the published bundle
+  records `main`'s commit `2a71c37`; `integration` HEAD (`d184355` + Part 1) has
+  since added frontend sources and a Rust test. Artifact *content* is unchanged
+  (no CU/number drift), so no backend rebuild was done in Part 1; re-publishing
+  the bundle at the integration HEAD is deferred to Step 2 (it also updates the
+  advertised test counts in README/CLAIMS).

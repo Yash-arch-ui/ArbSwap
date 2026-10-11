@@ -19,6 +19,12 @@ jobs:
         run: cargo clippy -p arb-math -p arbswap-keeper -p arb-aggregator -p arbswap -- -D warnings
       - name: Tests
         run: cargo test --workspace
+      - name: Frontend account fixtures are fresh (P1.2-iii)
+        # Re-emits the frontend decode fixtures from the program build and
+        # fails if the committed bytes changed (program layout drifted).
+        run: |
+          cargo test -p arbswap --test frontend_fixtures
+          git diff --exit-code -- app/test/fixtures/accounts.json
 
   python:
     runs-on: ubuntu-latest
