@@ -1,5 +1,5 @@
 {
-  "commit": "acf3c183dac76574934baafd307c6e7d2a68d156",
+  "commit": "e50a3b861cef1ffdcbc44dfc9516aca89d1249f5",
   "data_sha256": {
     "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
     "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
@@ -29,7 +29,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "acfa463f677b1b2e4ec9e4b18e40815b7e1cbae9aed143c8be47f5645fbce2f1"
+      "sha256": "db7f5651342c5adda01ff8a860089e8e4613a5c450444eadd6d957b748a6d21b"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -56,5 +56,5 @@
   "generated": "2026-10-11",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "acf3c18"
+  "short": "e50a3b8"
 }
