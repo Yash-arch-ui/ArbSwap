@@ -392,3 +392,83 @@ tests (Rust unit, Python parity, sizing tool) show the 10^3 error is gone.
 authorization for the state-changing steps (init/funding/deposit/keeper/smoke),
 which are **not** performed here.
 
+
+# Part 2 / Step 2 — S2.3 execution preflight (2026-10-11)
+
+All tokens are **TEST TOKEN, devnet**; program `2mwpYHpZ…`.
+
+## Read-only preflight (passed)
+
+| Check | Result |
+|---|---|
+| Program id (`declare_id!`/`Anchor.toml`) | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
+| Deployed ELF vs local SBF build | **MATCH** — 688,616 B, sha256 `9a05056e4c50630f6618c975d0ecec931b421159f7d3c813383ad5670677730a` |
+| `ARBSWAP_DEVNET_KEYPAIR` public key | `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH` (program admin) |
+| tSOL mint | `76Xvqd…` dec 9, classic SPL, mint auth `8R3V…`, no freeze |
+| tUSDC mint | `q3xHxvx…` dec 6, classic SPL, mint auth `8R3V…`, no freeze |
+| `program_config` `[b"program"]` | `J6MGfX1YvGq6yCP3eAqzbugpF83CTaBcTLKcmrxmBSok` exists (owner = program, 41 B) → **no `initialize_program` needed** |
+
+## Oracle snapshot (Hermes, read-only)
+
+SOL/USD feed `0xef0d…b56d`; price **109.6973911** USD; confidence **2.5369 bps**
+(≤ `max_conf_bps` 10); publish_time `1791720697`, age 1 s (≤ `max_staleness` 2 s).
+Valid against the configured limits.
+
+## `max_quote_size` semantics and the 10 tSOL demo
+
+`vault/program/src/lib.rs:816-819` requires
+`amount_in > 0 && amount_in <= config.max_quote_size`, where `amount_in` is the
+**input token's raw amount** — quote atoms for `BuyBase`, base atoms for
+`SellBase`. It is one scalar on raw input units (not value-normalised).
+
+With the proposed `max_quote_size = 100,000,000,000` (1e11):
+
+| Direction | `amount_in` (raw atoms) | ≤ 1e11? |
+|---|---|---|
+| SellBase: 10 tSOL base in | 10 × 1e9 = 1.0e10 | yes (10× headroom) |
+| BuyBase: quote in for ~10 tSOL out @ 109.6974 | ~1.097e9 | yes (~91× headroom) |
+
+Flow cap (`max_window_flow_bps = 1,000`) = 10% of base reserve = 200 tSOL after
+the intended deposit; demo base flow 10 tSOL is 5% of it. Utilization: with the
+S2.3-corrected ladder, ask capacity ≤ `available_base × 0.5`. **The 10 tSOL demo
+passes both directions; `max_quote_size` is not the blocker.**
+
+## BLOCKER — configured pool exceeds the funding script's mint caps
+
+Required first-deposit liquidity at the snapshot price:
+
+| Token | Human | Raw atoms |
+|---|---|---|
+| tSOL (base) | 2,000 tSOL | 2,000,000,000,000 |
+| tUSDC (quote) | 219,394.7822 tUSDC | 219,394,782,200 |
+
+`scripts/test_tokens.sh` per-call caps: **5 tSOL** (`CAP_TSOL`) and **5,000 tUSDC**
+(`CAP_TUSDC`). Required exceeds both — tSOL 400×, tUSDC 43.88×. With the
+enforcement fixed (below), the script refuses:
+
+```
+REFUSED: amount 2000000000000 exceeds per-call cap 5000000000
+REFUSED: amount 219394782200 exceeds per-call cap 5000000000
+```
+
+Per the checkpoint rules, the cap is **not** raised and the amount is **not**
+split; **S2.3 is BLOCKED** at funding. Initializing a vault that cannot be
+funded is not done.
+
+## Bug fixed — `test_tokens.sh` cap check was bypassed
+
+The caps were written `CAP_TSOL=5_000_000_000`; bash does not accept `_` digit
+separators, so `(( AMOUNT > CAP ))` failed with "value too great for base" and
+the `if` was skipped — the cap was **not enforced**. The mint command also used
+the non-existent `--owner` flag instead of `--mint-authority`. Both are fixed
+(plain integers; `--mint-authority` + explicit recipient ATA), with a regression
+test (`simulation/sim/test_test_tokens_script.py`) that asserts an over-cap
+amount is refused and `spl-token` is never invoked.
+
+**Consequence observed before the fix (captured; not repeated):** the over-cap
+attempt ran `create-account` and created two empty ATAs for the operator
+(tSOL ATA, tUSDC ATA) — transactions `BUWPR4vuTAQezrvdB8mYa2Qp4QX7qCBBWrMHPw84fEkhHhQAjvjF22TThxPjM1c73MbddtpoMkUVLE7yAoVDjRN`
+and `4ERsYywncGeu8a3T8D4EkPhtnZki9BpcpHvig2aa8Xd9TWo2AMh7ks9oVTJCEBFE1nhzzKCkfBJsvDpbsqDEWhGg`,
+both `Status: Ok`. The `mint` step failed (`missing signature for supplied
+pubkey: 8R3V…`), so **no test tokens were minted** (balances remain 0). No further
+funding was attempted.

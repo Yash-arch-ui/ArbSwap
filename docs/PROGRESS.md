@@ -391,3 +391,27 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   MATCH); the keeper binary must be rebuilt for the S2.5 run.
 - **S2.3: UNBLOCKED** for tSOL(9)/tUSDC(6), pending operator authorization for
   the state-changing steps (not performed here).
+
+## Part 2 / Step 2 — S2.3 execution preflight (2026-10-11) — on `integration`
+
+- **Preflight PASSED (read-only):** program `2mwp…`; deployed ELF MATCH
+  (`9a05056e…`); `ARBSWAP_DEVNET_KEYPAIR` pubkey `8R3V…` (admin); both test mints
+  confirmed (dec 9/6, classic SPL, no freeze); `program_config` exists → no
+  `initialize_program`. Hermes SOL/USD `109.6973911` (conf 2.54 bps, age 1 s).
+- **`max_quote_size` semantics:** one scalar on the input token's raw atoms
+  (quote for BuyBase, base for SellBase). At the proposed 1e11 the 10 tSOL demo
+  passes both directions (SellBase 1e10, BuyBase ~1.097e9); not the blocker.
+- **BLOCKER — funding caps:** the configured first deposit (2,000 tSOL /
+  219,394.7822 tUSDC) exceeds the script's per-call caps (5 tSOL / 5,000 tUSDC)
+  by 400× / 43.9×. Per the rules the cap is not raised and the amount is not
+  split, so **S2.3 is BLOCKED** at funding (no vault initialized).
+- **Bug found + fixed:** `scripts/test_tokens.sh` used `5_000_000_000`; bash
+  treats `_` as invalid in arithmetic, so `(( AMOUNT > CAP ))` errored and the
+  cap check was **silently bypassed**. Fixed to plain integers; `mint` now uses
+  `--mint-authority` (+ explicit recipient ATA) instead of the invalid `--owner`.
+  Regression test `simulation/sim/test_test_tokens_script.py` (over-cap refused,
+  `spl-token` never invoked).
+- **Unintended state (captured, not repeated):** the pre-fix over-cap attempt
+  created two empty operator ATAs (tSOL/tUSDC) — sigs recorded in `docs/DEVNET.md`;
+  the mint failed, so no tokens were minted.
+- **No vault initialization, no deposits, no keeper run, no swaps.**

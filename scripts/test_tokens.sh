@@ -21,9 +21,11 @@ set -euo pipefail
 
 TSOL="76XvqdSVi2LhYWgeWjx6E1V2c7oBeB6ndUEp6xC44jp2"
 TUSDC="q3xHxvxCBvYCMwuA6dFtTDHHwbqkrruTYWAWXdPuNFX"
-# Hard per-call mint caps (base units): small so a mistake can't mint a lot.
-CAP_TSOL=5_000_000_000      # 5,000 tSOL
-CAP_TUSDC=5_000_000_000     # 5,000 tUSDC
+# Hard per-call mint caps (base units). NOTE: plain integers only — bash does
+# NOT accept `_` digit separators, so `5_000_000_000` made the cap check throw
+# and silently bypass enforcement (S2.3 bugfix).
+CAP_TSOL=5000000000      # 5 tSOL
+CAP_TUSDC=5000000000     # 5,000 tUSDC
 
 URL="https://api.devnet.solana.com"
 while [[ $# -gt 0 ]]; do
@@ -67,9 +69,18 @@ if (( AMOUNT <= 0 )); then
 fi
 
 echo "TEST TOKEN, devnet: mint=$MINT amount=$AMOUNT recipient=$RECIPIENT"
+ATA=$(spl-token address --verbose --token "$MINT" --owner "$RECIPIENT" --url "$URL" \
+  | awk '/Associated token address:/{print $NF}')
+if [[ -z "$ATA" ]]; then
+  echo "REFUSED: could not derive the recipient associated token account"
+  exit 1
+fi
+echo "recipient ATA: $ATA"
 echo "creating / using ATA and minting (mint authority = admin keypair)"
 spl-token create-account "$MINT" --owner "$RECIPIENT" --fee-payer "$ARBSWAP_DEVNET_KEYPAIR" --url "$URL" || true
-spl-token mint "$MINT" "$AMOUNT" --owner "$RECIPIENT" --fee-payer "$ARBSWAP_DEVNET_KEYPAIR" --url "$URL"
+spl-token mint "$MINT" "$AMOUNT" "$ATA" \
+  --mint-authority "$ARBSWAP_DEVNET_KEYPAIR" \
+  --fee-payer "$ARBSWAP_DEVNET_KEYPAIR" --url "$URL"
 
 echo "balances:"
 spl-token accounts --owner "$RECIPIENT" --url "$URL" || true
