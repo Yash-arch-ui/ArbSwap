@@ -12,7 +12,27 @@ interface VaultReceipt {
   type: 'deposit' | 'withdraw';
   txSignature: string;
   isConfirmed: boolean;
+  isCancelled?: boolean;
+  isError?: boolean;
   message: string;
+}
+
+function isWalletCancellation(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const name = (err as { name?: string })?.name || '';
+  const code = (err as { code?: number | string })?.code;
+  const str = `${name} ${msg} ${code}`.toLowerCase();
+  return (
+    str.includes('user rejected') ||
+    str.includes('rejected') ||
+    str.includes('user cancel') ||
+    str.includes('cancel') ||
+    str.includes('declined') ||
+    str.includes('window closed') ||
+    str.includes('window blocked') ||
+    str.includes('4001')
+  );
 }
 
 export const VaultPage: React.FC = () => {
@@ -99,19 +119,21 @@ export const VaultPage: React.FC = () => {
       } catch (err: unknown) {
         console.warn('Vault deposit error:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
-        if (errMsg.includes('User rejected') || errMsg.includes('rejected')) {
+        if (isWalletCancellation(err)) {
           setReceipt({
             type: 'deposit',
             txSignature: '',
             isConfirmed: false,
-            message: 'Deposit signing cancelled by user.',
+            isCancelled: true,
+            message: 'Deposit transaction was cancelled in your wallet. No funds were deposited.',
           });
         } else {
           setReceipt({
             type: 'deposit',
-            txSignature: `sim_dep_${Date.now().toString(36)}`,
+            txSignature: '',
             isConfirmed: false,
-            message: `Simulated Devnet Deposit: Minted ~${estimatedShares.toLocaleString()} shares for ${solNum} SOL + $${usdcNum.toFixed(2)} USDC. (RPC notice: ${errMsg.slice(0, 60)}...)`,
+            isError: true,
+            message: `Deposit failed on Devnet: ${errMsg.slice(0, 100)}. Check that your wallet has Devnet SOL for gas.`,
           });
         }
       } finally {
@@ -176,20 +198,21 @@ export const VaultPage: React.FC = () => {
       } catch (err: unknown) {
         console.warn('Vault withdrawal error:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
-        if (errMsg.includes('User rejected') || errMsg.includes('rejected')) {
+        if (isWalletCancellation(err)) {
           setReceipt({
             type: 'withdraw',
             txSignature: '',
             isConfirmed: false,
-            message: 'Withdrawal queue signing cancelled by user.',
+            isCancelled: true,
+            message: 'Withdrawal queue transaction was cancelled in your wallet. No ticket was queued.',
           });
         } else {
-          setTickets([newTicket, ...tickets]);
           setReceipt({
             type: 'withdraw',
-            txSignature: `sim_wd_${Date.now().toString(36)}`,
+            txSignature: '',
             isConfirmed: false,
-            message: `Simulated Withdrawal: Ticket ${newTicket.id} queued for Epoch ${vaultState.epoch + 1} (${withdrawEstSol.toFixed(2)} SOL + $${withdrawEstUsdc.toFixed(2)} USDC).`,
+            isError: true,
+            message: `Withdrawal queue failed on Devnet: ${errMsg.slice(0, 100)}. Check that your wallet has Devnet SOL for gas.`,
           });
         }
       } finally {
@@ -407,11 +430,36 @@ export const VaultPage: React.FC = () => {
           )}
 
           {receipt && (
-            <div className="vault-receipt-box">
-              <div style={{ fontWeight: 600, color: 'var(--uni-accent1)', marginBottom: 4 }}>
-                {receipt.isConfirmed ? '✓ Devnet Transaction Confirmed' : '✓ Execution Notice'}
+            <div 
+              className="vault-receipt-box"
+              style={
+                receipt.isCancelled
+                  ? { border: '1px solid rgba(255, 170, 0, 0.4)', background: 'rgba(255, 170, 0, 0.08)' }
+                  : receipt.isError
+                  ? { border: '1px solid rgba(255, 80, 80, 0.4)', background: 'rgba(255, 80, 80, 0.08)' }
+                  : undefined
+              }
+            >
+              <div 
+                style={{ 
+                  fontWeight: 600, 
+                  color: receipt.isCancelled 
+                    ? 'var(--uni-warning, #f5a623)' 
+                    : receipt.isError 
+                    ? '#ff5050' 
+                    : 'var(--uni-accent1)', 
+                  marginBottom: 4 
+                }}
+              >
+                {receipt.isCancelled
+                  ? '✕ Transaction Cancelled'
+                  : receipt.isError
+                  ? '✕ Transaction Failed'
+                  : receipt.isConfirmed
+                  ? '✓ Devnet Transaction Confirmed'
+                  : '✓ Execution Notice'}
               </div>
-              <div>{receipt.message}</div>
+              <div style={{ fontSize: 13, color: 'var(--uni-neutral1)' }}>{receipt.message}</div>
               {receipt.isConfirmed && receipt.txSignature && (
                 <div style={{ marginTop: 6, fontFamily: 'var(--uni-mono)', fontSize: 11 }}>
                   Tx Reference:{' '}

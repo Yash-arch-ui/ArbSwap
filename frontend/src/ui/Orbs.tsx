@@ -1,21 +1,21 @@
-export function ArbLogo({ className = '' }: { className?: string }) {
+import logoUrl from '../assets/logo.png';
+
+export function ArbLogo({ className = '', style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg 
+    <img 
+      src={logoUrl} 
+      alt="ArbSwap Logo" 
       className={className} 
-      viewBox="0 0 28 28" 
-      fill="none" 
-      xmlns="http://www.w3.org/2000/svg"
-      style={{ width: 28, height: 28 }}
-    >
-      <circle cx="14" cy="14" r="12" stroke="currentColor" strokeWidth="1.8" strokeDasharray="3 2" />
-      <path 
-        d="M8 14H20M14 8L20 14L14 20" 
-        stroke="currentColor" 
-        strokeWidth="2" 
-        strokeLinecap="round" 
-        strokeLinejoin="round" 
-      />
-    </svg>
+      style={{ 
+        width: 28, 
+        height: 28, 
+        objectFit: 'contain',
+        display: 'inline-block',
+        verticalAlign: 'middle',
+        filter: 'drop-shadow(0 0 6px rgba(0, 229, 176, 0.35))',
+        ...style 
+      }} 
+    />
   );
 }
 

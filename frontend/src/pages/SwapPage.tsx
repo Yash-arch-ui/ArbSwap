@@ -14,16 +14,35 @@ import {
 import './SwapPage.css';
 
 interface ExecutionReceipt {
-  status: 'confirmed' | 'simulated';
-  txSignature: string;
-  fillPrice: number;
-  inAmount: number;
-  outAmount: number;
-  inSymbol: string;
-  outSymbol: string;
-  slot: number;
-  cuEstimate: number;
+  status: 'confirmed' | 'simulated' | 'cancelled' | 'error';
+  txSignature?: string;
+  fillPrice?: number;
+  inAmount?: number;
+  outAmount?: number;
+  inSymbol?: string;
+  outSymbol?: string;
+  slot?: number;
+  cuEstimate?: number;
   note?: string;
+  errorMessage?: string;
+}
+
+function isWalletCancellation(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const name = (err as { name?: string })?.name || '';
+  const code = (err as { code?: number | string })?.code;
+  const str = `${name} ${msg} ${code}`.toLowerCase();
+  return (
+    str.includes('user rejected') ||
+    str.includes('rejected') ||
+    str.includes('user cancel') ||
+    str.includes('cancel') ||
+    str.includes('declined') ||
+    str.includes('window closed') ||
+    str.includes('window blocked') ||
+    str.includes('4001')
+  );
 }
 
 export const SwapPage: React.FC = () => {
@@ -211,44 +230,16 @@ export const SwapPage: React.FC = () => {
         console.warn('Devnet transaction error:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
         
-        if (errMsg.includes('User rejected') || errMsg.includes('rejected')) {
+        if (isWalletCancellation(err)) {
           setReceipt({
-            status: 'simulated',
-            txSignature: 'Transaction signature cancelled by user.',
-            fillPrice: effectivePrice,
-            inAmount: parsedInAmount,
-            outAmount: netOut,
-            inSymbol: inTokenSymbol,
-            outSymbol: outTokenSymbol,
-            slot: quoteState.currentSlot,
-            cuEstimate: 0,
-            note: 'Cancelled by wallet',
+            status: 'cancelled',
+            note: 'Transaction was cancelled in your wallet. No funds were transferred or spent.',
           });
         } else {
-          // If transaction failed due to network / zero SOL gas, execute via verified engine
-          const simSig = `devnet_sim_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
-          await executeSwap({
-            side: isSellingSol ? 'sellBase' : 'buyBase',
-            inAmount: parsedInAmount,
-            outAmount: netOut,
-            inSymbol: inTokenSymbol,
-            outSymbol: outTokenSymbol,
-            price: effectivePrice,
-            isSimulated: true,
-            txSignature: simSig,
-          });
-
           setReceipt({
-            status: 'simulated',
-            txSignature: simSig,
-            fillPrice: effectivePrice,
-            inAmount: parsedInAmount,
-            outAmount: netOut,
-            inSymbol: inTokenSymbol,
-            outSymbol: outTokenSymbol,
-            slot: quoteState.currentSlot,
-            cuEstimate: 59327,
-            note: `RPC Note: ${errMsg.slice(0, 80)}... (Processed via Verified Engine)`,
+            status: 'error',
+            errorMessage: errMsg,
+            note: 'Devnet transaction failed. Check that your wallet has Devnet SOL for gas.',
           });
         }
       } finally {
@@ -525,7 +516,35 @@ export const SwapPage: React.FC = () => {
           )}
 
           {/* Rich Execution Receipt */}
-          {receipt && (
+          {receipt && receipt.status === 'cancelled' && (
+            <div className="swap-receipt-card" style={{ border: '1px solid rgba(255, 170, 0, 0.4)', background: 'rgba(255, 170, 0, 0.08)' }}>
+              <div className="swap-receipt-title" style={{ color: 'var(--uni-warning, #f5a623)' }}>
+                <span>✕ Transaction Cancelled</span>
+                <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(255, 170, 0, 0.15)' }}>
+                  Wallet Request Cancelled
+                </span>
+              </div>
+              <p style={{ margin: '8px 0 0 0', fontSize: 13, color: 'var(--uni-neutral1)' }}>
+                {receipt.note || 'Transaction signing was cancelled by user. No funds were transferred or spent.'}
+              </p>
+            </div>
+          )}
+
+          {receipt && receipt.status === 'error' && (
+            <div className="swap-receipt-card" style={{ border: '1px solid rgba(255, 80, 80, 0.4)', background: 'rgba(255, 80, 80, 0.08)' }}>
+              <div className="swap-receipt-title" style={{ color: '#ff5050' }}>
+                <span>✕ Transaction Failed</span>
+                <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(255, 80, 80, 0.15)' }}>
+                  Devnet Error
+                </span>
+              </div>
+              <p style={{ margin: '8px 0 0 0', fontSize: 13, color: 'var(--uni-neutral1)' }}>
+                {receipt.errorMessage || receipt.note || 'Failed to submit transaction.'}
+              </p>
+            </div>
+          )}
+
+          {receipt && (receipt.status === 'confirmed' || receipt.status === 'simulated') && (
             <div className="swap-receipt-card">
               <div className="swap-receipt-title">
                 <span>✓ Zero Execution Gap Confirmed</span>
@@ -534,13 +553,13 @@ export const SwapPage: React.FC = () => {
                 </span>
               </div>
               <div className="swap-receipt-grid">
-                <span>Traded: <b>{receipt.inAmount} {receipt.inSymbol} → {receipt.outAmount.toFixed(4)} {receipt.outSymbol}</b></span>
-                <span>Execution Price: <b>${receipt.fillPrice.toFixed(4)} (0.00 bps slippage)</b></span>
-                <span>Compute Units: <b>~{receipt.cuEstimate.toLocaleString()} CU</b> (Slot {receipt.slot})</span>
+                <span>Traded: <b>{receipt.inAmount} {receipt.inSymbol} → {receipt.outAmount?.toFixed(4)} {receipt.outSymbol}</b></span>
+                <span>Execution Price: <b>${receipt.fillPrice?.toFixed(4)} (0.00 bps slippage)</b></span>
+                <span>Compute Units: <b>~{receipt.cuEstimate?.toLocaleString()} CU</b> (Slot {receipt.slot})</span>
                 {receipt.note && <span>Note: <b>{receipt.note}</b></span>}
                 <span style={{ marginTop: 4 }}>
                   Tx Reference:{' '}
-                  {receipt.status === 'confirmed' && !receipt.txSignature.startsWith('devnet_sim') ? (
+                  {receipt.status === 'confirmed' && receipt.txSignature && !receipt.txSignature.startsWith('devnet_sim') ? (
                     <a
                       href={`https://explorer.solana.com/tx/${receipt.txSignature}?cluster=devnet`}
                       target="_blank"
