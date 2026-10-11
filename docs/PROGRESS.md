@@ -435,3 +435,46 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 - **ATAs (read-only):** `BdujRgRb…` (tSOL) and `HWC82t8f…` (tUSDC), owner `8R3V…`,
   both balance 0; unchanged.
 - **S2.3: READY FOR OPERATOR APPROVAL.** No transaction submitted.
+
+## Part 2 / Step 2 — S2.3B final preflight + approval gate (read-only, 2026-10-11)
+
+- **State verified (read-only):** HEAD `702e2f7`; program `2mwp…`; deployed ELF
+  **MATCH** (`9a05056e…`); `ARBSWAP_DEVNET_KEYPAIR` pubkey `8R3V…`;
+  `program_config` `J6MG…` admin `8R3V…` bump 253; tSOL/tUSDC mints supply 0,
+  dec 9/6, mint auth `8R3V…`, no freeze; operator ATAs `BdujRgRb…`/`HWC82t8f…`
+  balance 0. Derived vault/config/quote/bond PDAs **do not exist** → no vault
+  initialized, no tokens minted. All match the documented state.
+- **Fresh Oracle (Hermes):** SOL/USD `0xef0d…b56d`, price **109.42984378**, conf
+  **3.2346 bps**, publish_time `1791721871`, age 0 s. Valid (≤10 bps, ≤2 s).
+- **Frozen sizing:** pool base **4.000000000 tSOL** (4,000,000,000 atoms) / quote
+  **437.719375 tUSDC** (437,719,375 atoms). Float **1.000000000 tSOL** +
+  **109.429844 tUSDC**. **Aggregate mint = 5.000000000 tSOL (exactly the tSOL
+  cap, one call) and 547.149219 tUSDC (10.9% of the tUSDC cap, one call).**
+  First deposit: total_shares 1,323,207,277; user 1,323,206,277; min_liquidity
+  1,000 locked.
+- **Epoch decision (pending approval):** `epoch_slots = 216,000` ⇒ withdrawal
+  claim needs a ~24 h wait (request sets ticket.epoch = vault.epoch+1;
+  `crank_epoch` needs `now ≥ epoch_start + epoch_slots`; `claim_withdraw` needs
+  `ticket.epoch ≤ vault.epoch`). Recommended devnet value **1,500** (~10 min).
+  Warm-up stays 150 (~60 s). Not changed here.
+- **Minting:** `scripts/test_tokens.sh` fixed (cap enforced; `--mint-authority` +
+  explicit ATA). Commands prepared, not run:
+  `test_tokens.sh 76Xvqd… 5000000000 8R3V…` and
+  `test_tokens.sh q3xHxvx… 547149219 8R3V…`.
+- **`initialize_vault` manifest** (no CLI exists for custom params — execution
+  needs a purpose-built client; the `vault/e2e` builder is the reference):
+  accounts `admin, program_config, vault, config, quote_state, base_mint,
+  quote_mint, base_reserve, quote_reserve, share_mint, share_lock,
+  token_program, system_program, rent`; **signers = admin (8R3V) + 4 new
+  keypairs** `base_reserve`, `quote_reserve`, `share_mint`, `share_lock`
+  (random, not PDAs); PDAs `vault=[vault,base,quote]`, `config=[config,vault]`,
+  `quote_state=[quote,vault]`, `program_config=[program]`. Proposed InitParams
+  as in the S2.2 table (fee 1; 3333/3333/3334; min_liquidity 1000; warmup 150;
+  epoch 216000→**1500 recommended**; grace 2; expiry 10; staleness 2 s; conf 10;
+  anchor_step 50; spread_step 10; spread 1–50; max_quote_size 1e11; inventory
+  2000; utilization 5000; min_bond 0; cooldown 216000; slot_age 25; edge 216000/50;
+  anchor_dev 25; flow 216000/1000; offsets/weights frozen).
+- **`max_quote_size`:** raw input-token scalar; demo 0.02 tSOL passes both
+  directions (SellBase 2e7 atoms; BuyBase ≈2.19e6 atoms; both ≤1e11).
+- **Status: S2.3B: AWAITING OPERATOR APPROVAL.** No state-changing transaction
+  submitted.
