@@ -39,6 +39,7 @@ APY or return projection.
 | 18 | F5 high-volatility real windows | **PASS (honest: T-A.i not met)** | `simulation/sim/real_flow_study.py`; 2026-02-06 (3.79×σ_ref) and 2026-01-31 (2.44×σ_ref) | model output; T-A.i CI above zero on 0/5 days |
 | 19 | F4 retail spread diagnosis | **SUPPORTED (model output)** | `simulation/sim/diagnose.py` → `diagnosis.json`; dominant term volatility (~42%) | model output; router flaw fixed + regression |
 | 20 | F4(d) coefficient re-choice | **CLOSED-BY-DECISION (mechanical)** | `simulation/sim/rechoice.py`; no candidate satisfies PnL≥0 ∧ quiet HS≤B1 → frozen params retained | decision rule applied; Option 1 unchanged |
+| 21 | Dependency audit (frontend) | **WAIVED (dated)** | `frontend/audit-allowlist.json`; `scripts/frontend_audit_gate.mjs`; `docs/WEB_ASSUMPTIONS.md` | Dependency audit: high and critical findings are non-bundled, waived with dated reasons, reviewed monthly. |
 
 ## Commands
 
