@@ -472,3 +472,91 @@ and `4ERsYywncGeu8a3T8D4EkPhtnZki9BpcpHvig2aa8Xd9TWo2AMh7ks9oVTJCEBFE1nhzzKCkfBJ
 both `Status: Ok`. The `mint` step failed (`missing signature for supplied
 pubkey: 8R3V…`), so **no test tokens were minted** (balances remain 0). No further
 funding was attempted.
+
+# Part 2 / Step 2 — S2.3A: pool resized under the existing mint caps (2026-10-11)
+
+Read-only calculation checkpoint. All tokens are **TEST TOKEN, devnet**. No cap
+change, no mint, no vault init, no transaction.
+
+## Fresh oracle snapshot (Hermes, read-only)
+
+SOL/USD `0xef0d…b56d`; price **109.59998065** USD; confidence **2.7638 bps**
+(≤ max 10); publish_time `1791721366`, age 1 s (≤ max 2 s). Valid.
+
+## Caps (unchanged) and candidate evaluation
+
+Caps: **5 tSOL** (5,000,000,000 atoms) and **5,000 tUSDC** (5,000,000,000
+atoms). The binding cap is tSOL; a balanced pool needs only `base × price` quote.
+
+| base (tSOL) | quote (tUSDC) | quote atoms | quote ≤ cap | L1 ask base (depth 0.9) | half L1 |
+|---|---|---|---|---|---|
+| 3.0 | 328.7999 | 328,799,941 | yes (6.6% of cap) | 0.1350 tSOL | 0.0675 |
+| **4.0** | **438.3999** | **438,399,922** | **yes (8.8%)** | **0.1800 tSOL** | **0.0900** |
+| 5.0 (max) | 547.9999 | 547,999,903 | yes (11.0%) | 0.2250 tSOL | 0.1125 |
+
+Selected: **base 4.0 tSOL, quote 438.399922 tUSDC** — not the maximum, leaving
+**1.0 tSOL** of the 5 tSOL budget as tester/operator float. Reproduce:
+`scripts/pool_sizing.py --price 109.59998065 --base-tokens 4 --depth-bps 9000`.
+
+## Ladder capacities (selected pool, keeper depth throttle = 0.9, 9/6)
+
+| Level | weight_bps | ask base (tSOL) | ask quote (tUSDC) | bid base (tSOL) | bid quote (tUSDC) |
+|---|---|---|---|---|---|
+| 1 | 1,000 | 0.1800 | 19.7339 | 0.1801 | 19.7280 |
+| 2 | 1,500 | 0.2700 | 29.6083 | 0.2701 | 29.5920 |
+| 3 | 2,000 | 0.3600 | 39.4935 | 0.3603 | 39.4560 |
+| 4 | 2,000 | 0.3600 | 39.5231 | 0.3606 | 39.4560 |
+| 5 | 2,000 | 0.3600 | 39.5822 | 0.3612 | 39.4560 |
+| 6 | 1,500 | 0.2700 | 29.7754 | 0.2717 | 29.5920 |
+
+Totals: ask base 1.800 tSOL; bid quote 197.280 tUSDC. Level-1 human price
+`109.6329` ≈ oracle `109.59998` (diff = the 2 bps spread). Largest trade within
+level 1 = **0.1800 tSOL**; half = **0.0900 tSOL**.
+
+## Proposed demo trade (reduced)
+
+**Demo = 0.02 tSOL** (10× smaller than the infeasible 10 tSOL). At depth 0.9 it is
+**11.1% of level 1** and **22.2% of half-level-1**; it stays within half of
+level-1 while the keeper depth throttle ≥ ~0.2. `max_quote_size` (1e11) passes both
+directions (SellBase 0.02 tSOL = 2.0e7 atoms; BuyBase quote in ≈ 2.2e6 atoms).
+Flow cap (1,000 bps × base reserve) = **0.4 tSOL**; demo = 5% of it. Utilization
+(0.5) holds for the corrected ladder. Edge-loss: available value **876.80 tUSDC**,
+bound (50 bps) **4.38 tUSDC** (an honest fill earns the spread; no trip expected).
+
+Trade-size-to-depth: demo/base = **0.50%** vs the simulator B1 mean trade/depth
+**0.333%** (1.5×). Capacity checks do **not** prove execution quality.
+
+## First-deposit share expectation (integer program rule)
+
+`initialize_vault` then `deposit(base 4,000,000,000, quote 438,399,922)`:
+`total_shares = isqrt(dB·dQ) = 1,324,235,512`; **user shares = total − min_liquidity
+= 1,324,234,512**; `min_liquidity = 1,000` is minted **locked** to `share_lock` and
+counted in the supply. Not guaranteed until the exact on-chain arithmetic runs;
+stated as the predicted value under `min_liquidity = 1000`.
+
+## Warm-up / epoch precondition
+
+`deposit` sets `activate_slot = now + warmup_slots`; `request_withdraw` requires
+the warm-up elapsed (`WarmupNotElapsed` otherwise); `crank_epoch` requires
+`now ≥ epoch_start + epoch_slots`. With the proposed `warmup_slots = 150` (~60 s
+at 0.4 s/slot) the warm-up is fine, but `epoch_slots = 216,000` is **~1 day**, so
+the withdrawal smoke test (S2.4/S2.6c) would need a ~24 h wait unless the
+operator sets a shorter `epoch_slots` (e.g. 1,500 ≈ 10 min) for the devnet vault.
+This is an operational pre-condition for the checkpoint, not a strategy change.
+
+## State of the two accidentally created ATAs (read-only)
+
+| ATA | mint | owner | balance |
+|---|---|---|---|
+| `BdujRgRbCGyqm9GywN4mjhVZfhqdz4xR85LdDEzQPtJh` | tSOL `76Xvqd…` | `8R3V…` | 0 |
+| `HWC82t8f3sTh33xb3YVFpxETUgw8VERAFveWhmZ8zwxt` | tUSDC `q3xHxvx…` | `8R3V…` | 0 |
+
+Both confirmed from their creation signatures and read via `getAccountInfo`
+(jsonParsed). Empty; not closed or recreated.
+
+## Status
+
+The selected pool (4.0 tSOL / 438.399922 tUSDC) and demo (0.02 tSOL) fit the
+existing caps with headroom. **S2.3: READY FOR OPERATOR APPROVAL** — pending a
+decision on `epoch_slots` for the withdrawal smoke test. No transaction was
+submitted.

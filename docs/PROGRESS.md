@@ -415,3 +415,23 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   created two empty operator ATAs (tSOL/tUSDC) — sigs recorded in `docs/DEVNET.md`;
   the mint failed, so no tokens were minted.
 - **No vault initialization, no deposits, no keeper run, no swaps.**
+
+## Part 2 / Step 2 — S2.3A pool resize under the mint caps (read-only, 2026-10-11)
+
+- **Cap conflict resolved by resizing, not raising caps.** Fresh Hermes SOL/USD
+  `109.59998065` (conf 2.76 bps, age 1 s). Caps stay 5 tSOL / 5,000 tUSDC.
+- **Candidates evaluated** with `scripts/pool_sizing.py` (exact 9/6 formulas):
+  3/4/5 tSOL. **Selected base 4.0 tSOL, quote 438.399922 tUSDC** — 8.8% of the
+  quote cap, **1.0 tSOL budget reserved** for tester float.
+- **Ladder (depth 0.9):** level-1 ask 0.1800 tSOL / 19.7339 tUSDC; total ask
+  1.800 tSOL; bid total 197.280 tUSDC. **Demo reduced to 0.02 tSOL** (11.1% of
+  level 1, 22.2% of half) — the 10 tSOL demo is infeasible at this size.
+- **Other constraints:** `max_quote_size` 1e11 passes both directions; flow cap
+  0.4 tSOL; edge value 876.80 tUSDC / bound 4.38 tUSDC.
+- **First deposit:** predicted user shares 1,324,234,512 (total 1,324,235,512,
+  min_liquidity 1,000 locked).
+- **Precondition:** `epoch_slots = 216,000` (~1 day) makes the withdrawal smoke
+  test a ~24 h wait; operator should set a shorter epoch for the devnet vault.
+- **ATAs (read-only):** `BdujRgRb…` (tSOL) and `HWC82t8f…` (tUSDC), owner `8R3V…`,
+  both balance 0; unchanged.
+- **S2.3: READY FOR OPERATOR APPROVAL.** No transaction submitted.
