@@ -478,3 +478,26 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   directions (SellBase 2e7 atoms; BuyBase ≈2.19e6 atoms; both ≤1e11).
 - **Status: S2.3B: AWAITING OPERATOR APPROVAL.** No state-changing transaction
   submitted.
+
+## Part 2 / Step 2 — S2.3C vault-init client (dry-run) — on `integration`
+
+- **Added** `vault/keeper/src/init_vault.rs` + an `init-vault <config.json>
+  [--send]` subcommand (dry-run default) and
+  `scripts/devnet/init_vault.devnet.json`. The client builds `initialize_vault`
+  from the program's own `InitParams`/accounts types, derives PDAs from the
+  source seeds, generates the 4 non-PDA signer keypairs in memory, validates the
+  full configuration, and prints the plan.
+- **Verified** by dry-run (no submission): vault `52cNnsip…`, config
+  `HhBCf2Xo…`, quote `4mSBaDgu…`, program_config `J6MG…`; 14 accounts;
+  **5 signers**; data 356 bytes starting `30bfa32c47813fa4`
+  (`sha256("global:initialize_vault")[..8]`).
+- **Tests** (4 new, 36 total in the keeper): PDA derivation matches the
+  documented addresses; payload discriminator + 5 signer metas; invalid configs
+  rejected (mint equality, weights sum, utilization > 8000, spread order,
+  offsets, feed length); generated signers write nothing to disk.
+- **Trust note:** admin-gated creation, unique PDA retained; `min_bond = 0` is
+  the allowlist keeper (`config.keeper`), not an open bonded network; reward
+  claim stays gated to `config.keeper`. No protocol mechanism changed.
+- **No transaction submitted**; no mint/deposit/keeper. `epoch_slots = 1,500`
+  remains pending operator approval. Docs: `docs/DEVNET.md` §S2.3C.
+- **S2.3C: READY FOR OPERATOR REVIEW.**

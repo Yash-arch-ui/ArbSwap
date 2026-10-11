@@ -560,3 +560,76 @@ The selected pool (4.0 tSOL / 438.399922 tUSDC) and demo (0.02 tSOL) fit the
 existing caps with headroom. **S2.3: READY FOR OPERATOR APPROVAL** — pending a
 decision on `epoch_slots` for the withdrawal smoke test. No transaction was
 submitted.
+
+# Part 2 / Step 2 — S2.3C vault-initialization client (dry-run) — 2026-10-11
+
+A small operator client builds the one-time `initialize_vault` transaction from
+the program's own `InitParams`/accounts types, so the payload cannot drift from
+the on-chain ABI. **Dry-run is the default; `--send` is required to submit.**
+No transaction was submitted in this checkpoint. TEST TOKEN, devnet.
+
+## Files
+
+- `vault/keeper/src/init_vault.rs` — config schema, validation, PDA derivation,
+  instruction builder, plan.
+- `vault/keeper/src/main.rs` — `init-vault <config.json> [--send]` subcommand.
+- `scripts/devnet/init_vault.devnet.json` — the S2.2 configuration.
+- Tests in `init_vault.rs` (PDA derivation, discriminator, 5 signers, invalid
+  configs, generated signers touch no disk).
+
+## Usage
+
+```bash
+# dry-run (default): derive PDAs, build + inspect, do NOT submit
+cargo run -q -p arbswap-keeper -- init-vault scripts/devnet/init_vault.devnet.json
+
+# submit (only after operator approval; not run here)
+cargo run -q -p arbswap-keeper -- init-vault scripts/devnet/init_vault.devnet.json --send
+```
+
+## Dry-run output (2026-10-11)
+
+```
+program_id     2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm
+vault          52cNnsipn9R3P6Bcsf4vxSAM4k1gyyJpCoHcFyHCWCUK
+config         HhBCf2Xor5pgLBRP6SvkuiTL3G4j1i87hGNwx9GryZf8
+quote_state    4mSBaDguULxqxgr4riAtTxC4LjeXYVArNwCDvUT6hJtf
+program_config J6MGfX1YvGq6yCP3eAqzbugpF83CTaBcTLKcmrxmBSok
+signers        8R3V…, <base_reserve>, <quote_reserve>, <share_mint>, <share_lock>
+data (356 bytes) 30bfa32c47813fa4…   # sha256("global:initialize_vault")[..8]
+```
+
+Accounts (order): `admin(s,w), program_config, vault(w), config(w),
+quote_state(w), base_mint, quote_mint, base_reserve(s,w), quote_reserve(s,w),
+share_mint(s,w), share_lock(s,w), token_program, system_program, rent`.
+**Signers (5): admin + the 4 newly generated keypairs** (`base_reserve`,
+`quote_reserve`, `share_mint`, `share_lock`; generated in-memory, written nowhere
+in dry-run). PDAs derive from `[b"vault", base, quote]` etc.
+
+## Configuration (TEST TOKEN, devnet)
+
+Base tSOL `76Xvqd…` / quote tUSDC `q3xHxvx…`; keeper = treasury = `8R3V…`; Pyth
+SOL/USD feed `0xef0d…b56d`; fee 1 bps; split 3333/3333/3334; min_liquidity 1000;
+warmup 150; **epoch 1,500 (PROPOSED, pending operator approval)**; grace 2;
+expiry 10; staleness 2 s; conf 10 bps; anchor_step 50; spread_step 10; spread
+1–50; `max_quote_size` 1e11; inventory 2000; utilization 5000; `min_bond` 0;
+cooldown 216,000; slot_age 25; edge 216,000/50; anchor_dev 25; flow 216,000/1000;
+offsets `[2,5,10,20,40,80]`; weights `[1000,1500,2000,2000,2000,1500]`.
+
+## Trust assumptions (accurate, not "fully decentralized")
+
+- Vault creation is **admin-gated** (`program_config.admin == admin`); the unique
+  per-pair PDA is retained (`docs/DECENTRALIZATION_REVIEW.md`).
+- `min_bond = 0` means the **configured keeper** (`config.keeper = 8R3V…`) is the
+  only authorized quoter — this is the allowlist MVP, **not** an open bonded
+  keeper network.
+- `claim_keeper_reward` requires `keeper == config.keeper`; do **not** claim a
+  permissionless keeper-reward design until that is resolved and tested.
+- Timelock and emergency controls are unchanged.
+
+## Remaining prerequisites before `--send`
+
+1. Operator approval of the exact plan, including `epoch_slots` (1,500 proposed).
+2. Confirm `ARBSWAP_DEVNET_KEYPAIR`/admin is `8R3V…` and equals `program_config.admin`.
+3. Fund test tokens within the mint caps (S2.4 uses them after init).
+4. No vault exists yet (dry-run shows the PDAs are unused).

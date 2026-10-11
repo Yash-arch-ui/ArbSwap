@@ -445,6 +445,7 @@ dependencies = [
  "base64 0.22.1",
  "bs58",
  "pyth-solana-receiver-sdk",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",

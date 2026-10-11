@@ -32,6 +32,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_transaction::Transaction;
 
+pub mod init_vault;
+
 pub const LEVELS: usize = 6;
 pub const BPS: u128 = 10_000;
 pub const Q64: u128 = 1 << 64;

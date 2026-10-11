@@ -43,6 +43,7 @@ fn main() {
         ),
         Some("live") => live(args.collect()),
         Some("init-program") => init_program(args.collect()),
+        Some("init-vault") => init_vault_cmd(args.collect()),
         _ => {
             println!("arbswap-keeper replay <csv>");
             println!(
@@ -55,6 +56,7 @@ fn main() {
                  <feed_id_hex> [max_staleness_s] [max_conf_bps] \
                  [priority_micro_lamports_per_cu] [run_seconds] [max_vol_bps] [lvr_budget_bps]"
             );
+            println!("arbswap-keeper init-vault <config.json> [--send]   (dry-run by default)");
             println!("CSV: slot,publish_time,price_q64,confidence_bps,base_reserve,quote_reserve");
         }
     }
@@ -236,6 +238,78 @@ fn init_program(args: Vec<String>) {
     match rpc_send_transaction(&rpc_url, &transaction) {
         Some(sig) => println!("initialize_program sent; sig={sig} program_config={program_config}"),
         None => eprintln!("sendTransaction failed (already initialized?)"),
+    }
+}
+
+/// S2.3C: build (and only with `--send`, submit) the one-time `initialize_vault`.
+fn init_vault_cmd(args: Vec<String>) {
+    use arbswap_keeper::init_vault::{self, InitSigners};
+    use solana_message::Message;
+    use solana_transaction::Transaction;
+
+    let config_path = args
+        .first()
+        .cloned()
+        .unwrap_or_else(|| panic!("init-vault requires <config.json> [--send]"));
+    let do_send = args.iter().any(|a| a == "--send");
+
+    let file = init_vault::load_file(&config_path).expect("config file");
+    init_vault::validate(&file).expect("valid configuration");
+    let admin = init_vault::read_keypair(&file.admin_keypair).expect("admin keypair");
+    let base_reserve =
+        init_vault::load_or_generate(&file.signer_keypairs.base_reserve).expect("base_reserve");
+    let quote_reserve =
+        init_vault::load_or_generate(&file.signer_keypairs.quote_reserve).expect("quote_reserve");
+    let share_mint =
+        init_vault::load_or_generate(&file.signer_keypairs.share_mint).expect("share_mint");
+    let share_lock =
+        init_vault::load_or_generate(&file.signer_keypairs.share_lock).expect("share_lock");
+    let signers = InitSigners {
+        admin: admin.pubkey(),
+        base_reserve: base_reserve.pubkey(),
+        quote_reserve: quote_reserve.pubkey(),
+        share_mint: share_mint.pubkey(),
+        share_lock: share_lock.pubkey(),
+    };
+    let plan = init_vault::build_plan(&file, &signers).expect("plan");
+
+    println!("init-vault plan (TEST TOKEN, devnet)");
+    println!("  program_id     {}", plan.program_id);
+    println!("  vault          {}", plan.vault);
+    println!("  config         {}", plan.config);
+    println!("  quote_state    {}", plan.quote_state);
+    println!("  program_config {}", plan.program_config);
+    println!("  signers        {}", plan.signers.join(", "));
+    println!(
+        "  data ({} bytes) {}",
+        plan.data_hex.len() / 2,
+        plan.data_hex
+    );
+    for (name, pk, is_signer, is_writable) in &plan.accounts {
+        println!("  account {name:<14} {pk} signer={is_signer} writable={is_writable}");
+    }
+    if !do_send {
+        println!(
+            "DRY-RUN: instruction built and inspected; nothing submitted. Pass --send to submit."
+        );
+        return;
+    }
+    let (ix, _keys) = init_vault::build_instruction(&file, &signers).expect("instruction");
+    let blockhash = rpc_blockhash(&file.rpc_url).expect("blockhash");
+    let transaction = Transaction::new(
+        &[
+            &admin,
+            &base_reserve,
+            &quote_reserve,
+            &share_mint,
+            &share_lock,
+        ],
+        Message::new(&[ix], Some(&admin.pubkey())),
+        blockhash,
+    );
+    match rpc_send_transaction(&file.rpc_url, &transaction) {
+        Some(sig) => println!("initialize_vault submitted; sig={sig}"),
+        None => eprintln!("sendTransaction failed"),
     }
 }
 
