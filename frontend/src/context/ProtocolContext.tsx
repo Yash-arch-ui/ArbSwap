@@ -1,35 +1,51 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import type { QuoteState, VaultState, RiskBreakers, Token } from '../types/protocol';
-import { INITIAL_QUOTE_STATE, INITIAL_VAULT_STATE, INITIAL_RISK_BREAKERS, TOKENS } from '../data/mockData';
+import { PublicKey } from '@solana/web3.js';
+import type { QuoteState, QuoteLevel, VaultState, RiskBreakers, Token } from '../types/protocol';
+import { loadWalletBalances, loadShareBalance, ARBSWAP_CHAIN_CONFIG, BASE_MINT, QUOTE_MINT } from '../chain/solana';
+import { fetchProtocolState } from '../chain/program';
+import { toQuoteState, toVaultState, toRiskBreakers } from '../chain/live';
 import {
-  PROTOCOL_MANIFEST,
-  HEADLINE_METRICS,
-  INSTRUCTION_CU_LIST,
-  HELD_OUT_WINDOWS,
-  E8_PROXY_STATUS,
-  THESIS_DECISION,
-  type ProtocolManifest,
-  type HeadlineMetrics,
-  type InstructionCu,
-  type HeldOutWindow,
+  PROTOCOL_MANIFEST, HEADLINE_METRICS, INSTRUCTION_CU_LIST, HELD_OUT_WINDOWS,
+  E8_PROXY_STATUS, THESIS_DECISION,
+  type ProtocolManifest, type HeadlineMetrics, type InstructionCu, type HeldOutWindow,
 } from '../data/protocolArtifacts';
-import { fetchLiveDevnetState, loadWalletBalances, ARBSWAP_CHAIN_CONFIG } from '../chain/solana';
 
 export type MarketRegime = 'calm' | 'trend' | 'jump' | 'crash';
 
 export interface SwapRecord {
-  id: string;
-  timestamp: number;
-  inSymbol: 'SOL' | 'USDC';
-  outSymbol: 'SOL' | 'USDC';
-  inAmount: number;
-  outAmount: number;
-  price: number;
-  slot: number;
-  sig: string;
-  isSimulated: boolean;
+  id: string; timestamp: number;
+  inSymbol: 'SOL' | 'USDC'; outSymbol: 'SOL' | 'USDC';
+  inAmount: number; outAmount: number; price: number; slot: number; sig: string; isSimulated: boolean;
 }
+
+const EMPTY_LEVELS: QuoteLevel[] = Array.from({ length: 6 }, (_, i) => ({
+  level: i + 1, offsetBps: 0, weightBps: 0, capacityUsd: 0, bidPrice: 0, askPrice: 0,
+}));
+const EMPTY_QUOTE: QuoteState = {
+  version: 0, updateSlot: 0, currentSlot: 0, expirySlot: 0, oraclePrice: 0,
+  anchorSqrtPrice: '0', reservationPrice: 0, halfSpreadBps: 0, askExtraBps: 0,
+  bidExtraBps: 0, depthMultBps: 0, flowNetSold: 0, oraclePublishTime: 0,
+  oracleConfBps: 0, shortVolBps: 0, mediumVolBps: 0, recentMoveBps: 0,
+  levels: EMPTY_LEVELS, status: 'Expired',
+};
+const EMPTY_VAULT: VaultState = {
+  tvlUsd: 0, baseReserve: 0, quoteReserve: 0, totalShares: 0, userShares: 0,
+  userBaseEquivalent: 0, userQuoteEquivalent: 0, sharePriceUsd: 0, inventoryImbalanceQ: 0,
+  targetRatio: 0.5, currentRatio: 0.5, feeApy: 0, lvrAvoided7dUsd: 0, netHedgedApy: 0,
+  epoch: 0, epochSlotsRemaining: 0, status: 'Active', insuranceBufferUsd: 0,
+  keeperPoolUsd: 0, protocolFeesUsd: 0, warmupSlots: 0,
+};
+const EMPTY_RISK: RiskBreakers = {
+  oracleStalenessMaxSec: 0, oracleCurrentStalenessSec: 0, maxConfRatioBps: 0,
+  currentConfRatioBps: 0, maxAnchorStepBps: 0, maxSpreadBps: 0, minSpreadBps: 0,
+  maxInventorySkewBps: 0, currentInventorySkewBps: 0, circuitBreakerTripped: false,
+  activeBreakerReason: null, keeperBondActive: false, keeperActiveAddress: '',
+};
+const INITIAL_TOKENS: { SOL: Token; USDC: Token } = {
+  SOL: { symbol: 'tSOL', name: 'Test SOL (devnet)', mint: BASE_MINT.toBase58(), decimals: 9, logo: '', balance: 0, priceUsd: 0 },
+  USDC: { symbol: 'tUSDC', name: 'Test USDC (devnet)', mint: QUOTE_MINT.toBase58(), decimals: 6, logo: '', balance: 0, priceUsd: 1 },
+};
 
 interface ProtocolContextType {
   quoteState: QuoteState;
@@ -40,6 +56,8 @@ interface ProtocolContextType {
   walletAddress: string | null;
   currentRegime: MarketRegime;
   isLiveDevnet: boolean;
+  vaultInitialized: boolean;
+  liveError: string | null;
   balancesLoading: boolean;
   refreshBalances: () => Promise<void>;
   manifest: ProtocolManifest;
@@ -56,14 +74,9 @@ interface ProtocolContextType {
   tripManualBreaker: (reason: string) => void;
   resetBreaker: () => void;
   executeSwap: (params: {
-    side: 'buyBase' | 'sellBase';
-    inAmount: number;
-    outAmount: number;
-    inSymbol: 'SOL' | 'USDC';
-    outSymbol: 'SOL' | 'USDC';
-    price: number;
-    isSimulated: boolean;
-    txSignature?: string;
+    side: 'buyBase' | 'sellBase'; inAmount: number; outAmount: number;
+    inSymbol: 'SOL' | 'USDC'; outSymbol: 'SOL' | 'USDC'; price: number;
+    isSimulated: boolean; txSignature?: string;
   }) => Promise<{ txHash: string; slot: number }>;
 }
 
@@ -72,280 +85,112 @@ const ProtocolContext = createContext<ProtocolContextType | undefined>(undefined
 export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { connection } = useConnection();
   const { connected, publicKey, connect, disconnect } = useWallet();
-  const [quoteState, setQuoteState] = useState<QuoteState>(INITIAL_QUOTE_STATE);
-  const [vaultState, setVaultState] = useState<VaultState>(INITIAL_VAULT_STATE);
-  const [riskBreakers, setRiskBreakers] = useState<RiskBreakers>(INITIAL_RISK_BREAKERS);
-  const [tokens, setTokens] = useState(TOKENS);
+  const [quoteState, setQuoteState] = useState<QuoteState>(EMPTY_QUOTE);
+  const [vaultState, setVaultState] = useState<VaultState>(EMPTY_VAULT);
+  const [riskBreakers, setRiskBreakers] = useState<RiskBreakers>(EMPTY_RISK);
+  const [tokens, setTokens] = useState(INITIAL_TOKENS);
   const [currentRegime, setCurrentRegime] = useState<MarketRegime>('calm');
-  const [isLiveDevnet, setIsLiveDevnet] = useState<boolean>(false);
+  const [isLiveDevnet, setIsLiveDevnet] = useState(false);
+  const [vaultInitialized, setVaultInitialized] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
   const [recentSwaps, setRecentSwaps] = useState<SwapRecord[]>([]);
   const [balancesLoading, setBalancesLoading] = useState(false);
+  const shareMintRef = useRef<string | null>(null);
 
-  // ── Live wallet balances (SOL / USDC) ────────────────────────────────────────
   const refreshBalances = useCallback(async () => {
-    if (!publicKey) {
-      setTokens(TOKENS); // reset to defaults when disconnected
-      return;
-    }
+    if (!publicKey) { setTokens(INITIAL_TOKENS); return; }
     setBalancesLoading(true);
     try {
-      const { sol, wsol, usdc } = await loadWalletBalances(connection, publicKey);
-      void wsol; // wsol exposed via WSOL_MINT ATA when needed
+      const { base, quote } = await loadWalletBalances(connection, publicKey);
+      let userShares = 0;
+      if (shareMintRef.current) {
+        userShares = await loadShareBalance(connection, publicKey, new PublicKey(shareMintRef.current));
+      }
       setTokens((prev) => ({
-        SOL: { ...prev.SOL, balance: Number(sol.toFixed(4)) },
-        USDC: { ...prev.USDC, balance: Number(usdc.toFixed(2)) },
+        SOL: { ...prev.SOL, balance: Number(base.toFixed(4)) },
+        USDC: { ...prev.USDC, balance: Number(quote.toFixed(2)) },
       }));
+      setVaultState((prev) => ({ ...prev, userShares }));
     } catch {
-      // RPC hiccup — keep last known balances
+      // RPC hiccup: keep last known balances
     } finally {
       setBalancesLoading(false);
     }
   }, [connection, publicKey]);
 
-  useEffect(() => {
-    void refreshBalances();
-  }, [refreshBalances]);
-
-  // ── Poll Live Devnet On-chain State ────────────────────────────────────────
-  useEffect(() => {
-    let mounted = true;
-
-    async function syncDevnet() {
-      const live = await fetchLiveDevnetState();
-      if (!mounted) return;
-
-      if (live.isLive) {
-        setIsLiveDevnet(true);
-        if (Object.keys(live.quotePartial).length > 0) {
-          setQuoteState((prev) => ({
-            ...prev,
-            ...live.quotePartial,
-            currentSlot: live.slot,
-          }));
-        }
-        if (Object.keys(live.vaultPartial).length > 0) {
-          setVaultState((prev) => ({
-            ...prev,
-            ...live.vaultPartial,
-          }));
-        }
+  const refreshProtocol = useCallback(async () => {
+    try {
+      const [state, slot] = await Promise.all([
+        fetchProtocolState(connection),
+        connection.getSlot().catch(() => 0),
+      ]);
+      const now = Math.floor(Date.now() / 1000);
+      setVaultInitialized(state.exists);
+      setIsLiveDevnet(state.exists);
+      setLiveError(null);
+      if (state.vaultData) shareMintRef.current = state.vaultData.shareMint.toBase58();
+      const quote = toQuoteState(state, slot);
+      setQuoteState(quote);
+      setRiskBreakers(toRiskBreakers(state, now));
+      let userShares = 0;
+      if (publicKey && state.vaultData) {
+        userShares = await loadShareBalance(connection, publicKey, state.vaultData.shareMint);
       }
-    }
-
-    syncDevnet();
-    const timer = setInterval(syncDevnet, 4000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, []);
-
-  // ── Microstructure Tick Simulation (Slot & Volatility Rhythm) ──────────────
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setQuoteState((prev) => {
-        const nextSlot = prev.currentSlot + 1;
-        const isExpiring = nextSlot >= prev.expirySlot;
-
-        // Apply regime-specific behavior
-        let tickMultiplier = 0.04;
-        let skew = 0;
-        if (currentRegime === 'trend') {
-          tickMultiplier = 0.15;
-          skew = 0.08; // upward drift
-        } else if (currentRegime === 'jump') {
-          tickMultiplier = 0.45;
-          skew = -0.25; // sharp adverse move
-        } else if (currentRegime === 'crash') {
-          tickMultiplier = 0.85;
-          skew = -0.60;
-        }
-
-        const randomTick = (Math.random() - 0.49 + skew) * tickMultiplier;
-        const newOraclePrice = Number(Math.max(10, prev.oraclePrice + randomTick).toFixed(2));
-        const newResPrice = Number((newOraclePrice * (1 + 0.0002)).toFixed(2));
-
-        const autoRoll = nextSlot % 6 === 0;
-
-        return {
-          ...prev,
-          currentSlot: nextSlot,
-          oraclePrice: newOraclePrice,
-          reservationPrice: newResPrice,
-          oraclePublishTime: Math.floor(Date.now() / 1000),
-          status: isExpiring ? 'Aging' : 'Fresh',
-          ...(autoRoll ? {
-            version: prev.version + 1,
-            updateSlot: nextSlot,
-            expirySlot: nextSlot + 12,
-            status: 'Fresh',
-          } : {})
-        };
-      });
-
-      setRiskBreakers((prev) => ({
-        ...prev,
-        oracleCurrentStalenessSec: Number((0.2 + Math.random() * 0.4).toFixed(1)),
+      setVaultState(toVaultState(state, quote.oraclePrice, userShares));
+      setTokens((prev) => ({
+        SOL: { ...prev.SOL, priceUsd: quote.oraclePrice || prev.SOL.priceUsd },
+        USDC: { ...prev.USDC, priceUsd: 1 },
       }));
-    }, 450);
+    } catch (error) {
+      setLiveError((error as Error).message?.slice(0, 160) ?? 'RPC error');
+    }
+  }, [connection, publicKey]);
 
-    return () => clearInterval(interval);
-  }, [currentRegime]);
+  useEffect(() => {
+    void refreshProtocol();
+    const id = setInterval(() => { void refreshProtocol(); }, 6_000);
+    return () => clearInterval(id);
+  }, [refreshProtocol]);
 
-  // ── Interactive Regime Switcher (Step 4) ───────────────────────────────────
-  const setRegime = useCallback((regime: MarketRegime) => {
-    setCurrentRegime(regime);
-    setQuoteState((prev) => {
-      if (regime === 'calm') {
-        return {
-          ...prev,
-          halfSpreadBps: 1.8,
-          depthMultBps: 9200,
-          shortVolBps: 12.4,
-          mediumVolBps: 10.8,
-        };
-      } else if (regime === 'trend') {
-        return {
-          ...prev,
-          halfSpreadBps: 3.2,
-          depthMultBps: 7600,
-          shortVolBps: 24.8,
-          mediumVolBps: 18.2,
-        };
-      } else if (regime === 'jump') {
-        return {
-          ...prev,
-          halfSpreadBps: 8.5,
-          depthMultBps: 4200, // throttled depth protects LPs
-          shortVolBps: 58.2,
-          mediumVolBps: 32.0,
-          oraclePrice: Number((prev.oraclePrice * 1.018).toFixed(2)),
-        };
-      } else {
-        // crash
-        return {
-          ...prev,
-          halfSpreadBps: 18.0,
-          depthMultBps: 1800, // sharp capacity contraction
-          shortVolBps: 94.5,
-          mediumVolBps: 64.0,
-          oraclePrice: Number((prev.oraclePrice * 0.92).toFixed(2)),
-        };
-      }
-    });
-  }, []);
+  useEffect(() => { void refreshBalances(); }, [refreshBalances]);
 
-  const connectWallet = () => {
-    void connect().catch(() => undefined);
-  };
+  // Regime switcher is a display-only overlay on the live spread/depth readout.
+  const setRegime = useCallback((regime: MarketRegime) => setCurrentRegime(regime), []);
+  const connectWallet = () => { void connect().catch(() => undefined); };
+  const disconnectWallet = () => { void disconnect().catch(() => undefined); };
+  const tripManualBreaker = (reason: string) =>
+    setRiskBreakers((prev) => ({ ...prev, circuitBreakerTripped: true, activeBreakerReason: reason }));
+  const resetBreaker = () =>
+    setRiskBreakers((prev) => ({ ...prev, circuitBreakerTripped: false, activeBreakerReason: null }));
 
-  const disconnectWallet = () => {
-    void disconnect().catch(() => undefined);
-  };
-
-  const tripManualBreaker = (reason: string) => {
-    setRiskBreakers((prev) => ({
-      ...prev,
-      circuitBreakerTripped: true,
-      activeBreakerReason: reason,
-    }));
-  };
-
-  const resetBreaker = () => {
-    setRiskBreakers((prev) => ({
-      ...prev,
-      circuitBreakerTripped: false,
-      activeBreakerReason: null,
-    }));
-  };
-
-  const executeSwap = async (params: {
-    side: 'buyBase' | 'sellBase';
-    inAmount: number;
-    outAmount: number;
-    inSymbol: 'SOL' | 'USDC';
-    outSymbol: 'SOL' | 'USDC';
-    price: number;
-    isSimulated: boolean;
-    txSignature?: string;
+  const executeSwap = useCallback(async (params: {
+    side: 'buyBase' | 'sellBase'; inAmount: number; outAmount: number;
+    inSymbol: 'SOL' | 'USDC'; outSymbol: 'SOL' | 'USDC'; price: number;
+    isSimulated: boolean; txSignature?: string;
   }) => {
-    const { inAmount, outAmount, inSymbol, outSymbol, price, isSimulated, txSignature } = params;
-
-    // Deduct inAmount, add outAmount to local balances
-    setTokens((prev) => ({
-      ...prev,
-      [inSymbol]: {
-        ...prev[inSymbol],
-        balance: Math.max(0, Number((prev[inSymbol].balance - inAmount).toFixed(4))),
-      },
-      [outSymbol]: {
-        ...prev[outSymbol],
-        balance: Number((prev[outSymbol].balance + outAmount).toFixed(4)),
-      },
-    }));
-
-    // Update vault reserves slightly to simulate active inventory rebalancing
-    setVaultState((prev) => {
-      const isSellingSol = inSymbol === 'SOL';
-      return {
-        ...prev,
-        baseReserve: isSellingSol
-          ? Number((prev.baseReserve + inAmount).toFixed(4))
-          : Math.max(100, Number((prev.baseReserve - outAmount).toFixed(4))),
-        quoteReserve: isSellingSol
-          ? Math.max(100, Number((prev.quoteReserve - outAmount).toFixed(2)))
-          : Number((prev.quoteReserve + inAmount).toFixed(2)),
-      };
-    });
-
-    const txHash = txSignature || `devnet_sim_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+    const txHash = params.txSignature || `devnet_${Date.now().toString(36)}`;
     const slot = quoteState.currentSlot;
-
-    const record: SwapRecord = {
-      id: txHash,
-      timestamp: Date.now(),
-      inSymbol,
-      outSymbol,
-      inAmount,
-      outAmount,
-      price,
-      slot,
-      sig: txHash,
-      isSimulated,
-    };
-
-    setRecentSwaps((prev) => [record, ...prev.slice(0, 9)]);
-
+    setRecentSwaps((prev) => [{
+      id: txHash, timestamp: Date.now(), inSymbol: params.inSymbol, outSymbol: params.outSymbol,
+      inAmount: params.inAmount, outAmount: params.outAmount, price: params.price,
+      slot, sig: txHash, isSimulated: params.isSimulated,
+    }, ...prev.slice(0, 9)]);
+    await refreshBalances();
+    await refreshProtocol();
     return { txHash, slot };
-  };
+  }, [quoteState.currentSlot, refreshBalances, refreshProtocol]);
 
   return (
     <ProtocolContext.Provider
       value={{
-        quoteState,
-        vaultState,
-        riskBreakers,
-        tokens,
+        quoteState, vaultState, riskBreakers, tokens,
         walletConnected: connected,
         walletAddress: publicKey ? publicKey.toBase58() : null,
-        currentRegime,
-        isLiveDevnet,
-        balancesLoading,
-        refreshBalances,
-        manifest: PROTOCOL_MANIFEST,
-        headline: HEADLINE_METRICS,
-        instructionCu: INSTRUCTION_CU_LIST,
-        heldOutWindows: HELD_OUT_WINDOWS,
-        e8Proxy: E8_PROXY_STATUS,
-        thesisDecision: THESIS_DECISION,
-        chainConfig: ARBSWAP_CHAIN_CONFIG,
-        recentSwaps,
-        setRegime,
-        connectWallet,
-        disconnectWallet,
-        tripManualBreaker,
-        resetBreaker,
-        executeSwap,
+        currentRegime, isLiveDevnet, vaultInitialized, liveError, balancesLoading, refreshBalances,
+        manifest: PROTOCOL_MANIFEST, headline: HEADLINE_METRICS, instructionCu: INSTRUCTION_CU_LIST,
+        heldOutWindows: HELD_OUT_WINDOWS, e8Proxy: E8_PROXY_STATUS, thesisDecision: THESIS_DECISION,
+        chainConfig: ARBSWAP_CHAIN_CONFIG, recentSwaps,
+        setRegime, connectWallet, disconnectWallet, tripManualBreaker, resetBreaker, executeSwap,
       }}
     >
       {children}
@@ -355,8 +200,6 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
 export const useProtocol = () => {
   const context = useContext(ProtocolContext);
-  if (!context) {
-    throw new Error('useProtocol must be used within a ProtocolProvider');
-  }
+  if (!context) throw new Error('useProtocol must be used within a ProtocolProvider');
   return context;
 };

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { Transaction, TransactionInstruction, PublicKey } from '@solana/web3.js';
+import { solanaConnection, ARBSWAP_VAULT_PUBKEY } from '../chain/solana';
+import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, claimWithdraw as claimWithdrawOnChain, crankEpoch as crankEpochOnChain } from '../chain/program';
 import { useProtocol } from '../context/ProtocolContext';
-import { solanaConnection, ARBSWAP_VAULT_PUBKEY, loadShareBalance } from '../chain/solana';
 import type { WithdrawalTicket } from '../types/protocol';
 import './VaultPage.css';
 import './SwapPage.css';
@@ -36,8 +36,8 @@ function isWalletCancellation(err: unknown): boolean {
 }
 
 export const VaultPage: React.FC = () => {
-  const { vaultState, quoteState, tokens } = useProtocol();
-  const { connected, publicKey, sendTransaction } = useWallet();
+  const { vaultState, quoteState, tokens, vaultInitialized, refreshBalances } = useProtocol();
+  const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
 
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw'>('deposit');
@@ -51,26 +51,9 @@ export const VaultPage: React.FC = () => {
   const [receipt, setReceipt] = useState<VaultReceipt | null>(null);
 
   useEffect(() => {
-    if (!connected || !publicKey) {
-      setUserShares(null);
-      return;
-    }
-    let active = true;
-    setIsLoadingShares(true);
-    loadShareBalance(solanaConnection, publicKey)
-      .then((bal) => {
-        if (active) setUserShares(bal);
-      })
-      .catch(() => {
-        if (active) setUserShares(0);
-      })
-      .finally(() => {
-        if (active) setIsLoadingShares(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [connected, publicKey, receipt]);
+    setUserShares(connected ? vaultState.userShares : null);
+    setIsLoadingShares(false);
+  }, [connected, vaultState.userShares, receipt]);
 
   const solNum = parseFloat(depositSol) || 0;
   const usdcNum = parseFloat(depositUsdc) || 0;
@@ -92,29 +75,19 @@ export const VaultPage: React.FC = () => {
 
     if (connected && publicKey) {
       try {
-        // Broadcast on-chain Vault Deposit transaction to Solana Devnet via Memo/Instruction
-        const memoProgramId = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
-        const memoData = `ArbSwap:VaultDeposit:${solNum}SOL+${usdcNum}USDC:Shares~${estimatedShares}:Epoch${vaultState.epoch}`;
-
-        const memoIx = new TransactionInstruction({
-          keys: [{ pubkey: publicKey, isSigner: true, isWritable: true }],
-          programId: memoProgramId,
-          data: Buffer.from(memoData, 'utf-8'),
-        });
-
-        const tx = new Transaction().add(memoIx);
-        const { blockhash } = await solanaConnection.getLatestBlockhash('confirmed');
-        tx.recentBlockhash = blockhash;
-        tx.feePayer = publicKey;
-
-        const sig = await sendTransaction(tx, solanaConnection);
-        await solanaConnection.confirmTransaction(sig, 'confirmed');
-
+        if (!vaultInitialized) {
+          setReceipt({ type: 'deposit', txSignature: '', isConfirmed: false, isError: true, message: 'Vault not initialized on devnet — the tSOL/tUSDC vault has not been created yet.' });
+          return;
+        }
+        const baseAtoms = BigInt(Math.floor(solNum * 1e9));
+        const quoteAtoms = BigInt(Math.floor(usdcNum * 1e6));
+        const sig = await depositOnChain(solanaConnection, wallet, baseAtoms, quoteAtoms, 1n);
+        await refreshBalances();
         setReceipt({
           type: 'deposit',
           txSignature: sig,
           isConfirmed: true,
-          message: `Devnet Deposit Confirmed: Minted ~${estimatedShares.toLocaleString()} shares for ${solNum} SOL + $${usdcNum.toFixed(2)} USDC. Warm-up activation: 150 slots (~60s).`,
+          message: `Deposit confirmed on Solana devnet (${solNum} tSOL + ${usdcNum} tUSDC). Shares are subject to the warm-up period.`,
         });
       } catch (err: unknown) {
         console.warn('Vault deposit error:', err);
@@ -170,30 +143,19 @@ export const VaultPage: React.FC = () => {
 
     if (connected && publicKey) {
       try {
-        // Broadcast on-chain Vault Withdrawal queue request to Solana Devnet
-        const memoProgramId = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
-        const memoData = `ArbSwap:VaultWithdrawQueue:${newTicket.id}:${sharesToWithdraw}Shares:Epoch${vaultState.epoch + 1}`;
-
-        const memoIx = new TransactionInstruction({
-          keys: [{ pubkey: publicKey, isSigner: true, isWritable: true }],
-          programId: memoProgramId,
-          data: Buffer.from(memoData, 'utf-8'),
-        });
-
-        const tx = new Transaction().add(memoIx);
-        const { blockhash } = await solanaConnection.getLatestBlockhash('confirmed');
-        tx.recentBlockhash = blockhash;
-        tx.feePayer = publicKey;
-
-        const sig = await sendTransaction(tx, solanaConnection);
-        await solanaConnection.confirmTransaction(sig, 'confirmed');
-
+        if (!vaultInitialized) {
+          setReceipt({ type: 'withdraw', txSignature: '', isConfirmed: false, isError: true, message: 'Vault not initialized on devnet — nothing to withdraw from.' });
+          return;
+        }
+        const sharesAtoms = BigInt(Math.floor(sharesToWithdraw * 1e9));
+        const sig = await requestWithdrawOnChain(solanaConnection, wallet, sharesAtoms);
+        await refreshBalances();
         setTickets([newTicket, ...tickets]);
         setReceipt({
           type: 'withdraw',
           txSignature: sig,
           isConfirmed: true,
-          message: `Withdrawal ticket ${newTicket.id} queued on Devnet for Epoch ${vaultState.epoch + 1} (${withdrawEstSol.toFixed(2)} SOL + $${withdrawEstUsdc.toFixed(2)} USDC).`,
+          message: `Withdrawal requested on Solana devnet for Epoch ${vaultState.epoch + 1} (${sharesToWithdraw} shares).`,
         });
       } catch (err: unknown) {
         console.warn('Vault withdrawal error:', err);
@@ -229,6 +191,42 @@ export const VaultPage: React.FC = () => {
         });
         setIsSubmitting(false);
       }, 400);
+    }
+  };
+
+  const handleClaim = async () => {
+    if (!connected || !publicKey) { setVisible(true); return; }
+    setIsSubmitting(true);
+    setReceipt(null);
+    try {
+      if (!vaultInitialized) {
+        setReceipt({ type: 'withdraw', txSignature: '', isConfirmed: false, isError: true, message: 'Vault not initialized on devnet.' });
+        return;
+      }
+      const sig = await claimWithdrawOnChain(solanaConnection, wallet);
+      await refreshBalances();
+      setReceipt({ type: 'withdraw', txSignature: sig, isConfirmed: true, message: 'Claimed settled withdrawal on Solana devnet.' });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setReceipt({ type: 'withdraw', txSignature: '', isConfirmed: false, isError: true, message: `Claim failed: ${errMsg.slice(0, 100)}` });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCrank = async () => {
+    if (!connected || !publicKey) { setVisible(true); return; }
+    setIsSubmitting(true);
+    setReceipt(null);
+    try {
+      const sig = await crankEpochOnChain(solanaConnection, wallet);
+      await refreshBalances();
+      setReceipt({ type: 'withdraw', txSignature: sig, isConfirmed: true, message: 'Epoch cranked on Solana devnet.' });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setReceipt({ type: 'withdraw', txSignature: '', isConfirmed: false, isError: true, message: `Crank failed: ${errMsg.slice(0, 100)}` });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -418,6 +416,13 @@ export const VaultPage: React.FC = () => {
                   : connected 
                   ? 'Sign & Queue withdrawal on Devnet' 
                   : 'Queue withdrawal (Simulation)'}
+              </button>
+
+              <button type="button" className="uni-connect-sublink" onClick={handleCrank} disabled={isSubmitting}>
+                Crank epoch (permissionless)
+              </button>
+              <button type="button" className="uni-connect-sublink" onClick={handleClaim} disabled={isSubmitting}>
+                Claim settled withdrawal
               </button>
 
               {!connected && (

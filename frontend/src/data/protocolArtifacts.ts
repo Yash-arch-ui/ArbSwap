@@ -72,9 +72,9 @@ export const HEADLINE_METRICS: HeadlineMetrics = {
   targetHalfSpreadBps: headlineData.calibration.target_half_spread_bps,
   calibratedWindow: headlineData.calibration.window,
   routedVolumeShare: headlineData.routed_world.rows[0]?.volume_share ?? 0.0,
-  routedFillShare: headlineData.routed_world.rows[0]?.fill_share ?? 0.016,
-  routedMarkout2sBps: headlineData.routed_world.rows[0]?.markout_2s_bps ?? 1.99,
-  e1LvrReductionAvgPct: 627.6, // W2-W4 empirical average
+  routedFillShare: headlineData.routed_world.rows[0]?.fill_share ?? 0,
+  routedMarkout2sBps: headlineData.routed_world.rows[0]?.markout_2s_bps ?? 0,
+  e1LvrReductionAvgPct: 0, // not present in the committed bundle; no fabricated constant
 };
 
 export const INSTRUCTION_CU_LIST: InstructionCu[] = Object.entries(cuData.instructions).map(

@@ -1,16 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { Transaction, TransactionInstruction, PublicKey } from '@solana/web3.js';
 import { useProtocol, type MarketRegime } from '../context/ProtocolContext';
-import { 
-  buildSwapInstruction, 
-  getAssociatedTokenAddress,
-  solanaConnection, 
-  ARBSWAP_PROGRAM_ID, 
-  ARBSWAP_VAULT_PUBKEY,
-  ARBSWAP_BASE_MINT
-} from '../chain/solana';
+import { solanaConnection, ARBSWAP_PROGRAM_ID, ARBSWAP_VAULT_PUBKEY } from '../chain/solana';
+import { swap as swapOnChain } from '../chain/program';
 import './SwapPage.css';
 
 interface ExecutionReceipt {
@@ -53,9 +46,10 @@ export const SwapPage: React.FC = () => {
     currentRegime, 
     setRegime, 
     isLiveDevnet,
+    vaultInitialized,
     executeSwap 
   } = useProtocol();
-  const { connected, publicKey, sendTransaction } = useWallet();
+  const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
 
   const [inTokenSymbol, setInTokenSymbol] = useState<'SOL' | 'USDC'>('SOL');
@@ -143,63 +137,30 @@ export const SwapPage: React.FC = () => {
     setIsSwapping(true);
     setReceipt(null);
 
-    // If wallet is connected, broadcast a REAL on-chain transaction to Solana Devnet
     if (connected && publicKey) {
       try {
-        let sig: string;
-        let isAnchorFull = false;
-
-        // Check if user has initialized ArbSwap test token accounts on Devnet
-        const traderBaseAta = getAssociatedTokenAddress(ARBSWAP_BASE_MINT, publicKey);
-        const baseAtaInfo = await solanaConnection.getAccountInfo(traderBaseAta);
-
-        if (baseAtaInfo) {
-          // Direct Anchor contract execution
-          const ixData = buildSwapInstruction({
-            trader: publicKey,
-            side: isSellingSol ? 'sellBase' : 'buyBase',
-            amountInUnits: parsedInAmount * (isSellingSol ? 1e9 : 1e6),
-            minOutUnits: minOut * (isSellingSol ? 1e6 : 1e9),
-            minVersion: quoteState.version,
+        if (!vaultInitialized) {
+          setReceipt({
+            status: 'error',
+            errorMessage: 'Vault not initialized on devnet.',
+            note: 'The tSOL/tUSDC vault has not been created yet — no swaps can execute.',
           });
-
-          const tx = new Transaction().add({
-            programId: ixData.programId,
-            keys: ixData.keys,
-            data: ixData.data,
-          });
-
-          const { blockhash } = await solanaConnection.getLatestBlockhash('confirmed');
-          tx.recentBlockhash = blockhash;
-          tx.feePayer = publicKey;
-
-          sig = await sendTransaction(tx, solanaConnection);
-          isAnchorFull = true;
-        } else {
-          // Connected wallet has Devnet SOL but not ArbSwap mock tokens,
-          // so we broadcast an On-Chain Devnet Trade Execution Log via Solana Memo.
-          // This gives a 100% REAL confirmed transaction on Solana Devnet Explorer!
-          const memoProgramId = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
-          const memoContent = `ArbSwap Zero-Gap Execution: ${isSellingSol ? 'SellBase' : 'BuyBase'} ${parsedInAmount} ${inTokenSymbol} -> ${netOut.toFixed(4)} ${outTokenSymbol} @ $${effectivePrice.toFixed(4)} [Quote v${quoteState.version}, Slot ${quoteState.currentSlot}]`;
-
-          const memoIx = new TransactionInstruction({
-            keys: [{ pubkey: publicKey, isSigner: true, isWritable: true }],
-            programId: memoProgramId,
-            data: Buffer.from(memoContent, 'utf-8'),
-          });
-
-          const tx = new Transaction().add(memoIx);
-          const { blockhash } = await solanaConnection.getLatestBlockhash('confirmed');
-          tx.recentBlockhash = blockhash;
-          tx.feePayer = publicKey;
-
-          sig = await sendTransaction(tx, solanaConnection);
+          return;
         }
 
-        // Wait for confirmation on Devnet
-        await solanaConnection.confirmTransaction(sig, 'confirmed');
+        const side = isSellingSol
+          ? { sellBase: {} as Record<string, never> }
+          : { buyBase: {} as Record<string, never> };
+        const amountInAtoms = isSellingSol
+          ? BigInt(Math.floor(parsedInAmount * 1e9))
+          : BigInt(Math.floor(parsedInAmount * 1e6));
+        const minOutAtoms = isSellingSol
+          ? BigInt(Math.floor(minOut * 1e6))
+          : BigInt(Math.floor(minOut * 1e9));
 
-        // Update local app state
+        const sig = await swapOnChain(
+          solanaConnection, wallet, side, amountInAtoms, minOutAtoms, BigInt(quoteState.version));
+
         await executeSwap({
           side: isSellingSol ? 'sellBase' : 'buyBase',
           inAmount: parsedInAmount,
@@ -210,8 +171,6 @@ export const SwapPage: React.FC = () => {
           isSimulated: false,
           txSignature: sig,
         });
-
-        // Refresh live Devnet SOL balance
         await fetchWalletBalance();
 
         setReceipt({
@@ -223,24 +182,16 @@ export const SwapPage: React.FC = () => {
           inSymbol: inTokenSymbol,
           outSymbol: outTokenSymbol,
           slot: quoteState.currentSlot,
-          cuEstimate: isAnchorFull ? 59327 : 28400,
-          note: isAnchorFull ? 'Anchor Program Execution (CCR33k...)' : 'On-Chain Devnet Trade Proof (Confirmed on Solana Devnet)',
+          cuEstimate: 59327,
+          note: 'Confirmed on Solana devnet (on-chain swap against the live ladder).',
         });
       } catch (err: unknown) {
         console.warn('Devnet transaction error:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
-        
         if (isWalletCancellation(err)) {
-          setReceipt({
-            status: 'cancelled',
-            note: 'Transaction was cancelled in your wallet. No funds were transferred or spent.',
-          });
+          setReceipt({ status: 'cancelled', note: 'Transaction cancelled in your wallet. No funds moved.' });
         } else {
-          setReceipt({
-            status: 'error',
-            errorMessage: errMsg,
-            note: 'Devnet transaction failed. Check that your wallet has Devnet SOL for gas.',
-          });
+          setReceipt({ status: 'error', errorMessage: errMsg, note: 'On-chain swap failed.' });
         }
       } finally {
         setIsSwapping(false);
@@ -290,7 +241,7 @@ export const SwapPage: React.FC = () => {
     <div className="uni-swap-wrapper">
       <h1 className="uni-headline">Swap with active liquidity.</h1>
       <p className="uni-subheadline">
-        ArbSwap continuously reprices around the Pyth reference price with dynamic spreads. The price you are quoted is the price you get.
+        ArbSwap continuously reprices around the Pyth reference price with dynamic spreads.
       </p>
 
       {/* Interactive Scenario Switcher */}
@@ -298,7 +249,7 @@ export const SwapPage: React.FC = () => {
         <div className="scenario-meta">
           <span className="scenario-live-badge">
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: isLiveDevnet ? 'var(--uni-accent1)' : '#ffbf17' }} />
-            {isLiveDevnet ? 'Devnet Online' : 'Devnet Verified'}
+            {isLiveDevnet ? 'Devnet Online' : 'Vault not initialized'}
           </span>
           <span>Program: {ARBSWAP_PROGRAM_ID.toBase58().slice(0, 6)}...</span>
           <span>·</span>
