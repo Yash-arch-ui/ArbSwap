@@ -336,3 +336,31 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   `pytest` (203 passed / 2 skipped), docs-consistency, banned-word, secrets.
   Frontend: lint, `tsc`+vite build, `npm test` (3 passed), audit gate, bundle guard,
   bundle-freshness. No red gates.
+
+## Part 2 / Step 2 — S2.2 pool sizing + S2.3 preflight (read-only) — on `integration`
+
+- **Scope:** read-only sizing + preflight; **no state-changing transaction**.
+- **Inspected:** `simulation/data/results/frozen_params.json`; `vault/math/src/quote.rs`
+  (`Level::base_capacity`/`quote_capacity`/`liquidity_for_*`, `walk_ladder`);
+  `vault/keeper/src/lib.rs` (`compute_quote` 378-568, `available_reserves`,
+  `KeeperParams`); `vault/keeper/src/main.rs` (`single`/`live` price path);
+  `vault/program/src/lib.rs` (`InitializeVault`, `initialize_vault` 41-145,
+  update_quote capacity/utilization 687-760, swap caps 805-897, edge breaker
+  1015-1034); `docs/FORMULA.md`, `docs/ASSUMPTIONS.md`; LiteSVM test decimals.
+- **Commands (read-only):** `spl-token display <mint>` (x2) on devnet;
+  `scripts/devnet_program_hash.py`; Hermes `price/latest` (latest Pyth SOL/USD);
+  new `scripts/pool_sizing.py` (exact integer ladder mirror).
+- **Result:** proposed pool base 2,000 tSOL / quote 218,505.807 tUSDC; demo
+  10 tSOL ≤ half of level-1 (100 tSOL) at depth ≥ ~0.2; caps/window/edge checks
+  documented. Sizing table + full `InitParams` table + PDA/mint behaviour in
+  `docs/DEVNET.md`.
+- **Unresolved / blocker:** the keeper builds the ladder from the raw Pyth **USD**
+  price and applies `base_atom_scale` only to the inventory skew, so for a
+  9-decimal base / 6-decimal quote pool the ladder is mispriced by 10^3
+  (ask quote capacity 10,928,567.87 vs correct 10,928.57 tUSDC; bid base capacity
+  0.1000 vs correct 100.03 tSOL), and the on-chain edge `available_value` omits
+  `base_atom_scale`. Evidence + reproduction in `docs/DEVNET.md`. No protocol
+  formula changed here.
+- **S2.3: BLOCKED.** Unblock via (a) same-decimals test tokens, or (b) an
+  authorized keeper/program decimal fix with a regression test (reported
+  separately). Not proceeding to `initialize_vault`.
