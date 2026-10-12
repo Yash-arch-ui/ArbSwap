@@ -910,3 +910,41 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   quote); live quote/price display beyond `oraclePrice` from `QuoteState`; any
   keeper-health metric (not indexed). Deposit/withdraw/claim builders are wired
   but were not exercised on-chain in this step.
+
+## Part 3 / Step 10 — Final integration gap audit vs MasterPlan/BuilderPlan
+
+- Read-only audit produced: **`docs/FINAL_INTEGRATION_GAP_AUDIT.md`**. Canonical
+  plans = `MasterPlan.md` + `BuilderPlan.md` (`docs/BUILD_PLAN.md` is a duplicate;
+  no "TruQuote_*" files exist). Prior `docs/AUDIT_ACHIEVED_VS_PLAN.md` is
+  superseded by the B1 redeploy + oracle blocker.
+- Headline: app builds and is demonstrable against the funded canonical WSOL/USDC
+  vault; deposit is proven live; **live swaps are blocked** (QuoteState v0) by the
+  single external blocker — **entitled Pyth crypto-spot SOL/USD access**. Gates:
+  P1 PASS, P2 PARTIAL (post-B1 live swap/withdraw unproven), P3 BLOCKED EXTERNAL,
+  P4 PARTIAL, P5 PASS(sim), P6 PASS(caveat). No state-changing tx; no push.
+
+## Part 3 / Step 11 — Pyth entitlement recheck + app deposit integrity fix
+
+- **Swap blocker rechecked (read-only).** `.ENV` `PYTH_API_KEY` authenticates but
+  still returns `HTTP 403 Not entitled: feed ef0d8b6f… (no grant accepts this feed
+  (asset type 'crypto', instrument type 'spot'))`. Canonical vault `8yvFBv9…`
+  remains funded (`QuoteState.version = 0`). **No quote/swap/withdraw/claim tx was
+  submitted**; no CEX substitution, no constraint change.
+- **BLOCKED — PYTH ACCESS (unchanged).** Minimum action required: a Pyth
+  credential/grant entitled to the crypto-spot SOL/USD feed, or a fresh valid
+  `PriceUpdateV2` account. Until supplied, the live pipeline
+  (`update_quote → swap → withdraw → claim`) cannot be re-proven.
+- **App deposit integrity fixed** (independent of the oracle blocker):
+  - `app/src/chain/program.ts::deposit` now idempotently creates any missing
+    base/quote/share ATAs as pre-instructions in the same transaction (previously
+    it only checked and would fail for a fresh wallet).
+  - New pure `expectedDepositShares(...)` mirrors the program's integer share
+    math (`isqrt(base*quote) - min_liquidity` first deposit; min of the
+    proportional sides otherwise).
+  - `ProtocolContext` exposes raw `vaultAtoms`; `VaultPage` derives a conservative
+    integer `min_shares = expected * 99.5%` instead of the hardcoded `1n`.
+  - Tests: `app/test/integration.test.ts` +3 cases for `expectedDepositShares`.
+    App `yarn test` **19 passed**; `tsc -b` clean; `yarn build` OK.
+- Not done (still open): swap `min_out` is still a client float estimate (only
+  matters once a quote exists); no claim-withdraw UI; docs still describe the
+  legacy tSOL/tUSDC app in `docs/INTEGRATION.md`/`FULLGUIDE.md`.
