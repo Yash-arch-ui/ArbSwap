@@ -1401,3 +1401,55 @@ Authorized: one BuyBase swap on devnet, max 1.75 USDC. Executed and verified.
   remains **v18**.
 - **First live end-to-end swap proven** (deposit → staged quote → atomic commit →
   swap). One swap only; no withdrawals/claims/transfers.
+
+## Part 3 / Step 22 — S2-16A frontend root-cause fixes (zero price / stale oracle / zero balances)
+
+**Read-only task: no on-chain transactions were sent.**
+
+### Root causes (verified, not assumed)
+1. **Zero price / zero ladder / 0.00 bps spread** — a real bug in
+   `app/src/chain/live.ts`: `humanPriceFromSqrt` called `BN.muln(1e9 * DEC_SCALE)`
+   (= 1e12), but bn.js `muln` asserts the multiplier is `< 2^26`, so it **threw on
+   every present quote**. `ProtocolContext.refreshProtocol` caught the throw and
+   left the empty (zero) quote state, so the UI rendered `$0.00` and a zero book.
+   Proven: the constant throws `Assertion failed`; the fix computes
+   **107.0896 USDC/SOL** from the real on-chain `anchorSqrtPrice`
+   `6036613448307627517`.
+2. **"no fresh Pyth quote"** — the keeper is **not running**, so the last
+   committed quote (v18, expiry 510407830) is expired (now > 510410000). The
+   deployed expiry is 10 slots (~4 s) while the app polled every 8 s, so even a
+   healthy keeper would usually be observed expired. Expected fail-closed
+   behaviour, but the UI presented it as misleading zeros (fixed below).
+3. **Zero wallet balances** — the app reads the **connected** wallet's ATAs
+   correctly (`loadWalletBalances` → `getParsedTokenAccountsByOwner`). Independently
+   verified the funded trader `8R3V…` holds **0.016290295 WSOL (ATA
+   `5MpRjKv…eCnJ`) and 2.25 USDC (ATA `5SThVCCb…VzgV`)**; a browser wallet is not
+   `8R3V` (its key is in `~/.config/solana/id.json`, not in Phantom), so zeros are
+   the connected wallet's real balances, not a read bug.
+
+### Fixes
+- `chain/live.ts`: `humanPriceFromSqrt` uses `mul(new BN(scale))` (never `muln`);
+  added `hasQuote` and an explicit `Unavailable` status distinct from `Expired`.
+- `types/protocol.ts` + `ProtocolContext.tsx`: `hasQuote` field; empty state is
+  `Unavailable`, not `Expired` with zeros.
+- `SwapPage.tsx`: when `!hasQuote` the book renders an explicit **"Quote
+  unavailable"** panel (no zero rows/spread); when stale it shows version/expiry/
+  current slot; chain-read errors surface a banner; the connected wallet address
+  is shown and balances read "connect wallet" when disconnected. Bars guard
+  divide-by-zero. Poll tightened from 8 s to 4 s (matches the 10-slot expiry; no
+  added RPC chatter).
+- `scripts/devnet/keeper_loop.sh` (added, **not run here**): continuously re-runs
+  the staged-quote driver so a Fresh quote is almost always observable.
+
+### Tests / checks
+- `yarn test` **29 passed** (added quote-availability/expired/fresh + zero-fallback
+  tests); `yarn build` (tsc+vite) green; `yarn lint` clean.
+- Independent on-chain reads: vault v18 expired; reserves 0.313621726 WSOL +
+  37.75 USDC; trader `8R3V…` 0.016290295 WSOL / 2.25 USDC — all consistent.
+- `simulation/analytics/tests/test_onchain.py` 10 passed (S2-16 backend, also in
+  the tree).
+
+### Remaining
+- A live keeper must be run by the operator (`keeper_loop.sh`) for the app to
+  show a Fresh quote — that requires on-chain quote transactions, which this
+  read-only task does not authorize. Public devnet RPC 429s also delay refresh.
