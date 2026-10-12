@@ -95,5 +95,22 @@ async function main() {
     tx_size_bytes: tx.serialize().length, simulation_err: sim.value.err,
     logs_tail: sim.value.logs?.slice(-6) ?? [],
   }, null, 2));
+
+  if (process.env.SEND === "1") {
+    if (sim.value.err) throw new Error("simulation failed; refusing to send");
+    const sig = await c.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: "processed" });
+    const latest = await c.getLatestBlockhash("confirmed");
+    const conf = await c.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }, "confirmed");
+    const postBase = await c.getTokenAccountBalance(BASE_RESERVE, "confirmed");
+    const postQuote = await c.getTokenAccountBalance(QUOTE_RESERVE, "confirmed");
+    const postShare = await c.getTokenAccountBalance(USER_SHARE, "confirmed");
+    const postUserQuote = await c.getTokenAccountBalance(USER_USDC, "confirmed");
+    console.log(JSON.stringify({
+      sent: true, signature: sig, confirm_err: conf.value.err,
+      post_vault_base: postBase.value.amount, post_vault_quote: postQuote.value.amount,
+      post_user_shares: postShare.value.amount, post_user_usdc: postUserQuote.value.amount,
+      wallet_sol_after: (await c.getBalance(user.publicKey, "confirmed")) / 1e9,
+    }, null, 2));
+  }
 }
 main().catch((e) => { console.error(e); process.exit(1); });

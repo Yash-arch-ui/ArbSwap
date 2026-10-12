@@ -57,44 +57,72 @@ const TRADER_WSOL = new PublicKey("5MpRjKvzgW5C7x8sbam4KgA5KGkGyTKNCXarbqZceCnJ"
 const TRADER_USDC = new PublicKey("5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV");
 const TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
-// Read-only swap preflight: builds a BuyBase swap against the just-committed
-// quote and SIMULATES it (never sends). Runs inside the keeper loop so the quote
-// is still within its (10-slot) expiry window.
+// Read-only BuyBase swap preflight: builds each candidate against the
+// just-committed quote and SIMULATES it (never sends). Runs inside the keeper
+// loop so the quote is still within its (10-slot) expiry window. For each amount
+// it first simulates with min_out=0 to read the exact `SwapEvent.amount_out`,
+// then re-simulates with a 0.5% floor to prove the intended min_out passes.
 async function simulateSwap(connection: Connection, trader: Keypair, qsData: Buffer): Promise<void> {
   const cfg = (await connection.getAccountInfo(CONFIG, "processed"))!.data;
   const feeBps = cfg.readUInt16LE(136);
   const version = qsData.readBigUInt64LE(8);
   const expiry = qsData.readBigUInt64LE(24);
   const pResSqrt = qsData.readBigUInt64LE(48) | (qsData.readBigUInt64LE(56) << 64n);
-  const amountIn = 500_000n; // 0.5 USDC atoms
-  const fee = (amountIn * BigInt(feeBps) + 9999n) / 10000n;
-  const netIn = amountIn - fee;
   const priceQ64 = (pResSqrt * pResSqrt) / (1n << 64n);
-  const expectedOut = (netIn * (1n << 64n)) / priceQ64; // BuyBase
-  const minOut = (expectedOut * 9950n) / 10000n; // 0.5% slippage floor
-  const data = Buffer.concat([disc("swap"), Buffer.from([0]), u64le(amountIn), u64le(minOut), u64le(version)]);
-  const ix = new TransactionInstruction({
-    programId: PROGRAM,
-    data,
-    keys: [
-      meta(trader.publicKey, true, true), meta(VAULT, true), meta(CONFIG), meta(QUOTE_STATE, true),
-      meta(BASE_RESERVE, true), meta(QUOTE_RESERVE, true), meta(TRADER_WSOL, true), meta(TRADER_USDC, true), meta(TOKEN),
-    ],
-  });
-  const { blockhash } = await connection.getLatestBlockhash("processed");
-  const tx = new Transaction({ feePayer: trader.publicKey, recentBlockhash: blockhash });
-  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }));
-  tx.add(ix);
-  tx.sign(trader);
-  const sim = await connection.simulateTransaction(tx);
-  console.log(JSON.stringify({
-    swap_preflight: {
-      side: "buyBase", amount_in_atoms: amountIn.toString(), fee_bps: feeBps, fee_atoms: fee.toString(),
-      net_in_atoms: netIn.toString(), expected_out_atoms: expectedOut.toString(), min_out_atoms: minOut.toString(),
-      quote_version: version.toString(), quote_expiry_slot: expiry.toString(), tx_size_bytes: tx.serialize().length,
-      simulation_err: sim.value.err, logs_tail: sim.value.logs?.slice(-6) ?? [],
-    },
-  }));
+  const amounts = (process.env.SWAP_ATOMS ?? "500000,1000000,2000000,3000000,3500000,3600000,4000000")
+    .split(",").map((s) => BigInt(s.trim()));
+
+  const simulate = async (amountIn: bigint, minOut: bigint) => {
+    const data = Buffer.concat([disc("swap"), Buffer.from([0]), u64le(amountIn), u64le(minOut), u64le(version)]);
+    const ix = new TransactionInstruction({
+      programId: PROGRAM,
+      data,
+      keys: [
+        meta(trader.publicKey, true, true), meta(VAULT, true), meta(CONFIG), meta(QUOTE_STATE, true),
+        meta(BASE_RESERVE, true), meta(QUOTE_RESERVE, true), meta(TRADER_WSOL, true), meta(TRADER_USDC, true), meta(TOKEN),
+      ],
+    });
+    const { blockhash } = await connection.getLatestBlockhash("processed");
+    const tx = new Transaction({ feePayer: trader.publicKey, recentBlockhash: blockhash });
+    tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }));
+    tx.add(ix);
+    tx.sign(trader);
+    const sim = await connection.simulateTransaction(tx);
+    return { err: sim.value.err, logs: sim.value.logs, size: tx.serialize().length };
+  };
+
+  const results: any[] = [];
+  for (const amountIn of amounts) {
+    const fee = (amountIn * BigInt(feeBps) + 9999n) / 10000n;
+    const first = await simulate(amountIn, 0n);
+    let eventOut: bigint | null = null;
+    const evDisc = createHash("sha256").update("event:SwapEvent").digest().subarray(0, 8);
+    for (const line of first.logs ?? []) {
+      const m = line.match(/^Program data: (.+)$/);
+      if (!m) continue;
+      const raw = Buffer.from(m[1], "base64");
+      if (raw.length >= 49 && raw.subarray(0, 8).equals(evDisc)) {
+        eventOut = raw.readBigUInt64LE(33);
+      }
+    }
+    results.push({
+      amount_in_atoms: amountIn.toString(), amount_in_usdc: Number(amountIn) / 1e6,
+      fee_atoms: fee.toString(), net_in_atoms: (amountIn - fee).toString(),
+      event_out_atoms: eventOut === null ? null : eventOut.toString(),
+      event_out_sol: eventOut === null ? null : Number(eventOut) / 1e9,
+      sim_err: first.err, tx_size_bytes: first.size,
+    });
+  }
+  const passing = results.filter((r) => r.sim_err === null && r.event_out_atoms !== null);
+  passing.sort((a, b) => Number(BigInt(b.amount_in_atoms) - BigInt(a.amount_in_atoms)));
+  let confirm: any = null;
+  if (passing.length > 0) {
+    const best = passing[0];
+    const floor = (BigInt(best.event_out_atoms) * 9950n) / 10000n;
+    const second = await simulate(BigInt(best.amount_in_atoms), floor);
+    confirm = { amount_in_atoms: best.amount_in_atoms, min_out_atoms: floor.toString(), sim_err: second.err, tx_size_bytes: second.size };
+  }
+  console.log(JSON.stringify({ buybase_preflight: { side: "buyBase", fee_bps: feeBps, quote_version: version.toString(), quote_expiry_slot: expiry.toString(), candidates: results, best_with_min_out: confirm } }));
 }
 
 function priceQ64(price: string, expo: number): bigint {
@@ -151,12 +179,19 @@ async function main() {
     const q64 = priceQ64(String(parsed.price), parsed.expo);
     console.log(`attempt=${attempt} publish_time=${publishTime} age_ms=${Date.now() - publishTime * 1000} slot=${slot} price_q64=${q64} conf_bps=${conf}`);
 
-    // 2. Quote engine.
-    const out = execFileSync(KEEPER_BIN, [
-      "quote-json", q64.toString(), baseAvail.toString(), quoteAvail.toString(),
-      "0", String(baseDec), String(quoteDec), String(publishTime), String(slot), String(conf),
-    ], { encoding: "utf8" });
-    const quote = JSON.parse(out);
+    // 2. Quote engine. Returns no quote (non-zero exit) when its own depth
+    // throttle fails closed (e.g. confidence at the cap); skip and retry.
+    let quote: any;
+    try {
+      const out = execFileSync(KEEPER_BIN, [
+        "quote-json", q64.toString(), baseAvail.toString(), quoteAvail.toString(),
+        "0", String(baseDec), String(quoteDec), String(publishTime), String(slot), String(conf),
+      ], { encoding: "utf8" });
+      quote = JSON.parse(out);
+    } catch {
+      console.error(`attempt=${attempt} quote engine returned no quote (conf_bps=${conf}); skipping`);
+      continue;
+    }
     const body = Buffer.from(quote.body_hex, "hex");
     if (body.length !== 692) throw new Error(`unexpected quote body length ${body.length}`);
     const oraclePublishTime = BigInt(quote.oracle_publish_time);

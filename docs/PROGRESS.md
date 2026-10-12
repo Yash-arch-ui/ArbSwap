@@ -1323,3 +1323,48 @@ Awaiting approval to (a) request 20 USDC from the Circle faucet to
 `5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV`, and (b) execute the approved
 matched deposit. The 0.5 SOL target needs a further ~560 USDC. No swap until a
 separate approval.
+
+## Part 3 / Step 20 — S2-14 faucet verified, liquidity deposit EXECUTED, largest-safe swap simulated
+
+### Phase 1 — faucet verified
+- Trader USDC ATA `5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV` held **21,000,000
+  atoms (21 USDC)**, mint canonical Circle devnet USDC
+  `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (verified via the token account,
+  not just a confirmation). Program hash **MATCH**; wallet 12.013 SOL; WSOL 0.
+
+### Phase 2/3 — deposit executed
+- Exact deposit: `deposit(base=155,791,789 WSOL atoms, quote=17,000,000 USDC
+  atoms, min_shares=51,205,878)`, wrapping `155,791,787` lamports into the WSOL
+  ATA in the same tx; pre-simulated (err null, 660 B), then submitted.
+- **Signature
+  `N6XoMGrpp84wCQvCvqsLV89wnwhmQjvLNRcc4nwwimXHAuniLCupZaJzCPoSfPst83c4Rk9ErXUnkUsQ7PX3voq`
+  slot 510405556** (err null, 29,883 CU). Explorer:
+  https://explorer.solana.com/tx/N6XoMGrpp84wCQvCvqsLV89wnwhmQjvLNRcc4nwwimXHAuniLCupZaJzCPoSfPst83c4Rk9ErXUnkUsQ7PX3voq?cluster=devnet
+
+### Phase 4 — verified result
+- Vault reserves: `174,120,234 → 329,912,021` WSOL atoms (**0.329912021 SOL**) and
+  `19,000,000 → 36,000,000` USDC atoms (**36.00 USDC**).
+- `total_shares 57,517,688 → 108,980,882`; owner shares `57,516,688 →
+  108,979,882` (**+51,463,194 minted**).
+- Deposit ticket `GRMJsv…`: owner `8R3V…`, shares 51,463,194, `activate_slot
+  510405706` (≈150-slot warm-up; ~92 slots remaining at read time). Liquidity is
+  immediately in the reserves (warm-up gates withdrawal, not quoting).
+- Wallet after: 11.857476247 SOL; trader USDC ATA **4,000,000 atoms (4 USDC)**
+  retained.
+- New `flow_cap` = 10% of base = **32,991,202 atoms = 0.032991202 SOL**.
+
+### Phase 5 — fresh quote + largest-safe BuyBase (SIMULATION ONLY; NOT EXECUTED)
+- Fresh staged quote committed: **version 17**, update_slot 510406858 region,
+  expiry 510406858 (push+commit
+  `5dXAEYeuYipV8SZRJadpUcy3w6FB34wJW27uVjbiSd7XqPXcdMbwcH7t5m17PA7eF4eW8SMW6XJjPqwXJK94YBCR`).
+- Note: Pyth confidence oscillates 9–10 bps; the keeper's depth throttle zeroes
+  depth at the 10-bps cap, so quotes only land at conf ≤ 9, where the throttled
+  ladder (not the 10% flow cap) becomes the binding limit.
+- BuyBase sweep on quote v17: **1.80 USDC → `CapacityExceeded` (6033); 1.75 USDC
+  PASSES**. Selected candidate:
+  - input **1,750,000 USDC atoms (1.75 USDC)**; fee 175 atoms (1 bps); net in
+    1,749,825
+  - **expected out 16,297,930 WSOL atoms (0.01629793 SOL)**; `min_out
+    16,216,440` (0.5% floor) → re-simulated **err null**
+  - quote version 17; swap tx size **507 B**
+  - **SIMULATION ONLY; NOT EXECUTED** (no swap submitted)
