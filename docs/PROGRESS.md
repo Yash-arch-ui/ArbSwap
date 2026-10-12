@@ -1236,3 +1236,49 @@ Awaiting separate explicit approval for the exact BuyBase swap (0.5 USDC,
 `min_out` 4606069, version ≥ 11). P1–P6 unchanged: P1 PASS · P2 PARTIAL (live
 quote proven; swap/withdraw/claim unproven) · P3 PASS · P4 PARTIAL · P5
 PASS(sim) · P6 PASS(caveat).
+
+## Part 3 / Step 18 — S2-13 liquidity expansion + large-swap qualification
+
+**Stopped at the funding gate (step 3). No deposit or swap submitted.**
+
+### Initial on-chain state (devnet, processed)
+- Program `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`; deployed ELF sha256
+  `51844eb4ae0ff43808d2cb00b100807fb81312a926c856a17a11a7dc6bafbd33` → **MATCH**.
+- Vault reserves `174120234` WSOL atoms (**0.174120234 SOL**) + `19000000` USDC
+  atoms (**19.00 USDC**); ratio **109.12 USDC/SOL**, price ≈ 107.999 USDC/SOL.
+- total_shares 57,517,688 (1,000 locked); buckets all 0; status **Active** (0).
+- Config: fee 1 bps; util 50%; `max_quote_size` 1e11; `expiry_slots` 10;
+  `flow_window_slots` 216000; `max_window_flow_bps` **1000 (10%)**.
+- Wallet `8R3V…`: **12.013273034 SOL**, 0 WSOL, **1,000,000 USDC atoms (1 USDC)**,
+  57,516,688 SHARE. Existing deposit ticket `GRMJsv…`, warm-up long elapsed.
+- QuoteState **v11** update_slot 510396066, **expired** (expiry 510396088 < slot
+  510400697).
+- **The 0.5 USDC swap was never executed** — WSOL ATA still 0 and USDC ATA still
+  1,000,000 (only simulated in S2-12/Step 17).
+
+### Sizing (integer math; binding limit = `flow_cap = 10% of base_reserve`)
+- current max one-sided swap: BuyBase in ≤ ~1.8807 USDC → 0.017412023 SOL out;
+  SellBase in ≤ 0.017412023 SOL → ~1.8805 USDC out.
+- Matched (proportional) deposits required for materially larger flow:
+  | target flow | deposit SOL | deposit USDC | deficit vs 1 USDC |
+  |---|---|---|---|
+  | 0.10 SOL | +0.825880 | +90.12 | ~89.12 |
+  | 0.50 SOL | +4.825880 | +526.60 | ~525.60 |
+  | 1.00 SOL | +9.825880 | +1072.20 | ~1071.20 |
+- **Limiting factor: USDC.** With today's 1 USDC the max matched deposit is
+  `+0.009164222 SOL + 1 USDC`.
+
+### Deposit proposal A (available funds) — SIMULATED, awaiting approval
+- WSOL `9164222` atoms (0.009164222 SOL) + USDC `1000000` atoms (1.00 USDC)
+- wraps `9164221` lamports into the WSOL ATA in the same tx; deposit args
+  `(base=9164222, quote=1000000, min_shares=3012109)`; expected shares
+  **3,027,246**
+- post reserves `183284455` WSOL + `20000000` USDC; ticket warm-up 150 slots
+- tx size **660 B**, `simulateTransaction` **err null** (DepositEvent emitted)
+- This only lifts `flow_cap` to 0.018328 SOL — **not** a materially larger test.
+
+### Boundary
+Awaiting operator decision: (A) approve deposit A as-is, or (B) authorize the
+USDC required for a larger matched deposit (deficit above). No swap will be
+submitted; the largest admissible swap will be preflighted and returned for a
+separate approval. P1–P6 unchanged.
