@@ -535,3 +535,68 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   a stale artifact fails at `common/mod.rs` with the explicit stale message.
 - **No protocol, formula, dependency or account-layout change.** No devnet
   transaction; no mint/deposit/keeper/swap.
+
+## Part 3 / Step 2 — devnet preflight + vault initialization (backend readiness) — on `main`
+
+- **Branch note:** operator overrode the task text ("work on `integration`") with
+  "work on `origin/main` always". Work was done on local `main`, fast-forwarded to
+  `origin/main` at commit `bec934b` (identical to the `integration` tip at the
+  time). The pre-existing working-tree changes (`docs/INTEGRATION.md` modified,
+  `FULLGUIDE.md` untracked) were preserved and are **not** part of this commit.
+- **Artifact fix present:** `git merge-base --is-ancestor 7c5a7dd HEAD` → yes.
+- **Preflight (read-only, devnet):**
+  - `declare_id!`, `Anchor.toml` (devnet/localnet) and `app/src/idl/arbswap.json`
+    all agree on `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`.
+  - `solana program show` → owner `BPFLoaderUpgradeab1e…`, ProgramData
+    `4156VC8V…`, authority `ddGs6hk5…`, 688616 bytes, last slot 509857799.
+  - `scripts/devnet_program_hash.py` on the documented `cargo build-sbf` artifact
+    → **MATCH** (on-chain and local sha256 `9a05056e…`, 688616 bytes).
+  - `program_config` `J6MGfX1YvGq6yCP3eAqzbugpF83CTaBcTLKcmrxmBSok` exists
+    (owner = program, 41 bytes); decoded admin = `8R3VDePS…`. **`initialize_program`
+    not re-run.**
+  - tSOL `76Xvqd…` = classic SPL, 9 decimals, mint authority `8R3V…`, no freeze;
+    tUSDC `q3xHxvx…` = classic SPL, 6 decimals, mint authority `8R3V…`, no freeze.
+    Both supply 0.
+  - Derived PDAs (match `docs/DEVNET.md` dry-run): vault
+    `52cNnsipn9R3P6Bcsf4vxSAM4k1gyyJpCoHcFyHCWCUK`, config
+    `HhBCf2Xor5pgLBRP6SvkuiTL3G4j1i87hGNwx9GryZf8`, quote_state
+    `4mSBaDguULxqxgr4riAtTxC4LjeXYVArNwCDvUT6hJtf`, bond
+    `GdW8UTEy1VHJFrk1as6kK5QbCriiswWXBEsuuatE5C1V`. All **absent** before init.
+  - Operator balances: admin `8R3V…` 3.01 SOL; authority `ddGs…` 0.49 SOL.
+- **Init-vault dry run:** built a valid 14-account instruction, 5 signers (admin +
+  4 generated in-memory), data 356 bytes `30bfa32c47813fa4…`. Nothing submitted.
+- **Initialization (authorized, devnet test tokens):** first `--send` attempt
+  panicked at `rpc_blockhash` (transient public-RPC error; `rpc_call` returns
+  `None` on any HTTP error) **before** any transaction was built/sent — no state
+  change. Retry submitted `initialize_vault`:
+  - **Signature:** `44D41ohAazCU3hLQaeFPL6VhVvGRqm5WPQoRC4rDtYrnCuuFqb6bBSvNCnHDxLEY5A19V6iMJkRq5XH1jQXGj2XX`
+  - **Slot:** 510214478 (confirmed).
+- **Independently verified post-state (RPC decode, not client trust):**
+  - `Vault` (306 B) owner = program; admin `8R3V…`; base/quote mints correct;
+    `base_reserve = AdhQEJKi…`, `quote_reserve = BrsM7Xn4…`,
+    `share_mint = CLHLwN5u…`, `share_lock = 8zb5ibRo…`;
+    `total_shares = 0`, `epoch = 0`, `status = 0 (Active)`.
+  - `Config` (321 B): keeper = treasury = `8R3V…`; `fee_bps = 1`;
+    split 3333/3333/3334; `min_bond = 0`.
+  - `QuoteState` (865 B): `version = 0`, `update_slot = 0`, `expiry_slot = 0`
+    → **no quote written**.
+  - Reserves **0 tSOL / 0 tUSDC**, share supply **0** → **initialized but
+    unfunded**.
+- **No token minting, transfer, deposit, swap, or keeper submission** was done.
+- **Gates run:** `cargo fmt --all -- --check` clean; `cargo test --workspace`
+  **164 passed / 0 failed**; `python3 -m pytest simulation -q` **212 passed,
+  2 skipped**; `anchor build` exit 0.
+- **Artifact note:** `anchor build` overwrote `target/deploy/arbswap.so` with its
+  `idl-build` artifact (771728 bytes, sha `7fd58001…`), which does not match the
+  deployed binary. The deployed program is unchanged. The documented
+  `cargo build-sbf` artifact was rebuilt and restored; hash re-verified **MATCH**
+  (`9a05056e…`, 688616 bytes). `anchor keys sync` was **not** run (it would change
+  the program ID). `anchor build` prints a known local keypair/source ID mismatch
+  warning (`target/deploy/arbswap-keypair.json` = `EHjX…` vs source `2mwp…`).
+- **Backend readiness:** program verified and vault initialized, but the live
+  quote/swap path is **not ready**: reserves are zero (no liquidity), no
+  `QuoteState` has been written, and the keeper was intentionally not started
+  (a quote on zero reserves is meaningless and would be rejected). Remaining
+  prerequisites: fund both reserves (operator-approved token funding, not done
+  here) and run the keeper to post a fresh in-bounds quote.
+- **Stop point:** backend verification complete. No frontend integration.
