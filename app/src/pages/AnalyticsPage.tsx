@@ -1,8 +1,4 @@
 import React from 'react';
-import { 
-  MOCK_LVR_DATA, 
-  MOCK_QUOTE_VS_FILL 
-} from '../data/mockData';
 import { useBackend, meanVenueMetric } from '../data/backend';
 
 export const AnalyticsPage: React.FC = () => {
@@ -50,17 +46,17 @@ export const AnalyticsPage: React.FC = () => {
 
           <div className="perf-card glass-card">
             <span className="perf-label">Quote-vs-Fill Execution Gap</span>
-            <span className="perf-value mono text-primary">0.00 bps</span>
+            <span className="perf-value mono text-muted">N/A</span>
             <span className="perf-sub text-muted">
-              Typical propAMMs suffer <strong className="text-warning">1.08 bps</strong> intra-slot degradation
+              Requires live fills (no quote yet). Not a simulated or hardcoded value.
             </span>
           </div>
 
           <div className="perf-card glass-card">
             <span className="perf-label">Retail Quiet-Flow Half-Spread</span>
-            <span className="perf-value mono text-success">0.24 bps</span>
+            <span className="perf-value mono text-muted">N/A</span>
             <span className="perf-sub text-muted">
-              10x tighter than standard AMM retail spread (2.59 bps)
+              Unavailable — requires indexed trades, not fabricated.
             </span>
           </div>
         </div>
@@ -146,23 +142,14 @@ export const AnalyticsPage: React.FC = () => {
             </div>
 
             <div className="lvr-bars-grid">
-              {MOCK_LVR_DATA.map((d) => (
-                <div key={d.day} className="lvr-bar-col">
-                  <div className="lvr-bars-pair">
-                    <div 
-                      className="bar-passive" 
-                      style={{ height: `${(d.passiveAmmLvrLoss / 3400) * 110}px` }}
-                      title={`Passive AMM LVR Loss: $${d.passiveAmmLvrLoss}`}
-                    ></div>
-                    <div 
-                      className="bar-arbswap" 
-                      style={{ height: `${(d.arbSwapLvrLoss / 3400) * 110}px` }}
-                      title={`ArbSwap LVR Loss: $${d.arbSwapLvrLoss}`}
-                    ></div>
-                  </div>
-                  <span className="bar-day mono">{d.day}</span>
-                </div>
-              ))}
+              <p className="text-muted" style={{ margin: 'auto', textAlign: 'center', fontSize: 13 }}>
+                N/A — no replayed LVR series is bundled with this build.
+                <br />
+                <span style={{ fontSize: 11 }}>
+                  Per-day LVR is a model/replay output and is provided only when generated from a
+                  frozen artifact; it is not live trading performance.
+                </span>
+              </p>
             </div>
 
             <p className="chart-callout-text text-muted">
@@ -189,11 +176,16 @@ export const AnalyticsPage: React.FC = () => {
               <span>Typical PropAMM (Closed)</span>
               <span>Passive AMM (v2 / Orca)</span>
             </div>
-            {MOCK_QUOTE_VS_FILL.map((row) => (
+            {[
+              { metric: '2s Markout (bps)', arbSwap: fmt(arbMarkout), propAmm: 'n/a', passiveAmm: fmt(b1Markout) },
+              { metric: 'Quote-vs-Fill Gap (bps)', arbSwap: 'N/A (no live fills)', propAmm: 'n/a', passiveAmm: 'n/a' },
+              { metric: 'Quiet-flow Half-spread (bps)', arbSwap: 'N/A', propAmm: 'n/a', passiveAmm: 'n/a' },
+              { metric: 'Compute Units / Update', arbSwap: 'N/A (not indexed)', propAmm: 'n/a', passiveAmm: 'n/a' },
+            ].map((row) => (
               <div key={row.metric} className="matrix-row">
                 <span className="font-bold text-primary">{row.metric}</span>
                 <span className="mono text-success font-bold">{row.arbSwap}</span>
-                <span className="mono text-warning">{row.typicalPropAmm}</span>
+                <span className="mono text-warning">{row.propAmm}</span>
                 <span className="mono text-muted">{row.passiveAmm}</span>
               </div>
             ))}

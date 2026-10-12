@@ -67,11 +67,12 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
       </div>
 
       <div className="uni-nav-right">
-        {/* Live Slot & Quote Heartbeat pill */}
-        <div className="uni-cluster-pill" title="Live Solana Slot & Quote Heartbeat">
+        {/* Cluster + Live Slot & Quote Heartbeat pill */}
+        <div className="uni-cluster-pill" title="Solana cluster, live slot, and on-chain quote version">
           <span className="uni-dot" />
-          <span>Slot {quoteState.currentSlot}</span>
-          <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>v{quoteState.version}</span>
+          <span>Devnet</span>
+          <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>Slot {quoteState.currentSlot}</span>
+          <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>quote v{quoteState.version}</span>
         </div>
 
         {/* Real Solana Wallet Adapter Button */}

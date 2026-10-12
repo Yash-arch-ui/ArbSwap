@@ -1,19 +1,26 @@
 import { Connection, PublicKey } from '@solana/web3.js';
+import {
+  ACTIVE_VAULT,
+  ARBSWAP_PROGRAM_ID,
+  BASE_MINT,
+  CLUSTER,
+  QUOTE_MINT,
+} from './config';
 
-/** Devnet RPC used by the app and the wallet adapter. */
-export const SOLANA_DEVNET_RPC = 'https://api.devnet.solana.com';
-
-/**
- * Deployed ArbSwap program id (matches `vault/program/src/lib.rs` `declare_id!`
- * and `Anchor.toml`). Kept in sync with the deployed HEAD build.
- */
-export const ARBSWAP_PROGRAM_ID = new PublicKey('2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm');
-
-// Vault pair. These MUST match the deployed vault's configured base/quote
-// mints. On this devnet deployment they are the ArbSwap test tokens
-// (TEST TOKEN, devnet — worthless): tSOL (9 dp) / tUSDC (6 dp).
-export const BASE_MINT = new PublicKey('76XvqdSVi2LhYWgeWjx6E1V2c7oBeB6ndUEp6xC44jp2'); // tSOL
-export const QUOTE_MINT = new PublicKey('q3xHxvxCBvYCMwuA6dFtTDHHwbqkrruTYWAWXdPuNFX'); // tUSDC
+export {
+  SOLANA_DEVNET_RPC,
+  ARBSWAP_PROGRAM_ID,
+  BASE_MINT,
+  QUOTE_MINT,
+  ACTIVE_VAULT,
+  CLUSTER,
+  CANONICAL_VAULT,
+  LEGACY_TEST_VAULT,
+  SOL_USD_FEED_ID,
+  MAX_STALENESS_SECONDS,
+  explorerTxUrl,
+  explorerAddressUrl,
+} from './config';
 
 export interface ArbSwapConfig {
   programId: PublicKey;
@@ -23,14 +30,25 @@ export interface ArbSwapConfig {
 
 export const ARBSWAP_CONFIG: ArbSwapConfig = {
   programId: ARBSWAP_PROGRAM_ID,
-  cluster: 'devnet',
-  pythFeedId: 'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d', // SOL/USD feed
+  cluster: CLUSTER,
+  pythFeedId: ACTIVE_VAULT.pythFeedId,
 };
 
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+const USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+
+/** Base/quote human symbols for the active vault. */
+export const BASE_SYMBOL = ACTIVE_VAULT.baseMint.equals(new PublicKey(WSOL_MINT))
+  ? 'WSOL'
+  : 'BASE';
+export const QUOTE_SYMBOL = ACTIVE_VAULT.quoteMint.equals(new PublicKey(USDC_MINT))
+  ? 'USDC'
+  : 'QUOTE';
+
 /**
- * Read the connected wallet's native SOL (fees), and the vault pair balances
- * (tSOL base / tUSDC quote — TEST TOKEN, devnet). Human units; missing accounts
- * read as 0.
+ * Read the connected wallet's native SOL (for fees), and the active vault pair
+ * balances. Human units, for display only; transaction amounts use integer
+ * atoms (see `amounts.ts`). Missing accounts read as 0.
  */
 export async function loadWalletBalances(
   connection: Connection,

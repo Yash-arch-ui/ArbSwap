@@ -5,13 +5,12 @@ import {
   Radio, 
   CheckCircle2, 
   AlertOctagon, 
-  Cpu, 
-  Power
+  Cpu
 } from 'lucide-react';
 import { useProtocol } from '../context/ProtocolContext';
 
 export const RiskPage: React.FC = () => {
-  const { quoteState, riskBreakers, tripManualBreaker, resetBreaker } = useProtocol();
+  const { quoteState, riskBreakers, status } = useProtocol();
 
   const isTripped = riskBreakers.circuitBreakerTripped;
 
@@ -28,23 +27,9 @@ export const RiskPage: React.FC = () => {
             </p>
           </div>
           <div className="risk-header-actions">
-            {isTripped ? (
-              <button 
-                className="btn-primary reset-breaker-btn"
-                onClick={resetBreaker}
-              >
-                <Power size={15} />
-                Admin: Reset Circuit Breaker
-              </button>
-            ) : (
-              <button 
-                className="btn-secondary test-breaker-btn"
-                onClick={() => tripManualBreaker('Simulated Extreme Market Volatility & Oracle Desync')}
-              >
-                <AlertOctagon size={15} color="var(--status-critical)" />
-                Test Circuit Breaker Trip
-              </button>
-            )}
+            <span className="badge badge-neutral mono">
+              Read-only — breaker actions are admin-only on-chain
+            </span>
           </div>
         </div>
 
@@ -65,7 +50,7 @@ export const RiskPage: React.FC = () => {
               <p className="status-desc">
                 {isTripped 
                   ? `Reason: ${riskBreakers.activeBreakerReason}. All quote executions are frozen on-chain; LP withdrawals remain open.`
-                  : 'Oracle freshness, volatility estimators, bounded spread clamp, and inventory aversion within configured bounds.'}
+                  : status.quote.reason}
               </p>
             </div>
           </div>
@@ -140,15 +125,15 @@ export const RiskPage: React.FC = () => {
             <div className="pillar-metrics">
               <div className="pillar-row">
                 <span>Short-Window Vol (σ_s, λ=0.94)</span>
-                <span className="mono font-bold text-accent">{quoteState.shortVolBps} bps/s^0.5</span>
+                <span className="mono text-muted">Unavailable (keeper-local)</span>
               </div>
               <div className="pillar-row mt-2">
                 <span>Medium-Window Vol (σ_m, λ=0.99)</span>
-                <span className="mono font-bold">{quoteState.mediumVolBps} bps/s^0.5</span>
+                <span className="mono text-muted">Unavailable (keeper-local)</span>
               </div>
               <div className="pillar-row mt-2">
                 <span>Recent Price Move (1-sec window)</span>
-                <span className="mono font-bold text-secondary">+{quoteState.recentMoveBps} bps</span>
+                <span className="mono text-muted">Unavailable (keeper-local)</span>
               </div>
 
               <div className="jump-detector-box">
@@ -228,19 +213,19 @@ export const RiskPage: React.FC = () => {
               </div>
               <div className="pillar-row mt-2">
                 <span>Valid Quote Updates (24h)</span>
-                <span className="mono font-bold text-success">214,842 txs (99.98%)</span>
+                <span className="mono text-muted">Unavailable (not indexed)</span>
               </div>
               <div className="pillar-row mt-2">
                 <span>Rejected / Stale Updates</span>
-                <span className="mono text-muted">4 txs (0.002%)</span>
+                <span className="mono text-muted">Unavailable (not indexed)</span>
               </div>
               <div className="pillar-row mt-2">
                 <span>Mean Compute Units / Update</span>
-                <span className="mono font-bold text-accent">~620 CU</span>
+                <span className="mono text-muted">Unavailable (not indexed)</span>
               </div>
               <div className="pillar-row mt-2">
                 <span>Adaptive Priority Fee</span>
-                <span className="mono text-secondary">2,500 micro-lamports</span>
+                <span className="mono text-muted">Unavailable (not indexed)</span>
               </div>
             </div>
 

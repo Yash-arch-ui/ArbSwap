@@ -3,10 +3,12 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
 import { swap as swapOnChain } from '../chain/program';
+import { parseUnits } from '../chain/amounts';
+import { swapUnavailableReason } from '../chain/gating';
 import './SwapPage.css';
 
 export const SwapPage: React.FC = () => {
-  const { quoteState, tokens, riskBreakers, refreshBalances, vaultInitialized } = useProtocol();
+  const { quoteState, tokens, riskBreakers, refreshBalances, vaultInitialized, quoteAvailable } = useProtocol();
   const { connection } = useConnection();
   const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
@@ -37,6 +39,14 @@ export const SwapPage: React.FC = () => {
   const netOut = Math.max(0, expectedOut - protocolFeeAmount);
   const minOut = netOut * (1 - slippageBps / 10000);
 
+  // Fail closed: swaps require a fresh on-chain quote. The client-side numbers
+  // above are a display *estimate only* and are never authoritative execution.
+  const swapBlockedReason = swapUnavailableReason({
+    vaultInitialized,
+    circuitBreakerTripped: riskBreakers.circuitBreakerTripped,
+    quoteAvailable,
+  });
+
   const flip = () => {
     setInTokenSymbol(outTokenSymbol);
     setInAmount('');
@@ -47,6 +57,10 @@ export const SwapPage: React.FC = () => {
       setVisible(true);
       return;
     }
+    if (swapBlockedReason) {
+      setSwapNote(swapBlockedReason);
+      return;
+    }
     setIsSwapping(true);
     setSwapNote(null);
     try {
@@ -54,13 +68,13 @@ export const SwapPage: React.FC = () => {
       const isSellingSol = inTokenSymbol === 'SOL';
       const side = isSellingSol ? { sellBase: {} } : { buyBase: {} };
       const amountIn = isSellingSol
-        ? BigInt(Math.floor(parsedInAmount * 1e9))
-        : BigInt(Math.floor(parsedInAmount * 1e6));
+        ? parseUnits(inAmount, tokens.SOL.decimals)
+        : parseUnits(inAmount, tokens.USDC.decimals);
       const minOutAtoms = isSellingSol
-        ? BigInt(Math.floor(minOut * 1e6))
-        : BigInt(Math.floor(minOut * 1e9));
+        ? parseUnits(minOut.toFixed(tokens.USDC.decimals), tokens.USDC.decimals)
+        : parseUnits(minOut.toFixed(tokens.SOL.decimals), tokens.SOL.decimals);
       const signature = await swapOnChain(
-        connection, wallet, side as never, amountIn, minOutAtoms, 0n);
+        connection, wallet, side as never, amountIn, minOutAtoms, BigInt(quoteState.version));
       setSwapNote(`Swap confirmed ${signature.slice(0, 8)}… (executed at the on-chain quoted price).`);
       await refreshBalances();
     } catch (error) {
@@ -224,16 +238,14 @@ export const SwapPage: React.FC = () => {
           {/* Main CTA */}
           <button
             type="button"
-            className={`uni-main-button ${parsedInAmount > 0 && !riskBreakers.circuitBreakerTripped ? 'accent' : 'disabled'}`}
-            disabled={!vaultInitialized || parsedInAmount <= 0 || isSwapping || riskBreakers.circuitBreakerTripped}
+            className={`uni-main-button ${parsedInAmount > 0 && !swapBlockedReason && connected ? 'accent' : 'disabled'}`}
+            disabled={parsedInAmount <= 0 || isSwapping || (connected && !!swapBlockedReason)}
             onClick={handleSwap}
           >
-            {riskBreakers.circuitBreakerTripped ? (
-              '⚠ Circuit Breaker Active'
-            ) : !vaultInitialized ? (
-              'Vault not initialized'
-            ) : !connected ? (
+            {!connected ? (
               'Connect Wallet'
+            ) : swapBlockedReason ? (
+              'Swaps unavailable'
             ) : isSwapping ? (
               'Settling on Solana…'
             ) : parsedInAmount <= 0 ? (
@@ -242,6 +254,12 @@ export const SwapPage: React.FC = () => {
               `Swap ${inTokenSymbol} → ${outTokenSymbol}`
             )}
           </button>
+
+          {connected && swapBlockedReason && (
+            <p className="swap-success-note" style={{ color: 'var(--uni-warning)' }}>
+              {swapBlockedReason}
+            </p>
+          )}
 
           {swapNote && (
             <p className="swap-success-note">✓ {swapNote}</p>

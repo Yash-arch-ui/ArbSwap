@@ -638,3 +638,275 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   keeper.
 - **Docs.** Pipeline documented in `docs/PIPELINE.md`; assessment B1 updated in
   `docs/DEVNET_WSOL_USDC_ASSESSMENT.md`.
+
+## Part 3 / Step 4 — S2-3G deploy B1 to devnet: BLOCKED at balance preflight (no upgrade) — on `main`
+
+- **Repo state.** Branch `main`, HEAD `169fba7`, working tree clean at start;
+  `05d7faf` (B1 fix) is an ancestor of HEAD. No push, no history change.
+- **Target verified (devnet).** `solana program show 2mwp…` → owner
+  `BPFLoaderUpgradeab1e…` (upgradeable), ProgramData
+  `4156VC8Vzc8wQDqtLe9rdRHtRj9UpRysp2uBTNGW93Mh`, **upgrade authority
+  `ddGs6hk5E4oPzSnwFfX4pD4DDhDTLTwRddv1VQym7bH`**, data length 688616, balance
+  3.49904812 SOL. `declare_id!` = `Anchor.toml` = IDL address = `2mwp…`.
+  The authority pubkey matches the keypair at
+  `$HOME/.config/solana/arbswap-devnet.json` (pubkey only; no key material
+  printed). `ARBSWAP_DEVNET_KEYPAIR` is unset. The mint authority / program
+  admin (`8R3V…`) is a **different** key and is not the upgrade authority.
+- **IDL/interface.** `app/src/idl/arbswap.json` (and `target/idl`) list
+  `update_quote` accounts =
+  `keeper,vault,config,quote_state,price_update,keeper_bond,base_reserve,quote_reserve,base_mint,quote_mint`
+  → includes the two B1 mints.
+- **Fresh artifact.** `cargo build-sbf` (clean `CARGO_TARGET_DIR`), solana-cli
+  4.1.2 / rustc 1.98.0: **692616 bytes, sha256 `9a6e8498e174b73eb535c1ff502e229a3e1523f4dd8a63505add05816fc47132`**.
+  Protected copy at `/tmp/opencode/arbswap-s2-3g.so` (same hash).
+- **Pre-upgrade hash (`devnet_program_hash.py`).** on-chain 688616 /
+  `9a05056e…` vs local 692616 / `9a6e8498…` → **MISMATCH** (expected: B1 not yet
+  deployed).
+- **Gates passed.** `cargo fmt --all -- --check` clean; `cargo test --workspace`
+  167 passed / 0 failed (incl. `litesvm_oracle_scaling` accept/reject/forged-mint/
+  stale); `cargo build-sbf` OK.
+- **BLOCKER — insufficient balance for the buffer.** The documented upgrade
+  workflow (`solana program deploy --program-id … --upgrade-authority …`)
+  creates a buffer funded with the rent-exempt minimum for the new program:
+  `solana rent 692616` = **3.51913952 SOL**, plus write/deploy transaction fees.
+  Available: upgrade authority `ddGs6hk5…` = **0.49657 SOL** (short ~3.02 SOL);
+  `8R3V…` = **2.998072058 SOL** (short ~0.52 SOL). Airdrop/transfer is not
+  authorized for this task, and the fee payer is not topped up. Per the task's
+  own rule, the workflow **stopped before submitting any upgrade transaction**.
+- **No upgrade transaction was sent.** No buffer created, no write, no upgrade,
+  no `anchor build`, no `anchor keys sync`. No mint/transfer/deposit/swap/
+  keeper/`update_quote`/vault init/authority change. The on-chain program is
+  still the pre-B1 build (`9a05056e…`, 688616 bytes).
+- **To unblock:** make ~3.52 SOL (buffer rent + fees) available to the fee payer
+  in a single account — e.g. fund `8R3V…` to ≥ ~3.53 SOL (needs ~0.53 SOL more),
+  or fund the authority `ddGs6hk5…` to ≥ ~3.53 SOL. After funding, re-run §5–§6
+  (deploy the preserved `/tmp/opencode/arbswap-s2-3g.so`, then verify MATCH).
+
+## Part 3 / Step 5 — S2-3G retry: B1 upgraded on devnet + hash MATCH — on `main`
+
+- **Preflight (fresh).** `main` @ `169fba7`; `05d7faf` ancestor; working tree only
+  `docs/PROGRESS.md` (preserved). Program `2mwp…`, ProgramData
+  `4156VC8Vzc8wQDqtLe9rdRHtRj9UpRysp2uBTNGW93Mh`, authority **`ddGs6hk5…`**
+  (unchanged), pre-upgrade ELF 688616 / `9a05056e…`. Artifact
+  `/tmp/opencode/arbswap-s2-3g.so` = 692616 B, sha256 `9a6e8498…` (verified).
+  IDL `update_quote` accounts include `base_mint,quote_mint`. **Balance gate now
+  passes:** `8R3V…` = 7.998072058 SOL (topped up); buffer rent for 692616 =
+  **3.51913952 SOL** + fees; authority `ddGs6hk5…` = 0.49657 SOL (signs only).
+- **Upgrade (authorized workflow).**
+  `solana program deploy /tmp/opencode/arbswap-s2-3g.so --program-id 2mwp…
+  --upgrade-authority $HOME/.config/solana/arbswap-devnet.json
+  --keypair $HOME/.config/solana/id.json --url devnet`
+  - Fee payer: `8R3V…`; upgrade authority signer: `ddGs6hk5…`.
+  - **Upgrade transaction:** `2cBJ2kyxhWMvBTuzBGFttk21jFY6hoE45nxGnCxugsTZrNDmFXNhf67K8BvFiy5Df8djoTqBi4rHZnsadKdGjV3i`
+    (fee-payer co-signer `36GvE14gvLtVhorw93gaFpEinR7CVb1qSroW4mkRbQWMfeYCchKuQoeR5LdzDUxnRSYX2eR6GGefvFyWUU1Zu2iv`).
+  - **Slot:** 510311520 (confirmed).
+- **Post-upgrade verification.** `solana program show`: same ProgramData,
+  authority `ddGs6hk5…`, Last Deployed In Slot 510311520, Data Length 698856,
+  balance 3.55106732 SOL. `devnet_program_hash.py --so /tmp/opencode/arbswap-s2-3g.so`
+  → **MATCH**: on-chain 698856 B (= 692616 B ELF + 6240 B loader trailing
+  padding) and local 692616 B hash to the same **sha256 `9a6e8498e174b73eb535c1ff502e229a3e1523f4dd8a63505add05816fc47132`**.
+  Deployed executable now carries the B1 token-unit oracle-price fix.
+- **Scope respected.** Only the upgrade (+ its buffer upload) was submitted. No
+  mint/transfer/deposit/swap/`update_quote`/keeper/vault init/`initialize_program`/
+  authority change; no `anchor build`/`anchor keys sync`; no buffer cleanup; no
+  push or history change. `docs/PROGRESS.md` remains uncommitted.
+- **Stop point.** Deployed hash matches; vault NOT funded and keeper NOT started.
+  Next: WSOL/USDC acquisition + a proportional `deposit` through the program.
+- **S2-3G retry (idempotent check).** Re-ran the fresh preflight: `main` @
+  `169fba7`, `05d7faf` ancestor, artifact `/tmp/opencode/arbswap-s2-3g.so`
+  692616 B / `9a6e8498…` unchanged, ProgramData `4156VC8V…`, authority
+  `ddGs6hk5…`, Last Deployed In Slot 510311520. `devnet_program_hash.py` →
+  **MATCH** (on-chain 698856 B = 692616 B ELF + 6240 B padding). **The deployed
+  program already carries the B1 fix; no new upgrade was needed or submitted.**
+  No transaction sent; no other state change.
+
+## Part 3 / Step 6 — S2-4 first LP deposit into the canonical WSOL/USDC vault: VERIFIED — on `main`
+
+- **Result: DEPOSIT VERIFIED.**
+  - **Signature:** `3BEeTcuqfoMT8SfR3kHMh1vEFpNy1yKFS3sk1mJBrgBQoYhx948ogVcU7JawELaxLwgWWgXgPiksBq343vUaCkYC` (slot **510320071**, confirmed; `DepositEvent` slot 510320059).
+  - Explorer: `https://solscan.io/tx/3BEeTcuqfoMT8SfR3kHMh1vEFpNy1yKFS3sk1mJBrgBQoYhx948ogVcU7JawELaxLwgWWgXgPiksBq343vUaCkYC?cluster=devnet`.
+- **Preflight.** `main` @ `169fba7`; deployed program hash **MATCH** (B1). Vault
+  `8yvFBv9…`, config `ErVDFA…`, quote_state `5MsGbd…`, reserves `8vfr2KmM…` /
+  `G8q1WMK…`, share mint `AyGcsmW…`, share lock `E5mxeo…`. Config `fee_bps 1`,
+  `min_liquidity 1000`, `warmup_slots 150`. Signer `8R3V…`; IDL compatible.
+- **Deposit implementation verified.** First deposit:
+  `shares = isqrt(base_amount*quote_amount) − min_liquidity` (min bucket minted to
+  `share_lock`); both tokens pulled; `user_shares` must pre-exist; ticket
+  `activate_slot = slot + warmup_slots`.
+- **Sizing (gitignored asset admin authorized option 1: CEX reference for
+  sizing only).** The configured `PYTH_API_KEY` (`.ENV`) authenticates but is
+  **not entitled** to the crypto-spot SOL/USD feed (`HTTP 403 Not entitled …`),
+  and no on-chain `PriceUpdateV2` exists to read. Per explicit operator approval,
+  a **fresh live Binance SOL/USDT** reference (`109.12` at deposit time) was used
+  **only to choose a balanced base:quote ratio**. This is **not** an on-chain
+  oracle price and does **not** change the Pyth integration: the keeper/quote path
+  still requires the project's verified on-chain Pyth oracle.
+  - quote: **19.0 USDC** = `19_000_000` atoms (leaves 1 USDC).
+  - base: computed `floor(19_000_000 × 10^11 / 10_912_000_000)` =
+    **0.174120234 WSOL** = `174_120_234` lamports; wrapped only that amount.
+  - expected shares `isqrt(174120234 × 19000000) − 1000` = `57_516_688`;
+    `min_shares` = `56_941_521` (1% floor).
+- **Independent post-deposit verification (from chain):**
+  - Vault `total_shares` **57_517_688** (user 57_516_688 + 1000 locked), `status 0`.
+  - `base_reserve` = **174_120_234** atoms (0.174120234 WSOL); `quote_reserve` =
+    **19_000_000** atoms (19 USDC).
+  - Share mint supply **57_517_688**; owner share balance **57_516_688**.
+  - `DepositEvent`: shares 57_516_688, base 174_120_234, quote 19_000_000.
+  - DepositTicket owner `8R3V…`, shares 57_516_688, `activate_slot 510320213`
+    (warm-up; not yet withdrawable).
+  - Wallet after: native SOL **7.760420944**, WSOL **0**, USDC **1**.
+- **QuoteState still version 0 (no quote).** A valid quote does not exist; the
+  keeper was **not** started and `update_quote` was **not** called.
+- **Scope:** only the deposit (+ required WSOL/share ATA creation and wrapping)
+  was submitted. No mint, direct reserve transfer, vault init, program upgrade,
+  authority/parameter change, swap, withdraw, crank, or keeper action. `main`
+  working tree change is limited to this `docs/PROGRESS.md` record (uncommitted).
+- **Blocker/next step:** to make the vault quotable, obtain a Pyth API key/grant
+  **entitled to the crypto-spot SOL/USD feed** (or a deployed `PriceUpdateV2`
+  account), then run the keeper to post a fresh in-bounds quote.
+
+## Part 3 / Step 7 — S2-5 first valid quote: BLOCKED — PYTH ACCESS — on `main`
+
+- **Final status: `BLOCKED — PYTH ACCESS`. No quote transaction was submitted.**
+- **State (fresh).** `main` @ `169fba7`; only `docs/PROGRESS.md` modified
+  (preserved). Vault `8yvFBv9…` funded: reserves `174_120_234` base /
+  `19_000_000` quote, `total_shares 57_517_688`, `status 0`. `QuoteState`
+  `5MsGbd…` **version 0** (no quote). Deployed program hash **MATCH** (B1);
+  keeper instruction accounts match the current IDL.
+- **Pyth path traced.** Config `pyth_feed_id = ef0d8b6f…b56d` (SOL/USD). The
+  keeper reads an existing on-chain `PriceUpdateV2` account (owner = receiver
+  `rec5EKMGg6…`) and does not post one; the project posts/refreshes it via
+  `scripts/devnet/{post_pyth,update_feed,post_feed_loop}.ts` using
+  `@pythnetwork/hermes-client` + `PYTH_API_KEY`.
+- **Diagnosis (auth vs entitlement).** `PYTH_API_KEY` in `.ENV` (len 44) is
+  loaded and **authenticates** (HTTP 403, not 401), but is **not entitled**:
+  Hermes and Benchmarks both return
+  `Not entitled: feed ef0d8b6f… (no grant accepts this feed (asset type
+  'crypto', instrument type 'spot'))`. No other Pyth credential exists
+  (shell env unset; only `.ENV`). **Option A fails.**
+- **Option B fails.** No existing `PriceUpdateV2` account for the feed: the
+  standard (`rec5EKMGg6…`) and pro (`rec2HHDD…`) receiver PDAs for shards 0 and
+  1 are all absent; no cached update-account json exists; the receiver builder
+  assigns update accounts per post, so none persists. The legacy Pyth **Core**
+  account (`J83w4HKf…`, owner `gSbePeb…`) is a different program/account type and
+  cannot satisfy the deployed program's `PriceUpdateV2` owner/feed checks.
+- **Protocol oracle guarantees preserved.** No feed id, verification rule,
+  confidence/freshness bound, normalization, quote bound, or expiry rule was
+  changed; the keeper was not made permissive. No CEX price was used for a quote
+  (the earlier CEX reference was deposit sizing only). No keeper start, no
+  `update_quote`, no other state change. No transaction was submitted.
+- **Tests.** `cargo test -p arbswap-keeper` → 36 passed / 0 failed. (No live
+  simulation attempted: without a valid `PriceUpdateV2` there is no valid quote
+  input, and manufacturing one is prohibited.)
+- **Required prerequisites to unblock (either):**
+  1. **Entitled Pyth access:** a Pyth API key/grant that includes the
+     **crypto-spot SOL/USD** feed. Then post/refresh a `PriceUpdateV2` via
+     `scripts/devnet/update_feed.ts` and run the keeper (`live`) to publish the
+     first in-bounds quote.
+  2. **A valid, fresh `PriceUpdateV2` account** for `ef0d8b6f…b56d` on devnet
+     (posted by an entitled poster), owned by `rec5EKMGg6…`, within
+     `max_staleness_seconds` and `max_conf_bps`; provide its address to the
+     keeper as `<price_feed>`.
+
+## Part 3 / Step 8 — S2-5B sponsored push-feed investigation: CANDIDATE ACCOUNT INVALID FOR DEPLOYED PROGRAM — on `main`
+
+- **Final status: `CANDIDATE ACCOUNT INVALID FOR DEPLOYED PROGRAM`** (valid
+  account format/owner/feed/confidence; **cannot satisfy the deployed
+  `max_staleness_seconds = 2`**). No quote transaction submitted.
+- **Candidate** `7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE` (read-only):
+  owner **`rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ`** (standard Pyth receiver
+  = the SDK default the deployed binary uses), 134 B, discriminator
+  `22f123639d7ef4cd` = `PriceUpdateV2` ✓, `verification_level = 1 (Full)` ✓,
+  `feed_id = ef0d8b6f…b56d` ✓, `price = 107.36624162`, `conf_bps ≈ 3.745`
+  (≤ `max_conf_bps 10`) ✓, `write_authority` = the account itself.
+- **SDK/derivation note.** The candidate is **not** the SDK-derived
+  `["price_feed", shard, feed]` PDA (`5duQY4iG…` shard 0, `5JUAEF9K…` shard 1,
+  both absent); it is a standalone sponsored-push account owned by the same
+  receiver. The deployed program does not require a PDA — only
+  `Account<PriceUpdateV2>` with owner `rec5EKMGg6…` — so the address discrepancy
+  is not itself a failure.
+- **Contract traced (source).** `update_quote` validates the account via
+  `get_price_no_older_than(&clock, config.max_staleness_seconds, feed)`. Config:
+  `max_staleness_seconds = 2`, `max_conf_bps = 10`, feed `ef0d8b6f…`. The program
+  requires `clock.unix_timestamp − publish_time ≤ 2`.
+- **Freshness measurement (the failing check).**
+  - Clock skew host↔chain ≈ 0–1 s, so the keeper's local-clock age is accurate.
+  - Rapid poll (140 samples over 120 s, ~0.86 s spacing): **min age = 17 s**,
+    **0 samples ≤ 2 s**, **0 publish_time updates in 120 s**.
+  - Earlier spot reads after apparent updates showed age ≈ 4 s; the account was
+    also observed **stuck for 277 s+**.
+  - Keeper `live` against the candidate for 240 s: `submitted=0 skipped=137
+    failures=0` (it correctly refused to submit stale input).
+  - Conclusion: the sponsored devnet SOL/USD push feed updates every ~20 s–4 min
+    and its `publish_time` lags the cluster clock by > 2 s even at its freshest,
+    so it **can never pass** `max_staleness_seconds = 2`.
+- **Protocol guarantees preserved.** `max_staleness_seconds`, `max_conf_bps`,
+  feed id, normalization, and all quote bounds were left unchanged; the keeper
+  was not made permissive and no CEX value was submitted as the oracle. No
+  program change, no authority/config change, no swap/withdraw/crank/upgrade.
+- **Tests.** `cargo test -p arbswap-keeper` → 36 passed / 0 failed.
+- **Why this is not `QUOTE VERIFIED`.** The deployed program would revert
+  `InvalidOracle` on this account every time; a valid quote cannot be produced
+  from it without relaxing the deployed freshness rule, which this task forbids.
+- **Actual prerequisite.** A Pyth source whose `publish_time` is within the
+  deployed `max_staleness_seconds = 2` of cluster time at execution — i.e. an
+  **entitled Pyth credential** to post/refresh a `PriceUpdateV2` from
+  `update_feed.ts` right before the quote, or (if the team decides devnet push
+  feeds are inherently too slow) an **explicitly approved protocol change** to a
+  larger `max_staleness_seconds` (not made here). Retains `BLOCKED — PYTH ACCESS`
+  for the entitled-credential path.
+
+## Part 3 / Step 9 — S2-6 app ↔ Solana backend integration (canonical WSOL/USDC) — on `main`
+
+- **Scope.** Finished the real frontend integration in the active `app/` (Vite +
+  React + TS) against the funded canonical WSOL/USDC Devnet vault. No program,
+  authority, config, oracle-requirement, or funded-vault state was changed; no
+  swap/deposit/withdraw submitted.
+- **Centralized config** `app/src/chain/config.ts`: program id, cluster/RPC,
+  canonical mints (WSOL 9 / USDC 6), vault/config/quote_state addresses, Pyth
+  feed id, and `MAX_STALENESS_SECONDS = 2`. The legacy tSOL/tUSDC vault is kept
+  but explicitly labelled `canonical: false` and unused. `ACTIVE_VAULT` =
+  canonical. `assertActiveVaultDerivation()` runs at app startup and throws if
+  the PDAs derived from the mints do not match the configured vault.
+- **Canonical reads.** `app/src/chain/solana.ts` now re-exports the canonical
+  config; `ProtocolContext` reads the canonical vault/config/quote_state and the
+  connected wallet's reserve balances, share balance, and deposit/withdraw
+  tickets live. `app/src/chain/program.ts` gained
+  `fetchShareBalance`/`fetchDepositTicket`/`fetchWithdrawTicket` and a read-only
+  program helper; error strings reference the canonical vault, not tSOL/tUSDC.
+- **Integer-safe amounts** `app/src/chain/amounts.ts` (`parseUnits`/`formatUnits`);
+  deposit/withdraw/swap now convert user input with `bigint`, not floating point.
+- **Swap fails closed** `app/src/chain/gating.ts`: swaps are disabled unless the
+  vault is live, not paused, and a fresh quote exists, with the concrete reason
+  surfaced — including *"Swaps unavailable: no fresh Pyth quote. The oracle must
+  meet the deployed 2-second freshness requirement."* Client numbers are a
+  labelled display estimate; `min_version` uses the live quote version.
+- **Mocks removed.** `app/src/data/mockData.ts` deleted; live pages no longer
+  import mock data. VaultPage shows live share/ticket state (no fabricated
+  tickets); RiskPage breaker controls replaced with a read-only notice and
+  fabricated keeper/volatility metrics replaced with `Unavailable (not indexed)`;
+  AnalyticsPage hardcoded `0.00 bps`/`0.24 bps`/CU values replaced with `N/A` +
+  provenance labels; Navbar shows a `Devnet` label.
+- **Status.** The app renders the funded vault with reserves/shares, and truthfully
+  reports the oracle/quote state (no quote → swaps disabled). Keeper submission
+  status is labelled `unverified` (not observable from chain).
+- **Checks (all green).** `app`: `tsc -b` clean; `yarn test` **16 passed / 0
+  failed** (incl. new `test/integration.test.ts`: canonical PDA derivation,
+  9/6 integer amounts, swap fail-closed reasons, and live-pages-do-not-import-
+  mocks); `yarn lint` (oxlint) clean; `yarn build` (tsc + vite) OK. No backend
+  code changed this step.
+- **Pyth unblock (setup note).** Store the entitled credential server-side as
+  `PYTH_API_KEY` in `.ENV` (never in the client bundle). Verify entitlement
+  WITHOUT printing the key, e.g.
+  `set -a; . ./.ENV; set +a; curl -s -o /dev/null -w '%{http_code}\n'
+  -H "Authorization: Bearer $PYTH_API_KEY"
+  "https://hermes.pyth.network/v2/updates/price/latest?ids[]=ef0d8b6f…b56d"`
+  → `200` means the grant includes the crypto-spot SOL/USD feed. Then run
+  `npx tsx scripts/devnet/update_feed.ts` (post/refresh the `PriceUpdateV2`
+  account) and the keeper `live` (`vault/keeper`) to publish the first quote;
+  the app will flip swaps to available once `QuoteState.version > 0` and the
+  quote is unexpired.
+- **Remaining quote-gated actions.** Swap submission (needs a fresh on-chain
+  quote); live quote/price display beyond `oraclePrice` from `QuoteState`; any
+  keeper-health metric (not indexed). Deposit/withdraw/claim builders are wired
+  but were not exercised on-chain in this step.

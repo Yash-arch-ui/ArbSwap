@@ -130,3 +130,27 @@ export interface QuoteVsFillStat {
   typicalPropAmm: string;
   passiveAmm: string;
 }
+
+/** A user's real on-chain deposit ticket (shares activating after warm-up). */
+export interface DepositTicketView {
+  shares: bigint;
+  activateSlot: number;
+  /** True once the slot has passed `activateSlot`. */
+  active: boolean;
+}
+
+/** A user's real on-chain withdrawal ticket (settles in `requestedEpoch`). */
+export interface WithdrawTicketView {
+  shares: bigint;
+  requestedEpoch: number;
+}
+
+/** Honest, source-labelled protocol status for the header/status surfaces. */
+export interface ProtocolStatus {
+  rpc: 'ok' | 'error' | 'unknown';
+  programRead: 'ok' | 'missing' | 'error';
+  oracle: { state: 'unavailable' | 'unknown' | 'available'; reason: string };
+  quote: { available: boolean; expired: boolean; version: number; reason: string };
+  keeper: { state: 'unverified' | 'active'; reason: string };
+  keeperConfigured: string | null;
+}

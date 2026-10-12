@@ -1,11 +1,25 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { PublicKey } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
-import type { QuoteState, VaultState, RiskBreakers, Token } from '../types/protocol';
-import { BASE_MINT, QUOTE_MINT, loadWalletBalances } from '../chain/solana';
-import { fetchProtocolState } from '../chain/program';
+import type {
+  QuoteState,
+  VaultState,
+  RiskBreakers,
+  Token,
+  ProtocolStatus,
+  DepositTicketView,
+  WithdrawTicketView,
+} from '../types/protocol';
+import { ACTIVE_VAULT, BASE_MINT, QUOTE_MINT, loadWalletBalances } from '../chain/solana';
+import {
+  fetchProtocolState,
+  fetchShareBalance,
+  fetchDepositTicket,
+  fetchWithdrawTicket,
+} from '../chain/program';
 import { toQuoteState, toVaultState, toRiskBreakers } from '../chain/live';
+
+const BASE_SYMBOL = ACTIVE_VAULT.baseMint.equals(BASE_MINT) ? 'WSOL' : 'BASE';
+const QUOTE_SYMBOL = ACTIVE_VAULT.quoteMint.equals(QUOTE_MINT) ? 'USDC' : 'QUOTE';
 
 /** Neutral state used before/without a live vault. Numbers are zero, not mock. */
 const EMPTY_QUOTE_STATE: QuoteState = {
@@ -37,13 +51,25 @@ const EMPTY_RISK: RiskBreakers = {
 
 const INITIAL_TOKENS: { SOL: Token; USDC: Token } = {
   SOL: {
-    symbol: 'tSOL', name: 'Test SOL (devnet)', mint: BASE_MINT.toBase58(),
-    decimals: 9, logo: '', balance: 0, priceUsd: 0,
+    symbol: BASE_SYMBOL, name: `${BASE_SYMBOL} (vault base)`, mint: BASE_MINT.toBase58(),
+    decimals: ACTIVE_VAULT.baseDecimals, logo: '', balance: 0, priceUsd: 0,
   },
   USDC: {
-    symbol: 'tUSDC', name: 'Test USDC (devnet)', mint: QUOTE_MINT.toBase58(),
-    decimals: 6, logo: '', balance: 0, priceUsd: 1,
+    symbol: QUOTE_SYMBOL, name: `${QUOTE_SYMBOL} (vault quote)`, mint: QUOTE_MINT.toBase58(),
+    decimals: ACTIVE_VAULT.quoteDecimals, logo: '', balance: 0, priceUsd: 1,
   },
+};
+
+const EMPTY_STATUS: ProtocolStatus = {
+  rpc: 'unknown',
+  programRead: 'missing',
+  oracle: {
+    state: 'unavailable',
+    reason: 'No valid on-chain Pyth quote. The keeper needs a SOL/USD price within the deployed 2 s freshness limit.',
+  },
+  quote: { available: false, expired: true, version: 0, reason: 'No quote has been published.' },
+  keeper: { state: 'unverified', reason: 'Keeper submission status is not observable from the chain.' },
+  keeperConfigured: null,
 };
 
 interface ProtocolContextType {
@@ -51,16 +77,24 @@ interface ProtocolContextType {
   vaultState: VaultState;
   riskBreakers: RiskBreakers;
   tokens: { SOL: Token; USDC: Token };
+  status: ProtocolStatus;
   walletConnected: boolean;
   walletAddress: string | null;
   balancesLoading: boolean;
   vaultInitialized: boolean;
+  quoteAvailable: boolean;
+  quoteFresh: boolean;
+  shareBalanceAtoms: bigint | null;
+  depositTicket: DepositTicketView | null;
+  withdrawTicket: WithdrawTicketView | null;
+  currentSlot: number;
+  lastUpdatedAt: number | null;
   liveError: string | null;
+  activeVaultLabel: string;
   refreshBalances: () => Promise<void>;
+  refreshProtocol: () => Promise<void>;
   connectWallet: () => void;
   disconnectWallet: () => void;
-  tripManualBreaker: (reason: string) => void;
-  resetBreaker: () => void;
 }
 
 const ProtocolContext = createContext<ProtocolContextType | undefined>(undefined);
@@ -72,32 +106,34 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [vaultState, setVaultState] = useState<VaultState>(EMPTY_VAULT_STATE);
   const [riskBreakers, setRiskBreakers] = useState<RiskBreakers>(EMPTY_RISK);
   const [tokens, setTokens] = useState(INITIAL_TOKENS);
+  const [status, setStatus] = useState<ProtocolStatus>(EMPTY_STATUS);
   const [balancesLoading, setBalancesLoading] = useState(false);
   const [vaultInitialized, setVaultInitialized] = useState(false);
+  const [quoteAvailable, setQuoteAvailable] = useState(false);
+  const [quoteFresh, setQuoteFresh] = useState(false);
+  const [shareBalanceAtoms, setShareBalanceAtoms] = useState<bigint | null>(null);
+  const [depositTicket, setDepositTicket] = useState<DepositTicketView | null>(null);
+  const [withdrawTicket, setWithdrawTicket] = useState<WithdrawTicketView | null>(null);
+  const [currentSlot, setCurrentSlot] = useState(0);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
   const shareMintRef = useRef<string | null>(null);
 
   const refreshBalances = useCallback(async () => {
     if (!publicKey) {
       setTokens(INITIAL_TOKENS);
+      setShareBalanceAtoms(null);
       return;
     }
     setBalancesLoading(true);
     try {
       const { base, quote } = await loadWalletBalances(connection, publicKey);
-      let userShares = 0;
-      if (shareMintRef.current) {
-        try {
-          const ata = getAssociatedTokenAddressSync(new PublicKey(shareMintRef.current), publicKey);
-          const bal = await connection.getTokenAccountBalance(ata);
-          userShares = Number(bal.value.uiAmount ?? 0);
-        } catch { /* no share account yet */ }
-      }
+      const shares = await fetchShareBalance(connection, publicKey).catch(() => null);
       setTokens((prev) => ({
         SOL: { ...prev.SOL, balance: Number(base.toFixed(4)) },
         USDC: { ...prev.USDC, balance: Number(quote.toFixed(2)) },
       }));
-      setVaultState((prev) => ({ ...prev, userShares }));
+      setShareBalanceAtoms(shares);
     } catch {
       // RPC hiccup: keep the last known balances.
     } finally {
@@ -108,31 +144,83 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const refreshProtocol = useCallback(async () => {
     try {
       const [state, slot] = await Promise.all([
-        fetchProtocolState(connection),
+        fetchProtocolState(connection, ACTIVE_VAULT.baseMint, ACTIVE_VAULT.quoteMint),
         connection.getSlot().catch(() => 0),
       ]);
       const now = Math.floor(Date.now() / 1000);
       setVaultInitialized(state.exists);
+      setCurrentSlot(slot);
+      setLastUpdatedAt(now);
       setLiveError(null);
       if (state.vaultData) shareMintRef.current = state.vaultData.shareMint.toBase58();
+
       const quote = toQuoteState(state, slot);
+      const hasQuote = state.quoteData !== undefined && Number(state.quoteData.version) > 0;
+      const isFresh = hasQuote && slot < Number(state.quoteData?.expirySlot ?? 0);
       setQuoteState(quote);
-      setRiskBreakers(toRiskBreakers(state, now));
+      setQuoteAvailable(isFresh);
+      setQuoteFresh(isFresh);
+      const risk = toRiskBreakers(state, now);
+      risk.circuitBreakerTripped = state.vaultData ? state.vaultData.status !== 0 : false;
+      risk.activeBreakerReason = risk.circuitBreakerTripped ? 'Vault status is not Active' : null;
+      risk.keeperActiveAddress = state.configData ? state.configData.keeper.toBase58() : '';
+      setRiskBreakers(risk);
       setTokens((prev) => ({
         SOL: { ...prev.SOL, priceUsd: quote.oraclePrice || prev.SOL.priceUsd },
         USDC: { ...prev.USDC, priceUsd: 1 },
       }));
-      let userShares = 0;
+
+      let shares: bigint | null = null;
+      let dep: DepositTicketView | null = null;
+      let wd: WithdrawTicketView | null = null;
       if (publicKey && state.vaultData) {
-        try {
-          const ata = getAssociatedTokenAddressSync(state.vaultData.shareMint, publicKey);
-          const bal = await connection.getTokenAccountBalance(ata);
-          userShares = Number(bal.value.uiAmount ?? 0);
-        } catch { /* no shares */ }
+        shares = await fetchShareBalance(connection, publicKey).catch(() => null);
+        const dt = await fetchDepositTicket(connection, publicKey).catch(() => null);
+        if (dt) {
+          const activate = Number((dt.activateSlot as { toString(): string } | undefined)?.toString() ?? '0');
+          dep = { shares: BigInt((dt.shares as { toString(): string }).toString()), activateSlot: activate, active: slot >= activate };
+        }
+        const wt = await fetchWithdrawTicket(connection, publicKey).catch(() => null);
+        if (wt) {
+          wd = {
+            shares: BigInt((wt.shares as { toString(): string }).toString()),
+            requestedEpoch: Number((wt.epoch as { toString(): string } | undefined)?.toString() ?? '0'),
+          };
+        }
       }
-      setVaultState(toVaultState(state, quote.oraclePrice, userShares));
+      setShareBalanceAtoms(shares);
+      setDepositTicket(dep);
+      setWithdrawTicket(wd);
+      setVaultState(toVaultState(state, quote.oraclePrice, shares === null ? 0 : Number(shares.toString()) / 10 ** ACTIVE_VAULT.shareDecimals));
+
+      setStatus({
+        rpc: 'ok',
+        programRead: state.exists ? 'ok' : 'missing',
+        oracle: {
+          state: 'unavailable',
+          reason: hasQuote
+            ? 'Quote present; oracle freshness is validated on-chain by the deployed 2 s Pyth rule.'
+            : 'No valid on-chain Pyth quote. The configured credential lacks entitlement to the crypto-spot SOL/USD feed; the keeper cannot publish a quote.',
+        },
+        quote: {
+          available: isFresh,
+          expired: !isFresh,
+          version: hasQuote ? Number(state.quoteData?.version ?? 0) : 0,
+          reason: isFresh
+            ? `Fresh quote v${Number(state.quoteData?.version ?? 0)} (expires slot ${Number(state.quoteData?.expirySlot ?? 0)}).`
+            : hasQuote
+              ? 'Quote is present but expired at the current slot.'
+              : 'No quote has been published by the keeper.',
+        },
+        keeper: {
+          state: 'unverified',
+          reason: 'Keeper submission status is not observable from the chain.',
+        },
+        keeperConfigured: state.configData ? state.configData.keeper.toBase58() : null,
+      });
     } catch (error) {
       setLiveError((error as Error).message?.slice(0, 160) ?? 'RPC error');
+      setStatus((prev) => ({ ...prev, rpc: 'error', programRead: 'error' }));
     }
   }, [connection, publicKey]);
 
@@ -149,14 +237,6 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const connectWallet = () => { void connect().catch(() => undefined); };
   const disconnectWallet = () => { void disconnect().catch(() => undefined); };
 
-  // Breaker controls are admin-only on-chain; the UI never forges a trip.
-  const tripManualBreaker = (reason: string) => {
-    setRiskBreakers((prev) => ({ ...prev, circuitBreakerTripped: true, activeBreakerReason: reason }));
-  };
-  const resetBreaker = () => {
-    setRiskBreakers((prev) => ({ ...prev, circuitBreakerTripped: false, activeBreakerReason: null }));
-  };
-
   return (
     <ProtocolContext.Provider
       value={{
@@ -164,16 +244,24 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         vaultState,
         riskBreakers,
         tokens,
+        status,
         walletConnected: connected,
         walletAddress: publicKey ? publicKey.toBase58() : null,
         balancesLoading,
         vaultInitialized,
+        quoteAvailable,
+        quoteFresh,
+        shareBalanceAtoms,
+        depositTicket,
+        withdrawTicket,
+        currentSlot,
+        lastUpdatedAt,
         liveError,
+        activeVaultLabel: ACTIVE_VAULT.label,
         refreshBalances,
+        refreshProtocol,
         connectWallet,
         disconnectWallet,
-        tripManualBreaker,
-        resetBreaker,
       }}
     >
       {children}

@@ -9,9 +9,23 @@ import {
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import idl from '../idl/arbswap.json';
 import { ARBSWAP_PROGRAM_ID, BASE_MINT, QUOTE_MINT } from './solana';
+import { ACTIVE_VAULT } from './config';
 
 export const PROGRAM_ID = ARBSWAP_PROGRAM_ID;
 const SYSTEM_PROGRAM_ID = SystemProgram.programId;
+
+/** Read-only Anchor program (no wallet) for account reads. */
+function readOnlyProgram(connection: Connection): Program {
+  const readOnlyWallet = {
+    publicKey: PublicKey.default,
+    signTransaction: async (t: unknown) => t,
+    signAllTransactions: async (t: unknown[]) => t,
+  };
+  return new Program(
+    idl as never,
+    new AnchorProvider(connection, readOnlyWallet as unknown as Wallet, { commitment: 'confirmed' }),
+  );
+}
 
 /** Anchor program bound to a connection + wallet (the wallet-adapter adapter). */
 export function getProgram(connection: Connection, wallet: unknown): Program {
@@ -47,6 +61,77 @@ export function depositTicket(vault: PublicKey, user: PublicKey) {
 }
 export function withdrawTicket(vault: PublicKey, user: PublicKey) {
   return PublicKey.findProgramAddressSync([Buffer.from('wd'), vault.toBuffer(), user.toBuffer()], PROGRAM_ID)[0];
+}
+
+/**
+ * Assert the runtime-derived PDAs match the configured canonical vault. Call at
+ * startup so a wrong mint/address cannot silently point the demo elsewhere.
+ */
+export function assertActiveVaultDerivation(): void {
+  const { programId, vault, config, quoteState } = deriveVaultAddresses(
+    ACTIVE_VAULT.baseMint,
+    ACTIVE_VAULT.quoteMint,
+  );
+  if (
+    !programId.equals(ARBSWAP_PROGRAM_ID) ||
+    !vault.equals(ACTIVE_VAULT.vault) ||
+    !config.equals(ACTIVE_VAULT.config) ||
+    !quoteState.equals(ACTIVE_VAULT.quoteState)
+  ) {
+    throw new Error(
+      `Deployment mismatch: derived vault accounts do not match ACTIVE_VAULT (${ACTIVE_VAULT.label})`,
+    );
+  }
+}
+
+/** Decoded user share-token balance (atoms), or null if the ATA is absent. */
+export async function fetchShareBalance(
+  connection: Connection,
+  user: PublicKey,
+): Promise<bigint | null> {
+  const { vault } = deriveVaultAddresses();
+  const program = readOnlyProgram(connection);
+  const v = (await accounts(program).vault.fetch(vault)) as Record<string, unknown>;
+  const shareMint = v.shareMint as PublicKey;
+  const ata = getAssociatedTokenAddressSync(shareMint, user);
+  try {
+    const bal = await connection.getTokenAccountBalance(ata);
+    return BigInt(bal.value.amount);
+  } catch {
+    return null;
+  }
+}
+
+/** Raw DepositTicket account, or null if none exists for this user. */
+export async function fetchDepositTicket(
+  connection: Connection,
+  user: PublicKey,
+): Promise<Record<string, unknown> | null> {
+  const { vault } = deriveVaultAddresses();
+  const ticket = depositTicket(vault, user);
+  const info = await connection.getAccountInfo(ticket);
+  if (!info) return null;
+  try {
+    return (await accounts(readOnlyProgram(connection)).depositTicket.fetch(ticket)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Raw WithdrawTicket account, or null if none exists for this user. */
+export async function fetchWithdrawTicket(
+  connection: Connection,
+  user: PublicKey,
+): Promise<Record<string, unknown> | null> {
+  const { vault } = deriveVaultAddresses();
+  const ticket = withdrawTicket(vault, user);
+  const info = await connection.getAccountInfo(ticket);
+  if (!info) return null;
+  try {
+    return (await accounts(readOnlyProgram(connection)).withdrawTicket.fetch(ticket)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 /** Decoded on-chain `Config` bounds (snake_case IDL fields -> camelCase). */
@@ -269,7 +354,7 @@ export async function deposit(
   const { vault, config } = deriveVaultAddresses();
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
-  if (!state.vaultData) throw new Error('vault not initialized for the configured pair (tSOL/tUSDC TEST TOKEN, devnet)');
+  if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
   const userBase = (await ensureAta(connection, BASE_MINT, owner)).ata;
   const userQuote = (await ensureAta(connection, QUOTE_MINT, owner)).ata;
   const userShares = getAssociatedTokenAddressSync(state.vaultData.shareMint, owner);
@@ -298,7 +383,7 @@ export async function swap(
   const { vault, config, quoteState } = deriveVaultAddresses();
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
-  if (!state.vaultData) throw new Error('vault not initialized for the configured pair (tSOL/tUSDC TEST TOKEN, devnet)');
+  if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
   const traderBase = (await ensureAta(connection, BASE_MINT, owner)).ata;
   const traderQuote = (await ensureAta(connection, QUOTE_MINT, owner)).ata;
   return program.methods
@@ -326,7 +411,7 @@ export async function requestWithdraw(
   const { vault } = deriveVaultAddresses();
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
-  if (!state.vaultData) throw new Error('vault not initialized for the configured pair (tSOL/tUSDC TEST TOKEN, devnet)');
+  if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
   const userShares = getAssociatedTokenAddressSync(state.vaultData.shareMint, owner);
   return program.methods
     .requestWithdraw(new BN(shares.toString()))
@@ -346,7 +431,7 @@ export async function claimWithdraw(connection: Connection, wallet: unknown): Pr
   const { vault } = deriveVaultAddresses();
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
-  if (!state.vaultData) throw new Error('vault not initialized for the configured pair (tSOL/tUSDC TEST TOKEN, devnet)');
+  if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
   const userBase = getAssociatedTokenAddressSync(BASE_MINT, owner);
   const userQuote = getAssociatedTokenAddressSync(QUOTE_MINT, owner);
   return program.methods

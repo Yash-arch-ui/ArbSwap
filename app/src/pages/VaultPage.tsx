@@ -2,21 +2,30 @@ import React, { useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
-import { MOCK_USER_TICKETS } from '../data/mockData';
-import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain } from '../chain/program';
-import type { WithdrawalTicket } from '../types/protocol';
+import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, withdrawTicket as deriveWithdrawTicket } from '../chain/program';
+import { parseUnits, formatUnits } from '../chain/amounts';
+import { ACTIVE_VAULT, explorerTxUrl } from '../chain/config';
 
 export const VaultPage: React.FC = () => {
-  const { vaultState, quoteState, tokens, refreshBalances, vaultInitialized } = useProtocol();
+  const {
+    vaultState,
+    quoteState,
+    tokens,
+    refreshBalances,
+    refreshProtocol,
+    vaultInitialized,
+    depositTicket,
+    withdrawTicket,
+    shareBalanceAtoms,
+  } = useProtocol();
   const { connection } = useConnection();
   const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
 
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw'>('deposit');
-  const [depositSol, setDepositSol] = useState<string>('5.0');
-  const [depositUsdc, setDepositUsdc] = useState<string>('711.90');
-  const [withdrawShares, setWithdrawShares] = useState<string>('20000');
-  const [tickets, setTickets] = useState<WithdrawalTicket[]>(MOCK_USER_TICKETS);
+  const [depositSol, setDepositSol] = useState<string>('0.1');
+  const [depositUsdc, setDepositUsdc] = useState<string>('11.00');
+  const [withdrawShares, setWithdrawShares] = useState<string>('0');
   const [notice, setNotice] = useState<string | null>(null);
 
   const solNum = parseFloat(depositSol) || 0;
@@ -28,9 +37,21 @@ export const VaultPage: React.FC = () => {
     )
   );
 
-  const sharesToWithdraw = parseInt(withdrawShares) || 0;
-  const withdrawEstSol = (sharesToWithdraw * vaultState.baseReserve) / vaultState.totalShares;
-  const withdrawEstUsdc = (sharesToWithdraw * vaultState.quoteReserve) / vaultState.totalShares;
+  const sharesToWithdrawAtoms = (() => {
+    try {
+      return parseUnits(withdrawShares, ACTIVE_VAULT.shareDecimals);
+    } catch {
+      return 0n;
+    }
+  })();
+  const withdrawEstSol =
+    vaultState.totalShares > 0
+      ? (Number(sharesToWithdrawAtoms) / 10 ** ACTIVE_VAULT.shareDecimals) * (vaultState.baseReserve / vaultState.totalShares)
+      : 0;
+  const withdrawEstUsdc =
+    vaultState.totalShares > 0
+      ? (Number(sharesToWithdrawAtoms) / 10 ** ACTIVE_VAULT.shareDecimals) * (vaultState.quoteReserve / vaultState.totalShares)
+      : 0;
 
   const handleDeposit = async () => {
     if (!connected || !publicKey || !wallet) {
@@ -39,10 +60,11 @@ export const VaultPage: React.FC = () => {
     }
     setNotice('Submitting deposit…');
     try {
-      const base = BigInt(Math.floor(solNum * 1e9));
-      const quote = BigInt(Math.floor(usdcNum * 1e6));
+      const base = parseUnits(depositSol, tokens.SOL.decimals);
+      const quote = parseUnits(depositUsdc, tokens.USDC.decimals);
       const signature = await depositOnChain(connection, wallet, base, quote, 1n);
-      setNotice(`Deposit confirmed ${signature.slice(0, 8)}… (~${estimatedShares.toLocaleString()} shares; warm-up applies).`);
+      setNotice(`Deposit confirmed ${signature.slice(0, 8)}… — ${explorerTxUrl(signature)} (shares activate after warm-up).`);
+      await refreshProtocol();
       await refreshBalances();
     } catch (error) {
       setNotice(`Deposit failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
@@ -56,18 +78,9 @@ export const VaultPage: React.FC = () => {
     }
     setNotice('Queueing withdrawal…');
     try {
-      const signature = await requestWithdrawOnChain(connection, wallet, BigInt(sharesToWithdraw));
-      const newTicket: WithdrawalTicket = {
-        id: `wd-${Math.floor(1000 + Math.random() * 9000)}`,
-        shares: sharesToWithdraw,
-        requestedEpoch: vaultState.epoch,
-        eligibleEpoch: vaultState.epoch + 1,
-        estimatedSol: Number(withdrawEstSol.toFixed(2)),
-        estimatedUsdc: Number(withdrawEstUsdc.toFixed(2)),
-        status: 'Pending',
-      };
-      setTickets([newTicket, ...tickets]);
+      const signature = await requestWithdrawOnChain(connection, wallet, sharesToWithdrawAtoms);
       setNotice(`Withdrawal queued ${signature.slice(0, 8)}… for Epoch ${vaultState.epoch + 1}.`);
+      await refreshProtocol();
       await refreshBalances();
     } catch (error) {
       setNotice(`Withdraw request failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
@@ -249,18 +262,45 @@ export const VaultPage: React.FC = () => {
           </div>
 
           <div className="uni-card">
-            <h3 style={{ fontSize: 16, fontWeight: 535, marginBottom: 12 }}>Active Withdrawal Tickets</h3>
-            {tickets.map(t => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--uni-surface2)', borderRadius: 14, marginBottom: 8, fontSize: 13 }}>
-                <div>
-                  <span className="mono" style={{ fontWeight: 600 }}>{t.id}</span>
-                  <div style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>{t.shares.toLocaleString()} shares → {t.estimatedSol} SOL + ${t.estimatedUsdc} USDC</div>
-                </div>
-                <span className="mono" style={{ color: t.status === 'Ready' ? 'var(--uni-success)' : 'var(--uni-warning)', fontSize: 12 }}>
-                  {t.status} (Epoch {t.eligibleEpoch})
-                </span>
+            <h3 style={{ fontSize: 16, fontWeight: 535, marginBottom: 12 }}>Your Position (live on-chain)</h3>
+            <div style={{ color: 'var(--uni-neutral2)', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div>
+                Share balance:{' '}
+                <strong className="mono" style={{ color: 'var(--uni-neutral1)' }}>
+                  {!publicKey
+                    ? 'connect a wallet'
+                    : shareBalanceAtoms === null
+                      ? 'no share account'
+                      : formatUnits(shareBalanceAtoms, ACTIVE_VAULT.shareDecimals)}
+                </strong>
               </div>
-            ))}
+              <div>
+                Deposit ticket:{' '}
+                {depositTicket ? (
+                  <span className="mono">
+                    {formatUnits(depositTicket.shares, ACTIVE_VAULT.shareDecimals)} shares ·{' '}
+                    {depositTicket.active ? 'active' : `activating at slot ${depositTicket.activateSlot}`}
+                  </span>
+                ) : (
+                  <span>none</span>
+                )}
+              </div>
+              <div>
+                Withdrawal ticket:{' '}
+                {withdrawTicket ? (
+                  <span className="mono">
+                    {formatUnits(withdrawTicket.shares, ACTIVE_VAULT.shareDecimals)} shares · requested epoch {withdrawTicket.requestedEpoch}
+                  </span>
+                ) : (
+                  <span>none</span>
+                )}
+              </div>
+              {publicKey && withdrawTicket && (
+                <span style={{ color: 'var(--uni-neutral3)', fontSize: 12 }}>
+                  Redemption PDA: <span className="mono">{deriveWithdrawTicket(ACTIVE_VAULT.vault, publicKey).toBase58()}</span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

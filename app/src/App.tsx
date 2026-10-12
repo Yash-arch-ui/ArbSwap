@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SolanaWalletProvider } from './chain/WalletProvider';
 import { ProtocolProvider } from './context/ProtocolContext';
+import { assertActiveVaultDerivation } from './chain/program';
 import { Navbar, type NavTab } from './components/Navbar';
 import { Orbs } from './ui/Orbs';
 import { OverviewPage } from './pages/OverviewPage';
@@ -9,6 +10,10 @@ import { VaultPage } from './pages/VaultPage';
 import { RiskPage } from './pages/RiskPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import './theme.css';
+
+// Fail loudly if the configured vault addresses do not match the PDAs derived
+// from the configured mints — prevents silently reading the wrong vault.
+assertActiveVaultDerivation();
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('overview');
