@@ -23,7 +23,7 @@
 //! task). Both are recorded in `docs/FORMULA.md`.
 
 use arb_math::fixed::sqrt_q64;
-use arb_math::quote::Level;
+pub use arb_math::quote::Level;
 use arb_math::wide::U256;
 use sha2::{Digest, Sha256};
 use solana_address::Address;
@@ -268,14 +268,12 @@ pub struct QuoteUpdate {
 /// verifies with one multiply. They are derived here so the keeper payload
 /// struct stays unchanged; the bid inverses are unused by the program (written
 /// as 0).
-pub fn encode_update_quote_instruction(update: &QuoteUpdate) -> Vec<u8> {
-    // S2-9: the payload no longer carries `oracle_price` (derived on-chain from
-    // Pyth + mint decimals) and each level is (sqrt_lo, sqrt_hi, liquidity) = 3
-    // u128 (capacity is computed on-chain, so no inverse-sqrt fields are sent).
-    let mut data = Vec::with_capacity(8 + 8 + 8 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 96);
-    let mut hash = Sha256::new();
-    hash.update(b"global:update_quote");
-    data.extend_from_slice(&hash.finalize()[..8]);
+/// The Borsh body shared by `update_quote` and `stage_quote` (everything after
+/// the 8-byte instruction discriminator). S2-9: the payload no longer carries
+/// `oracle_price` (derived on-chain from Pyth + mint decimals) and each level is
+/// `(sqrt_lo, sqrt_hi, liquidity)` (capacity is computed on-chain).
+pub fn encode_quote_update_body(update: &QuoteUpdate) -> Vec<u8> {
+    let mut data = Vec::with_capacity(8 + 8 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 96);
     put_u64(&mut data, update.slot);
     put_i64(&mut data, update.publish_time);
     put_u32(&mut data, update.confidence_bps);
@@ -301,6 +299,29 @@ pub fn encode_update_quote_instruction(update: &QuoteUpdate) -> Vec<u8> {
         put_u128(&mut data, level.sqrt_hi);
         put_u128(&mut data, level.liquidity);
     }
+    data
+}
+
+/// The `update_quote` instruction discriminator + the shared quote body.
+pub fn encode_update_quote_instruction(update: &QuoteUpdate) -> Vec<u8> {
+    let mut data = Sha256::digest(b"global:update_quote")[..8].to_vec();
+    data.extend_from_slice(&encode_quote_update_body(update));
+    data
+}
+
+/// S2-11: `stage_quote(update, nonce)` payload — the shared quote body followed
+/// by the monotonic staging nonce.
+pub fn encode_stage_quote_instruction(update: &QuoteUpdate, nonce: u64) -> Vec<u8> {
+    let mut data = Sha256::digest(b"global:stage_quote")[..8].to_vec();
+    data.extend_from_slice(&encode_quote_update_body(update));
+    data.extend_from_slice(&nonce.to_le_bytes());
+    data
+}
+
+/// S2-11: `commit_quote(nonce)` payload — discriminator + the committed nonce.
+pub fn encode_commit_quote_instruction(nonce: u64) -> Vec<u8> {
+    let mut data = Sha256::digest(b"global:commit_quote")[..8].to_vec();
+    data.extend_from_slice(&nonce.to_le_bytes());
     data
 }
 
@@ -1119,6 +1140,104 @@ pub fn build_update_quote_transaction(
     transaction
 }
 
+/// S2-11: everything needed to build the `stage_quote` transaction.
+#[derive(Clone, Debug)]
+pub struct StageQuotePlan {
+    pub program_id: Address,
+    pub keeper: Address,
+    pub vault: Address,
+    pub config: Address,
+    pub quote_state: Address,
+    /// The `[b"pending_quote", vault, keeper]` PDA (derived by the caller).
+    pub pending_quote: Address,
+    pub base_reserve: Address,
+    pub quote_reserve: Address,
+    pub keeper_bond: Address,
+    pub system_program: Address,
+    pub recent_blockhash: Hash,
+    pub compute_unit_limit: u32,
+}
+
+/// S2-11: build the signed `stage_quote` transaction. It writes only the pending
+/// record; the active `QuoteState` is untouched until `commit_quote`.
+pub fn build_stage_quote_transaction(
+    plan: &StageQuotePlan,
+    keeper: &Keypair,
+    quote: &QuoteUpdate,
+    nonce: u64,
+    priority_fee_micro_lamports_per_cu: u64,
+) -> Transaction {
+    let data = encode_stage_quote_instruction(quote, nonce);
+    let stage = Instruction {
+        program_id: plan.program_id,
+        accounts: vec![
+            AccountMeta::new(plan.keeper, true),
+            AccountMeta::new_readonly(plan.vault, false),
+            AccountMeta::new_readonly(plan.config, false),
+            AccountMeta::new_readonly(plan.quote_state, false),
+            AccountMeta::new(plan.pending_quote, false),
+            AccountMeta::new_readonly(plan.base_reserve, false),
+            AccountMeta::new_readonly(plan.quote_reserve, false),
+            AccountMeta::new_readonly(plan.keeper_bond, false),
+            AccountMeta::new_readonly(plan.system_program, false),
+        ],
+        data,
+    };
+    let instructions = vec![
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+            plan.compute_unit_limit,
+        ),
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_price(
+            priority_fee_micro_lamports_per_cu,
+        ),
+        stage,
+    ];
+    let mut transaction = Transaction::new_with_payer(&instructions, Some(&plan.keeper));
+    #[allow(clippy::clone_on_copy)]
+    transaction.sign(&[keeper], plan.recent_blockhash.clone());
+    transaction
+}
+
+/// S2-11: everything needed to build the `commit_quote` instruction. The caller
+/// prepends the Pyth push-oracle update instruction so both execute atomically.
+#[derive(Clone, Debug)]
+pub struct CommitQuotePlan {
+    pub program_id: Address,
+    pub keeper: Address,
+    pub vault: Address,
+    pub config: Address,
+    pub quote_state: Address,
+    pub pending_quote: Address,
+    pub price_update: Address,
+    pub base_reserve: Address,
+    pub quote_reserve: Address,
+    pub keeper_bond: Address,
+    pub base_mint: Address,
+    pub quote_mint: Address,
+}
+
+/// S2-11: the `commit_quote` instruction (no compute budget). Pair it with the
+/// fresh Pyth price-update instruction in the same transaction.
+pub fn build_commit_quote_instruction(plan: &CommitQuotePlan, nonce: u64) -> Instruction {
+    Instruction {
+        program_id: plan.program_id,
+        accounts: vec![
+            AccountMeta::new(plan.keeper, true),
+            AccountMeta::new_readonly(plan.vault, false),
+            AccountMeta::new_readonly(plan.config, false),
+            AccountMeta::new(plan.quote_state, false),
+            AccountMeta::new(plan.pending_quote, false),
+            AccountMeta::new_readonly(plan.price_update, false),
+            AccountMeta::new_readonly(plan.base_reserve, false),
+            AccountMeta::new_readonly(plan.quote_reserve, false),
+            AccountMeta::new_readonly(plan.keeper_bond, false),
+            AccountMeta::new_readonly(plan.base_mint, false),
+            AccountMeta::new_readonly(plan.quote_mint, false),
+        ],
+        data: encode_commit_quote_instruction(nonce),
+    }
+}
+
 /// A keeper sender for a live RPC: the caller injects the transport (a closure
 /// that submits a `Transaction`) and a blockhash refresher, so this crate needs
 /// no RPC dependency and the signed bytes are testable offline.
@@ -1466,6 +1585,111 @@ mod tests {
             size <= 1232,
             "serialized update_quote tx is {size} B, above the Solana 1232 B packet limit"
         );
+    }
+
+    #[test]
+    fn stage_and_commit_instruction_encodings() {
+        let quote = compute_quote(
+            OracleTick {
+                slot: 7,
+                publish_time: 1_700_000_000,
+                price_q64: 150 * Q64,
+                confidence_bps: 1,
+            },
+            VolatilityState::default(),
+            1_000,
+            150_000,
+            0,
+            0,
+            KeeperParams::default(),
+        )
+        .unwrap();
+        let body = encode_quote_update_body(&quote);
+        assert_eq!(
+            body.len(),
+            8 + 8 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 96
+        );
+        // update_quote = body + 8-byte discriminator.
+        let update = encode_update_quote_instruction(&quote);
+        assert_eq!(&update[..8], &Sha256::digest(b"global:update_quote")[..8]);
+        assert_eq!(&update[8..], &body[..]);
+        // stage_quote = disc + body + nonce.
+        let stage = encode_stage_quote_instruction(&quote, 42);
+        assert_eq!(&stage[..8], &Sha256::digest(b"global:stage_quote")[..8]);
+        assert_eq!(&stage[8..8 + body.len()], &body[..]);
+        assert_eq!(&stage[8 + body.len()..], &42u64.to_le_bytes());
+        assert_eq!(stage.len(), 8 + body.len() + 8);
+        // commit_quote = disc + nonce.
+        let commit = encode_commit_quote_instruction(42);
+        assert_eq!(&commit[..8], &Sha256::digest(b"global:commit_quote")[..8]);
+        assert_eq!(&commit[8..], &42u64.to_le_bytes());
+        assert_eq!(commit.len(), 16);
+    }
+
+    #[test]
+    fn stage_quote_transaction_fits_packet_limit() {
+        use solana_signer::Signer;
+        let keeper = Keypair::new();
+        let plan = StageQuotePlan {
+            program_id: Address::new_from_array([1u8; 32]),
+            keeper: keeper.pubkey(),
+            vault: Address::new_from_array([2u8; 32]),
+            config: Address::new_from_array([3u8; 32]),
+            quote_state: Address::new_from_array([4u8; 32]),
+            pending_quote: Address::new_from_array([11u8; 32]),
+            base_reserve: Address::new_from_array([7u8; 32]),
+            quote_reserve: Address::new_from_array([8u8; 32]),
+            keeper_bond: Address::new_from_array([6u8; 32]),
+            system_program: Address::default(),
+            recent_blockhash: Hash::default(),
+            compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
+        };
+        let quote = compute_quote(
+            OracleTick {
+                slot: 1,
+                publish_time: 1,
+                price_q64: 150 * Q64,
+                confidence_bps: 1,
+            },
+            VolatilityState::default(),
+            1_000,
+            150_000,
+            0,
+            0,
+            KeeperParams::default(),
+        )
+        .unwrap();
+        let transaction = build_stage_quote_transaction(&plan, &keeper, &quote, 1, 1_000);
+        let data = encode_stage_quote_instruction(&quote, 1).len();
+        let size = wincode::serialize(&transaction).unwrap().len();
+        println!("stage_quote_instruction_data={data}B stage_tx_size={size}B");
+        assert!(
+            size <= 1232,
+            "serialized stage_quote tx is {size} B, above the Solana 1232 B packet limit"
+        );
+    }
+
+    #[test]
+    fn commit_quote_instruction_accounts_and_data() {
+        let plan = CommitQuotePlan {
+            program_id: Address::new_from_array([1u8; 32]),
+            keeper: Address::new_from_array([2u8; 32]),
+            vault: Address::new_from_array([3u8; 32]),
+            config: Address::new_from_array([4u8; 32]),
+            quote_state: Address::new_from_array([5u8; 32]),
+            pending_quote: Address::new_from_array([6u8; 32]),
+            price_update: Address::new_from_array([7u8; 32]),
+            base_reserve: Address::new_from_array([8u8; 32]),
+            quote_reserve: Address::new_from_array([9u8; 32]),
+            keeper_bond: Address::new_from_array([10u8; 32]),
+            base_mint: Address::new_from_array([11u8; 32]),
+            quote_mint: Address::new_from_array([12u8; 32]),
+        };
+        let ix = build_commit_quote_instruction(&plan, 9);
+        assert_eq!(ix.accounts.len(), 11);
+        assert!(ix.accounts[0].is_signer);
+        assert!(ix.accounts[3].is_writable);
+        assert_eq!(ix.data, encode_commit_quote_instruction(9));
     }
 
     #[test]

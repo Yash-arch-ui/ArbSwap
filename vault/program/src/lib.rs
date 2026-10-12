@@ -21,6 +21,8 @@ const TIMELOCK_SLOTS: u64 = 216_000;
 /// p2-T4: the permissionless breaker trips when the stored oracle publish time
 /// is older than this multiple of `max_staleness_seconds`. Stored state only.
 const STALENESS_TRIP_MULTIPLE: i64 = 2;
+/// S2-11: max age (slots) of a staged quote before `commit_quote` rejects it.
+const MAX_STAGE_AGE_SLOTS: u64 = 25;
 
 #[program]
 pub mod arbswap {
@@ -504,84 +506,54 @@ pub mod arbswap {
                 <= ctx.accounts.config.max_update_slot_age as u64,
             ErrorCode::UpdateSlotTooOld
         );
-        require!(update.oracle_publish_time >= 0, ErrorCode::InvalidPrice);
-        let feed = ctx.accounts.config.pyth_feed_id;
-        require!(
-            ctx.accounts.config.max_staleness_seconds >= 0,
-            ErrorCode::InvalidOracle
-        );
-        let price = ctx
-            .accounts
-            .price_update
-            .get_price_no_older_than(
-                &clock,
-                ctx.accounts.config.max_staleness_seconds as u64,
-                &feed,
-            )
-            .map_err(|_| error!(ErrorCode::InvalidOracle))?;
-        require!(
-            price.price > 0 && price.publish_time == update.oracle_publish_time,
-            ErrorCode::InvalidOracle
-        );
-        let pyth_price_q64 =
-            pyth_price_q64(price.price, price.exponent).ok_or(ErrorCode::InvalidOracle)?;
-        // B1: the executable token-unit price is derived here from the verified
-        // Pyth value and the vault's own (address-bound) mint decimals. The
-        // keeper must submit exactly this normalized value; it cannot choose an
-        // arbitrary scaling that merely passes the comparison.
-        let expected_oracle_price = normalize_pyth_price_q64(
-            pyth_price_q64,
+        let oracle_price = validate_quote_update(
+            &ctx.accounts.config,
+            &ctx.accounts.quote_state,
+            &update,
+            &ctx.accounts.price_update,
+            ctx.accounts.base_reserve.amount,
+            ctx.accounts.quote_reserve.amount,
+            &ctx.accounts.vault,
             ctx.accounts.base_mint.decimals,
             ctx.accounts.quote_mint.decimals,
-        )
-        .ok_or(ErrorCode::InvalidOracle)?;
-        // S2-9: `oracle_price` is no longer in the payload — it was fully
-        // determined by the verified Pyth value and the mint decimals, and the
-        // program now uses its own normalized value directly (strictly stronger
-        // than trusting a keeper-supplied field that had to equal it anyway).
-        let oracle_price = expected_oracle_price;
-        require!(oracle_price > 0, ErrorCode::InvalidPrice);
-        let decoded_conf_bps = ((price.conf as u128)
-            .saturating_mul(10_000)
-            .saturating_add(price.price as u128 - 1)
-            / price.price as u128) as u32;
-        require!(
-            decoded_conf_bps <= ctx.accounts.config.max_conf_bps
-                && update.oracle_conf_bps == decoded_conf_bps,
-            ErrorCode::WideConfidence
-        );
-        require!(
-            update.half_spread_bps >= ctx.accounts.config.min_spread_bps
-                && update.half_spread_bps <= ctx.accounts.config.max_spread_bps,
-            ErrorCode::SpreadOutOfBounds
-        );
-        // Honest-execution §7.3: bound the per-update spread *step* (not only the
-        // absolute band) so a keeper cannot jump the spread in a single update.
-        // `0` disables the step guard (used by tests and the permissive default).
-        if ctx.accounts.quote_state.version > 0 && ctx.accounts.config.max_spread_step_bps > 0 {
-            let spread_step = update
-                .half_spread_bps
-                .abs_diff(ctx.accounts.quote_state.half_spread_bps);
-            require!(
-                spread_step <= ctx.accounts.config.max_spread_step_bps,
-                ErrorCode::SpreadStepTooLarge
-            );
-        }
-        if ctx.accounts.quote_state.anchor_sqrt_price > 0 {
-            let old = ctx.accounts.quote_state.anchor_sqrt_price;
-            let diff = update.anchor_sqrt_price.abs_diff(old);
-            require!(
-                diff.saturating_mul(10_000)
-                    <= old.saturating_mul(ctx.accounts.config.max_anchor_step_bps as u128),
-                ErrorCode::AnchorStepTooLarge
-            );
-        }
+            &clock,
+        )?;
+        apply_quote_update(
+            &mut ctx.accounts.quote_state,
+            &ctx.accounts.config,
+            &update,
+            oracle_price,
+            &clock,
+        )?;
+        Ok(())
+    }
+    /// S2-11: stage a quote into the `PendingQuote` PDA without touching the
+    /// active `QuoteState`. The staged payload is only ever applied by
+    /// `commit_quote`, which runs in the same transaction as the fresh Pyth
+    /// price update, so the oracle write and the quote commit are atomic.
+    pub fn stage_quote(ctx: Context<StageQuote>, update: QuoteUpdate, nonce: u64) -> Result<()> {
+        require!(ctx.accounts.vault.status == ACTIVE, ErrorCode::Paused);
+        require_keeper_authorized(
+            &ctx.accounts.config,
+            &ctx.accounts.keeper.key(),
+            &ctx.accounts.vault.key(),
+            &ctx.accounts.keeper_bond.to_account_info(),
+        )?;
+        let clock = Clock::get()?;
+        let pq = &mut ctx.accounts.pending_quote;
+        // Monotonic nonce: a new stage must supersede the last committed one, so
+        // a consumed (committed) payload can never be replayed.
+        require!(nonce > pq.committed_nonce, ErrorCode::StalePendingQuote);
+        // Oracle-independent shape checks (cheap, fail-fast). The authoritative
+        // oracle/ladder/inventory/capacity checks run at `commit_quote`.
+        require!(update.oracle_publish_time >= 0, ErrorCode::InvalidPrice);
         require!(
             update.weights_bps.iter().map(|v| *v as u64).sum::<u64>() == 10_000,
             ErrorCode::InvalidWeights
         );
         require!(
-            update.offsets_bps.windows(2).all(|w| w[0] < w[1]),
+            update.offsets_bps.windows(2).all(|w| w[0] < w[1])
+                && update.offsets_bps[LEVELS - 1] <= MAX_LEVEL_OFFSET_BPS,
             ErrorCode::InvalidLadder
         );
         require!(
@@ -592,214 +564,115 @@ pub mod arbswap {
                 .all(|l| l.sqrt_lo > 0 && l.sqrt_lo < l.sqrt_hi && l.liquidity > 0),
             ErrorCode::InvalidLadder
         );
-        // F-04: bind the executed ladder to the oracle anchor so a compromised
-        // or buggy keeper cannot quote arbitrarily bad prices. Every level's
-        // implied price must lie inside the anchor widened by the declared
-        // spread, the directional add-on and the outermost offset, and the
-        // reservation must stay within `max_inventory_bps` of the anchor.
+        pq.vault = ctx.accounts.vault.key();
+        pq.keeper = ctx.accounts.keeper.key();
+        pq.nonce = nonce;
+        pq.pending = 1;
+        pq.stage_slot = clock.slot;
+        pq.base_reserve_at_stage = ctx.accounts.base_reserve.amount;
+        pq.quote_reserve_at_stage = ctx.accounts.quote_reserve.amount;
+        pq.insurance_base = ctx.accounts.vault.insurance_base;
+        pq.insurance_quote = ctx.accounts.vault.insurance_quote;
+        pq.keeper_base = ctx.accounts.vault.keeper_base;
+        pq.keeper_quote = ctx.accounts.vault.keeper_quote;
+        pq.protocol_base = ctx.accounts.vault.protocol_base;
+        pq.protocol_quote = ctx.accounts.vault.protocol_quote;
+        pq.quote_version_at_stage = ctx.accounts.quote_state.version;
+        pq.quote_update_slot_at_stage = ctx.accounts.quote_state.update_slot;
+        pq.bump = ctx.bumps.pending_quote;
+        pq.update = update;
+        emit!(QuoteStaged {
+            slot: clock.slot,
+            nonce,
+            oracle_publish_time: update.oracle_publish_time,
+            update_slot: update.update_slot,
+        });
+        Ok(())
+    }
+
+    /// S2-11: commit a staged quote against the `PriceUpdateV2` account written
+    /// by the Pyth instruction that precedes this instruction in the same
+    /// transaction. Every oracle, mint-normalization, anchor, ladder, inventory,
+    /// flow and capacity guard is re-applied here; nothing is trusted from
+    /// staging beyond the payload itself. Any failure leaves the active quote
+    /// unchanged (transaction atomicity).
+    pub fn commit_quote(ctx: Context<CommitQuote>, nonce: u64) -> Result<()> {
+        require!(ctx.accounts.vault.status == ACTIVE, ErrorCode::Paused);
+        require_keeper_authorized(
+            &ctx.accounts.config,
+            &ctx.accounts.keeper.key(),
+            &ctx.accounts.vault.key(),
+            &ctx.accounts.keeper_bond.to_account_info(),
+        )?;
+        let clock = Clock::get()?;
+        let pq = &mut ctx.accounts.pending_quote;
+        require!(pq.pending == 1, ErrorCode::NoPendingQuote);
         require!(
-            update.offsets_bps[LEVELS - 1] <= MAX_LEVEL_OFFSET_BPS,
-            ErrorCode::InvalidLadder
-        );
-        let anchor_price = arb_math::price_from_sqrt(update.anchor_sqrt_price)
-            .map_err(|_| ErrorCode::InvalidPrice)?;
-        require!(anchor_price > 0, ErrorCode::InvalidPrice);
-        // Item 2: bind the anchor to the **verified** Pyth price, not only to the
-        // previous anchor. `update.oracle_price` is the Q64 price already proven
-        // == the Pyth payload above. Without this, a keeper could (over steps, or
-        // on the first update where the previous anchor is 0) quote far from the
-        // oracle. `max_anchor_dev_bps` is the max |anchor - oracle|/oracle.
-        //
-        // Item 1b worst-case loss bound. A keeper that posts an anchor `d`
-        // (fraction) away from the oracle exposes the ladder depth, capped at
-        // `u = utilization_max` of reserves, to a pick-off worth ~`d`:
-        //     loss_per_update <= u * d * V          (V = vault value)
-        // With u = 0.5 and the recommended default d = 100 bps:
-        //     loss_per_update <= 0.5 * 0.01 * V = 0.005 V   (0.5% of V per update)
-        // and the per-window loss is additionally bounded by the flow cap (1a).
-        // `oracle_price` (the verified, normalized Q64 token-unit price) is
-        // bound above from the Pyth account; no payload field is trusted here.
-        let anchor_dev = anchor_price.abs_diff(oracle_price);
-        require!(
-            anchor_dev.saturating_mul(BPS_DENOM as u128)
-                <= oracle_price.saturating_mul(ctx.accounts.config.max_anchor_dev_bps as u128),
-            ErrorCode::AnchorTooFarFromOracle
-        );
-        let outer = update.offsets_bps[LEVELS - 1];
-        let ask_band = update
-            .half_spread_bps
-            .saturating_add(update.ask_extra_bps)
-            .saturating_add(outer)
-            .min(MAX_LEVEL_OFFSET_BPS);
-        let bid_band = update
-            .half_spread_bps
-            .saturating_add(update.bid_extra_bps)
-            .saturating_add(outer)
-            .min(MAX_LEVEL_OFFSET_BPS);
-        let reservation =
-            arb_math::price_from_sqrt(update.p_res_sqrt).map_err(|_| ErrorCode::InvalidPrice)?;
-        // The reservation is itself bounded to the verified anchor band, so
-        // binding the ladder to the reservation (the ladder's true centre, per
-        // spec §5.7) still bounds every level relative to the oracle through
-        // `max_inventory_bps`. This is required for a two-sided ladder: a bid
-        // level can sit below the anchor whenever the reservation is skewed down.
-        let inventory = ctx.accounts.config.max_inventory_bps.min(BPS_DENOM - 1);
-        let res_upper = arb_math::mul_div_ceil(
-            anchor_price,
-            (BPS_DENOM + inventory) as u128,
-            BPS_DENOM as u128,
-        )
-        .ok_or(ErrorCode::MathOverflow)?;
-        let res_lower = arb_math::mul_div_floor(
-            anchor_price,
-            (BPS_DENOM - inventory) as u128,
-            BPS_DENOM as u128,
-        )
-        .ok_or(ErrorCode::MathOverflow)?;
-        require!(
-            reservation <= res_upper && reservation >= res_lower,
-            ErrorCode::InventoryOutOfBounds
-        );
-        let upper = arb_math::mul_div_ceil(
-            reservation,
-            (BPS_DENOM + ask_band) as u128,
-            BPS_DENOM as u128,
-        )
-        .ok_or(ErrorCode::MathOverflow)?;
-        let lower = arb_math::mul_div_floor(
-            reservation,
-            (BPS_DENOM - bid_band.min(BPS_DENOM - 1)) as u128,
-            BPS_DENOM as u128,
-        )
-        .ok_or(ErrorCode::MathOverflow)?;
-        // 0.01 bps of slack absorbs the `sqrt_q64`/`price_from_sqrt` round-trip
-        // (a few ulps) so an exactly-at-the-edge level is not spuriously
-        // rejected. It is far below the 1 bps parameter granularity and does not
-        // materially widen the band.
-        let band_epsilon = reservation / 1_000_000;
-        for level in update.ask_levels.iter().chain(update.bid_levels.iter()) {
-            let lo =
-                arb_math::price_from_sqrt(level.sqrt_lo).map_err(|_| ErrorCode::InvalidPrice)?;
-            let hi =
-                arb_math::price_from_sqrt(level.sqrt_hi).map_err(|_| ErrorCode::InvalidPrice)?;
-            require!(
-                lo.saturating_add(band_epsilon) >= lower
-                    && hi <= upper.saturating_add(band_epsilon),
-                ErrorCode::LevelOutOfBounds
-            );
-        }
-        // p2-T3 / P2-F03 / h1: bound the quoted depth to the *available* reserves
-        // so a compromised keeper cannot publish phantom depth. The **ask** side
-        // pays out base, so its base capacity is bounded by the available base;
-        // the **bid** side pays out quote, so its quote capacity is bounded by
-        // the available quote. Capacity uses the same floor rounding as
-        // `arb-math`; the fee buckets are liabilities and are excluded.
-        let mut ask_base_capacity = 0u128;
-        for level in update.ask_levels.iter() {
-            // S2-9: the ask base capacity is computed on-chain from the level's
-            // liquidity and sqrt bounds (the same U256 division the bid side
-            // already uses), so the payload no longer carries keeper-supplied
-            // inverse square roots. Exact floor; the utilization cap can only
-            // reject, never wrongly accept.
-            let math_level = MathLevel {
-                sqrt_lo: level.sqrt_lo,
-                sqrt_hi: level.sqrt_hi,
-                liquidity: level.liquidity,
-            };
-            ask_base_capacity = ask_base_capacity
-                .checked_add(
-                    math_level
-                        .base_capacity()
-                        .map_err(|_| error!(ErrorCode::MathOverflow))?,
-                )
-                .ok_or(ErrorCode::MathOverflow)?;
-        }
-        let mut bid_quote_capacity = 0u128;
-        for level in update.bid_levels.iter() {
-            let math_level = MathLevel {
-                sqrt_lo: level.sqrt_lo,
-                sqrt_hi: level.sqrt_hi,
-                liquidity: level.liquidity,
-            };
-            bid_quote_capacity = bid_quote_capacity
-                .checked_add(
-                    math_level
-                        .quote_capacity()
-                        .map_err(|_| error!(ErrorCode::MathOverflow))?,
-                )
-                .ok_or(ErrorCode::MathOverflow)?;
-        }
-        let available_base = ctx
-            .accounts
-            .base_reserve
-            .amount
-            .saturating_sub(ctx.accounts.vault.insurance_base)
-            .saturating_sub(ctx.accounts.vault.keeper_base)
-            .saturating_sub(ctx.accounts.vault.protocol_base) as u128;
-        let available_quote =
-            ctx.accounts
-                .quote_reserve
-                .amount
-                .saturating_sub(ctx.accounts.vault.insurance_quote)
-                .saturating_sub(ctx.accounts.vault.keeper_quote)
-                .saturating_sub(ctx.accounts.vault.protocol_quote) as u128;
-        let utilization = ctx.accounts.config.utilization_max_bps as u128;
-        require!(
-            ask_base_capacity.saturating_mul(BPS_DENOM as u128)
-                <= available_base.saturating_mul(utilization),
-            ErrorCode::UtilizationExceeded
+            pq.vault == ctx.accounts.vault.key() && pq.keeper == ctx.accounts.keeper.key(),
+            ErrorCode::NotKeeper
         );
         require!(
-            bid_quote_capacity.saturating_mul(BPS_DENOM as u128)
-                <= available_quote.saturating_mul(utilization),
-            ErrorCode::UtilizationExceeded
+            pq.nonce == nonce && nonce > pq.committed_nonce,
+            ErrorCode::StalePendingQuote
         );
-        let quote = &mut ctx.accounts.quote_state;
-        quote.version = quote
-            .version
-            .checked_add(1)
-            .ok_or(ErrorCode::MathOverflow)?;
-        let version = quote.version;
-        quote.update_slot = update.update_slot;
-        // Spec §5.9: the flow accumulator resets on every quote update.
-        quote.flow_n = 0;
-        quote.expiry_slot = clock
-            .slot
-            .checked_add(ctx.accounts.config.expiry_slots)
-            .ok_or(ErrorCode::MathOverflow)?;
-        quote.anchor_sqrt_price = update.anchor_sqrt_price;
-        quote.p_res_sqrt = update.p_res_sqrt;
-        quote.half_spread_bps = update.half_spread_bps;
-        quote.ask_extra_bps = update.ask_extra_bps;
-        quote.bid_extra_bps = update.bid_extra_bps;
-        quote.depth_mult_bps = update.depth_mult_bps.min(10_000);
-        quote.oracle_publish_time = update.oracle_publish_time;
-        quote.oracle_conf_bps = update.oracle_conf_bps;
-        // h3: store the verified oracle for the swap-time edge measurement. The
-        // realized-edge window is rolled by the slot clock at swap time, NOT on
-        // every re-quote (so re-quoting cannot reset the loss tracker).
-        quote.oracle_price = oracle_price;
-        for i in 0..LEVELS {
-            quote.ask_levels[i] = Level {
-                sqrt_lo: update.ask_levels[i].sqrt_lo,
-                sqrt_hi: update.ask_levels[i].sqrt_hi,
-                liquidity: update.ask_levels[i].liquidity,
-                offset_bps: update.offsets_bps[i],
-                weight_bps: update.weights_bps[i],
-            };
-            quote.bid_levels[i] = Level {
-                sqrt_lo: update.bid_levels[i].sqrt_lo,
-                sqrt_hi: update.bid_levels[i].sqrt_hi,
-                liquidity: update.bid_levels[i].liquidity,
-                offset_bps: update.offsets_bps[i],
-                weight_bps: update.weights_bps[i],
-            };
-        }
-        emit!(QuoteUpdated {
+        require!(
+            clock.slot.saturating_sub(pq.stage_slot) <= MAX_STAGE_AGE_SLOTS,
+            ErrorCode::StalePendingQuote
+        );
+        // Reject if quote-relevant vault/reserve state moved between staging and
+        // commit: the depth the keeper sized against must still be available and
+        // the active quote version/update-slot must be unchanged.
+        require!(
+            pq.base_reserve_at_stage == ctx.accounts.base_reserve.amount
+                && pq.quote_reserve_at_stage == ctx.accounts.quote_reserve.amount
+                && pq.insurance_base == ctx.accounts.vault.insurance_base
+                && pq.insurance_quote == ctx.accounts.vault.insurance_quote
+                && pq.keeper_base == ctx.accounts.vault.keeper_base
+                && pq.keeper_quote == ctx.accounts.vault.keeper_quote
+                && pq.protocol_base == ctx.accounts.vault.protocol_base
+                && pq.protocol_quote == ctx.accounts.vault.protocol_quote
+                && pq.quote_version_at_stage == ctx.accounts.quote_state.version
+                && pq.quote_update_slot_at_stage == ctx.accounts.quote_state.update_slot,
+            ErrorCode::StagedStateChanged
+        );
+        let update = pq.update;
+        require!(
+            update.update_slot > ctx.accounts.quote_state.update_slot
+                && update.update_slot <= clock.slot,
+            ErrorCode::NonMonotonicSlot
+        );
+        require!(
+            clock.slot.saturating_sub(update.update_slot)
+                <= ctx.accounts.config.max_update_slot_age as u64,
+            ErrorCode::UpdateSlotTooOld
+        );
+        let oracle_price = validate_quote_update(
+            &ctx.accounts.config,
+            &ctx.accounts.quote_state,
+            &update,
+            &ctx.accounts.price_update,
+            ctx.accounts.base_reserve.amount,
+            ctx.accounts.quote_reserve.amount,
+            &ctx.accounts.vault,
+            ctx.accounts.base_mint.decimals,
+            ctx.accounts.quote_mint.decimals,
+            &clock,
+        )?;
+        let version = apply_quote_update(
+            &mut ctx.accounts.quote_state,
+            &ctx.accounts.config,
+            &update,
+            oracle_price,
+            &clock,
+        )?;
+        // Consume the staged record only after the quote is applied, so a failed
+        // commit leaves it intact for a retry while a consumed nonce cannot replay.
+        pq.pending = 0;
+        pq.committed_nonce = nonce;
+        emit!(QuoteCommitted {
             slot: clock.slot,
             version,
-            anchor_sqrt_price: update.anchor_sqrt_price,
-            depth_mult_bps: update.depth_mult_bps.min(10_000)
+            nonce
         });
         Ok(())
     }
@@ -1535,6 +1408,342 @@ pub mod arbswap {
     }
 }
 
+/// The only oracle-independent keeper authorization rule, shared by every
+/// quote-writing instruction. The MVP allowlist is used when `min_bond == 0`;
+/// otherwise the keeper must hold a bonded PDA meeting the configured minimum
+/// (net of any pending unbond).
+fn require_keeper_authorized(
+    config: &Config,
+    keeper: &Pubkey,
+    vault_key: &Pubkey,
+    keeper_bond: &AccountInfo,
+) -> Result<()> {
+    if config.min_bond == 0 {
+        require!(keeper == &config.keeper, ErrorCode::NotKeeper);
+        return Ok(());
+    }
+    let (expected, _) = Pubkey::find_program_address(
+        &[b"keeper", vault_key.as_ref(), keeper.as_ref()],
+        &crate::ID,
+    );
+    require!(keeper_bond.key() == expected, ErrorCode::NotBonded);
+    let data = keeper_bond
+        .try_borrow_data()
+        .map_err(|_| error!(ErrorCode::NotBonded))?;
+    let bond =
+        KeeperBond::try_deserialize(&mut &data[..]).map_err(|_| error!(ErrorCode::NotBonded))?;
+    require!(
+        bond.keeper == *keeper && bond.bond.saturating_sub(bond.unbond_amount) >= config.min_bond,
+        ErrorCode::NotBonded
+    );
+    Ok(())
+}
+
+/// Shared oracle + ladder + inventory + capacity validation for a quote payload.
+///
+/// This is the single, authoritative body used by both `update_quote` and
+/// `commit_quote`; it returns the verified, normalized oracle price (Q64) the
+/// ladder was bound against. Any failure rejects the quote.
+#[allow(clippy::too_many_arguments)]
+fn validate_quote_update(
+    config: &Config,
+    quote_state: &QuoteState,
+    update: &QuoteUpdate,
+    price_update: &PriceUpdateV2,
+    base_reserve_amount: u64,
+    quote_reserve_amount: u64,
+    vault: &Vault,
+    base_decimals: u8,
+    quote_decimals: u8,
+    clock: &Clock,
+) -> Result<u128> {
+    require!(update.oracle_publish_time >= 0, ErrorCode::InvalidPrice);
+    let feed = config.pyth_feed_id;
+    require!(config.max_staleness_seconds >= 0, ErrorCode::InvalidOracle);
+    let price = price_update
+        .get_price_no_older_than(clock, config.max_staleness_seconds as u64, &feed)
+        .map_err(|_| error!(ErrorCode::InvalidOracle))?;
+    require!(
+        price.price > 0 && price.publish_time == update.oracle_publish_time,
+        ErrorCode::InvalidOracle
+    );
+    let pyth_price_q64 =
+        pyth_price_q64(price.price, price.exponent).ok_or(ErrorCode::InvalidOracle)?;
+    // B1: the executable token-unit price is derived here from the verified
+    // Pyth value and the vault's own (address-bound) mint decimals. The
+    // keeper must submit exactly this normalized value; it cannot choose an
+    // arbitrary scaling that merely passes the comparison.
+    let expected_oracle_price =
+        normalize_pyth_price_q64(pyth_price_q64, base_decimals, quote_decimals)
+            .ok_or(ErrorCode::InvalidOracle)?;
+    // S2-9: `oracle_price` is no longer in the payload — it was fully
+    // determined by the verified Pyth value and the mint decimals, and the
+    // program now uses its own normalized value directly (strictly stronger
+    // than trusting a keeper-supplied field that had to equal it anyway).
+    let oracle_price = expected_oracle_price;
+    require!(oracle_price > 0, ErrorCode::InvalidPrice);
+    let decoded_conf_bps = ((price.conf as u128)
+        .saturating_mul(10_000)
+        .saturating_add(price.price as u128 - 1)
+        / price.price as u128) as u32;
+    require!(
+        decoded_conf_bps <= config.max_conf_bps && update.oracle_conf_bps == decoded_conf_bps,
+        ErrorCode::WideConfidence
+    );
+    require!(
+        update.half_spread_bps >= config.min_spread_bps
+            && update.half_spread_bps <= config.max_spread_bps,
+        ErrorCode::SpreadOutOfBounds
+    );
+    // Honest-execution §7.3: bound the per-update spread *step* (not only the
+    // absolute band) so a keeper cannot jump the spread in a single update.
+    // `0` disables the step guard (used by tests and the permissive default).
+    if quote_state.version > 0 && config.max_spread_step_bps > 0 {
+        let spread_step = update.half_spread_bps.abs_diff(quote_state.half_spread_bps);
+        require!(
+            spread_step <= config.max_spread_step_bps,
+            ErrorCode::SpreadStepTooLarge
+        );
+    }
+    if quote_state.anchor_sqrt_price > 0 {
+        let old = quote_state.anchor_sqrt_price;
+        let diff = update.anchor_sqrt_price.abs_diff(old);
+        require!(
+            diff.saturating_mul(10_000) <= old.saturating_mul(config.max_anchor_step_bps as u128),
+            ErrorCode::AnchorStepTooLarge
+        );
+    }
+    require!(
+        update.weights_bps.iter().map(|v| *v as u64).sum::<u64>() == 10_000,
+        ErrorCode::InvalidWeights
+    );
+    require!(
+        update.offsets_bps.windows(2).all(|w| w[0] < w[1]),
+        ErrorCode::InvalidLadder
+    );
+    require!(
+        update
+            .ask_levels
+            .iter()
+            .chain(update.bid_levels.iter())
+            .all(|l| l.sqrt_lo > 0 && l.sqrt_lo < l.sqrt_hi && l.liquidity > 0),
+        ErrorCode::InvalidLadder
+    );
+    // F-04: bind the executed ladder to the oracle anchor so a compromised
+    // or buggy keeper cannot quote arbitrarily bad prices. Every level's
+    // implied price must lie inside the anchor widened by the declared
+    // spread, the directional add-on and the outermost offset, and the
+    // reservation must stay within `max_inventory_bps` of the anchor.
+    require!(
+        update.offsets_bps[LEVELS - 1] <= MAX_LEVEL_OFFSET_BPS,
+        ErrorCode::InvalidLadder
+    );
+    let anchor_price =
+        arb_math::price_from_sqrt(update.anchor_sqrt_price).map_err(|_| ErrorCode::InvalidPrice)?;
+    require!(anchor_price > 0, ErrorCode::InvalidPrice);
+    // Item 2: bind the anchor to the **verified** Pyth price, not only to the
+    // previous anchor. `update.oracle_price` is the Q64 price already proven
+    // == the Pyth payload above. Without this, a keeper could (over steps, or
+    // on the first update where the previous anchor is 0) quote far from the
+    // oracle. `max_anchor_dev_bps` is the max |anchor - oracle|/oracle.
+    //
+    // Item 1b worst-case loss bound. A keeper that posts an anchor `d`
+    // (fraction) away from the oracle exposes the ladder depth, capped at
+    // `u = utilization_max` of reserves, to a pick-off worth ~`d`:
+    //     loss_per_update <= u * d * V          (V = vault value)
+    // With u = 0.5 and the recommended default d = 100 bps:
+    //     loss_per_update <= 0.5 * 0.01 * V = 0.005 V   (0.5% of V per update)
+    // and the per-window loss is additionally bounded by the flow cap (1a).
+    // `oracle_price` (the verified, normalized Q64 token-unit price) is
+    // bound above from the Pyth account; no payload field is trusted here.
+    let anchor_dev = anchor_price.abs_diff(oracle_price);
+    require!(
+        anchor_dev.saturating_mul(BPS_DENOM as u128)
+            <= oracle_price.saturating_mul(config.max_anchor_dev_bps as u128),
+        ErrorCode::AnchorTooFarFromOracle
+    );
+    let outer = update.offsets_bps[LEVELS - 1];
+    let ask_band = update
+        .half_spread_bps
+        .saturating_add(update.ask_extra_bps)
+        .saturating_add(outer)
+        .min(MAX_LEVEL_OFFSET_BPS);
+    let bid_band = update
+        .half_spread_bps
+        .saturating_add(update.bid_extra_bps)
+        .saturating_add(outer)
+        .min(MAX_LEVEL_OFFSET_BPS);
+    let reservation =
+        arb_math::price_from_sqrt(update.p_res_sqrt).map_err(|_| ErrorCode::InvalidPrice)?;
+    // The reservation is itself bounded to the verified anchor band, so
+    // binding the ladder to the reservation (the ladder's true centre, per
+    // spec §5.7) still bounds every level relative to the oracle through
+    // `max_inventory_bps`. This is required for a two-sided ladder: a bid
+    // level can sit below the anchor whenever the reservation is skewed down.
+    let inventory = config.max_inventory_bps.min(BPS_DENOM - 1);
+    let res_upper = arb_math::mul_div_ceil(
+        anchor_price,
+        (BPS_DENOM + inventory) as u128,
+        BPS_DENOM as u128,
+    )
+    .ok_or(ErrorCode::MathOverflow)?;
+    let res_lower = arb_math::mul_div_floor(
+        anchor_price,
+        (BPS_DENOM - inventory) as u128,
+        BPS_DENOM as u128,
+    )
+    .ok_or(ErrorCode::MathOverflow)?;
+    require!(
+        reservation <= res_upper && reservation >= res_lower,
+        ErrorCode::InventoryOutOfBounds
+    );
+    let upper = arb_math::mul_div_ceil(
+        reservation,
+        (BPS_DENOM + ask_band) as u128,
+        BPS_DENOM as u128,
+    )
+    .ok_or(ErrorCode::MathOverflow)?;
+    let lower = arb_math::mul_div_floor(
+        reservation,
+        (BPS_DENOM - bid_band.min(BPS_DENOM - 1)) as u128,
+        BPS_DENOM as u128,
+    )
+    .ok_or(ErrorCode::MathOverflow)?;
+    // 0.01 bps of slack absorbs the `sqrt_q64`/`price_from_sqrt` round-trip
+    // (a few ulps) so an exactly-at-the-edge level is not spuriously
+    // rejected. It is far below the 1 bps parameter granularity and does not
+    // materially widen the band.
+    let band_epsilon = reservation / 1_000_000;
+    for level in update.ask_levels.iter().chain(update.bid_levels.iter()) {
+        let lo = arb_math::price_from_sqrt(level.sqrt_lo).map_err(|_| ErrorCode::InvalidPrice)?;
+        let hi = arb_math::price_from_sqrt(level.sqrt_hi).map_err(|_| ErrorCode::InvalidPrice)?;
+        require!(
+            lo.saturating_add(band_epsilon) >= lower && hi <= upper.saturating_add(band_epsilon),
+            ErrorCode::LevelOutOfBounds
+        );
+    }
+    // p2-T3 / P2-F03 / h1: bound the quoted depth to the *available* reserves
+    // so a compromised keeper cannot publish phantom depth. The **ask** side
+    // pays out base, so its base capacity is bounded by the available base;
+    // the **bid** side pays out quote, so its quote capacity is bounded by
+    // the available quote. Capacity uses the same floor rounding as
+    // `arb-math`; the fee buckets are liabilities and are excluded.
+    let mut ask_base_capacity = 0u128;
+    for level in update.ask_levels.iter() {
+        // S2-9: the ask base capacity is computed on-chain from the level's
+        // liquidity and sqrt bounds (the same U256 division the bid side
+        // already uses), so the payload no longer carries keeper-supplied
+        // inverse square roots. Exact floor; the utilization cap can only
+        // reject, never wrongly accept.
+        let math_level = MathLevel {
+            sqrt_lo: level.sqrt_lo,
+            sqrt_hi: level.sqrt_hi,
+            liquidity: level.liquidity,
+        };
+        ask_base_capacity = ask_base_capacity
+            .checked_add(
+                math_level
+                    .base_capacity()
+                    .map_err(|_| error!(ErrorCode::MathOverflow))?,
+            )
+            .ok_or(ErrorCode::MathOverflow)?;
+    }
+    let mut bid_quote_capacity = 0u128;
+    for level in update.bid_levels.iter() {
+        let math_level = MathLevel {
+            sqrt_lo: level.sqrt_lo,
+            sqrt_hi: level.sqrt_hi,
+            liquidity: level.liquidity,
+        };
+        bid_quote_capacity = bid_quote_capacity
+            .checked_add(
+                math_level
+                    .quote_capacity()
+                    .map_err(|_| error!(ErrorCode::MathOverflow))?,
+            )
+            .ok_or(ErrorCode::MathOverflow)?;
+    }
+    let available_base = base_reserve_amount
+        .saturating_sub(vault.insurance_base)
+        .saturating_sub(vault.keeper_base)
+        .saturating_sub(vault.protocol_base) as u128;
+    let available_quote = quote_reserve_amount
+        .saturating_sub(vault.insurance_quote)
+        .saturating_sub(vault.keeper_quote)
+        .saturating_sub(vault.protocol_quote) as u128;
+    let utilization = config.utilization_max_bps as u128;
+    require!(
+        ask_base_capacity.saturating_mul(BPS_DENOM as u128)
+            <= available_base.saturating_mul(utilization),
+        ErrorCode::UtilizationExceeded
+    );
+    require!(
+        bid_quote_capacity.saturating_mul(BPS_DENOM as u128)
+            <= available_quote.saturating_mul(utilization),
+        ErrorCode::UtilizationExceeded
+    );
+    Ok(oracle_price)
+}
+
+/// Apply an already-validated quote to the active `QuoteState`: bumps the
+/// version, resets the flow accumulator, stores the ladder and emits the event.
+fn apply_quote_update(
+    quote_state: &mut QuoteState,
+    config: &Config,
+    update: &QuoteUpdate,
+    oracle_price: u128,
+    clock: &Clock,
+) -> Result<u64> {
+    let quote = quote_state;
+    quote.version = quote
+        .version
+        .checked_add(1)
+        .ok_or(ErrorCode::MathOverflow)?;
+    let version = quote.version;
+    quote.update_slot = update.update_slot;
+    // Spec §5.9: the flow accumulator resets on every quote update.
+    quote.flow_n = 0;
+    quote.expiry_slot = clock
+        .slot
+        .checked_add(config.expiry_slots)
+        .ok_or(ErrorCode::MathOverflow)?;
+    quote.anchor_sqrt_price = update.anchor_sqrt_price;
+    quote.p_res_sqrt = update.p_res_sqrt;
+    quote.half_spread_bps = update.half_spread_bps;
+    quote.ask_extra_bps = update.ask_extra_bps;
+    quote.bid_extra_bps = update.bid_extra_bps;
+    quote.depth_mult_bps = update.depth_mult_bps.min(10_000);
+    quote.oracle_publish_time = update.oracle_publish_time;
+    quote.oracle_conf_bps = update.oracle_conf_bps;
+    // h3: store the verified oracle for the swap-time edge measurement. The
+    // realized-edge window is rolled by the slot clock at swap time, NOT on
+    // every re-quote (so re-quoting cannot reset the loss tracker).
+    quote.oracle_price = oracle_price;
+    for i in 0..LEVELS {
+        quote.ask_levels[i] = Level {
+            sqrt_lo: update.ask_levels[i].sqrt_lo,
+            sqrt_hi: update.ask_levels[i].sqrt_hi,
+            liquidity: update.ask_levels[i].liquidity,
+            offset_bps: update.offsets_bps[i],
+            weight_bps: update.weights_bps[i],
+        };
+        quote.bid_levels[i] = Level {
+            sqrt_lo: update.bid_levels[i].sqrt_lo,
+            sqrt_hi: update.bid_levels[i].sqrt_hi,
+            liquidity: update.bid_levels[i].liquidity,
+            offset_bps: update.offsets_bps[i],
+            weight_bps: update.weights_bps[i],
+        };
+    }
+    emit!(QuoteUpdated {
+        slot: clock.slot,
+        version,
+        anchor_sqrt_price: update.anchor_sqrt_price,
+        depth_mult_bps: update.depth_mult_bps.min(10_000)
+    });
+    Ok(version)
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
 pub struct ParamsUpdate {
     pub fee_bps: u16,
@@ -1784,6 +1993,35 @@ pub struct Level {
     pub sqrt_hi: u128,
     pub liquidity: u128,
 }
+/// S2-11: a staged quote bound to the canonical vault and authorized keeper,
+/// seeded `[b"pending_quote", vault, keeper]`. It never affects the active
+/// `QuoteState` until `commit_quote` succeeds in the same transaction as the
+/// fresh Pyth price update.
+#[account]
+pub struct PendingQuote {
+    pub vault: Pubkey,
+    pub keeper: Pubkey,
+    /// Monotonic staged nonce; must exceed `committed_nonce`.
+    pub nonce: u64,
+    /// Highest nonce ever committed; makes a committed payload unreplayable.
+    pub committed_nonce: u64,
+    /// 1 while a payload is staged and unconsumed.
+    pub pending: u8,
+    pub stage_slot: u64,
+    /// Snapshots of quote-relevant state at staging time (change detection).
+    pub base_reserve_at_stage: u64,
+    pub quote_reserve_at_stage: u64,
+    pub insurance_base: u64,
+    pub insurance_quote: u64,
+    pub keeper_base: u64,
+    pub keeper_quote: u64,
+    pub protocol_base: u64,
+    pub protocol_quote: u64,
+    pub quote_version_at_stage: u64,
+    pub quote_update_slot_at_stage: u64,
+    pub bump: u8,
+    pub update: QuoteUpdate,
+}
 #[account]
 pub struct DepositTicket {
     pub owner: Pubkey,
@@ -1967,6 +2205,61 @@ pub struct UpdateQuote<'info> {
     /// B1: the vault's base and quote mints, bound by address, so the program
     /// derives the expected token-unit price from the verified Pyth value and
     /// the *real* mint decimals instead of trusting a scaled keeper number.
+    #[account(address = vault.base_mint)]
+    pub base_mint: Box<Account<'info, Mint>>,
+    #[account(address = vault.quote_mint)]
+    pub quote_mint: Box<Account<'info, Mint>>,
+}
+/// S2-11: accounts for staging a quote into the `PendingQuote` PDA. The record
+/// is created on first use and reused thereafter (`init_if_needed`).
+#[derive(Accounts)]
+pub struct StageQuote<'info> {
+    #[account(mut)]
+    pub keeper: Signer<'info>,
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(seeds=[b"config",vault.key().as_ref()],bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(seeds=[b"quote",vault.key().as_ref()],bump=quote_state.bump)]
+    pub quote_state: Box<Account<'info, QuoteState>>,
+    #[account(
+        init_if_needed,
+        payer=keeper,
+        space=8 + 64 + 13*8 + 2 + 692,
+        seeds=[b"pending_quote",vault.key().as_ref(),keeper.key().as_ref()],
+        bump
+    )]
+    pub pending_quote: Box<Account<'info, PendingQuote>>,
+    #[account(address=vault.base_reserve)]
+    pub base_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(address=vault.quote_reserve)]
+    pub quote_reserve: Box<Account<'info, TokenAccount>>,
+    /// CHECK: the keeper bond PDA. Unvalidated in the context (no `seeds`) so the
+    /// MVP allowlist path pays no PDA-derivation CU; the body checks it only when
+    /// `min_bond > 0`.
+    pub keeper_bond: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+/// S2-11: accounts for committing a staged quote. The `price_update` account must
+/// be the one written by the Pyth instruction preceding this instruction in the
+/// same transaction.
+#[derive(Accounts)]
+pub struct CommitQuote<'info> {
+    #[account(mut)]
+    pub keeper: Signer<'info>,
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(seeds=[b"config",vault.key().as_ref()],bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut,seeds=[b"quote",vault.key().as_ref()],bump=quote_state.bump)]
+    pub quote_state: Box<Account<'info, QuoteState>>,
+    #[account(mut, seeds=[b"pending_quote",vault.key().as_ref(),keeper.key().as_ref()], bump=pending_quote.bump)]
+    pub pending_quote: Box<Account<'info, PendingQuote>>,
+    pub price_update: Box<Account<'info, PriceUpdateV2>>,
+    #[account(address = vault.base_reserve)]
+    pub base_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(address = vault.quote_reserve)]
+    pub quote_reserve: Box<Account<'info, TokenAccount>>,
+    /// CHECK: see `UpdateQuote::keeper_bond`.
+    pub keeper_bond: UncheckedAccount<'info>,
     #[account(address = vault.base_mint)]
     pub base_mint: Box<Account<'info, Mint>>,
     #[account(address = vault.quote_mint)]
@@ -2306,6 +2599,21 @@ pub struct QuoteUpdated {
     pub anchor_sqrt_price: u128,
     pub depth_mult_bps: u32,
 }
+/// S2-11: a quote payload was staged (active quote unchanged).
+#[event]
+pub struct QuoteStaged {
+    pub slot: u64,
+    pub nonce: u64,
+    pub oracle_publish_time: i64,
+    pub update_slot: u64,
+}
+/// S2-11: a staged quote was committed and the active quote advanced.
+#[event]
+pub struct QuoteCommitted {
+    pub slot: u64,
+    pub version: u64,
+    pub nonce: u64,
+}
 #[event]
 pub struct SwapEvent {
     pub slot: u64,
@@ -2481,6 +2789,12 @@ pub enum ErrorCode {
     NonMonotonicSlot,
     #[msg("Update slot is older than the configured maximum age")]
     UpdateSlotTooOld,
+    #[msg("No staged quote to commit")]
+    NoPendingQuote,
+    #[msg("Staged quote is stale, replayed, or superseded")]
+    StalePendingQuote,
+    #[msg("Quote-relevant vault state changed between staging and commit")]
+    StagedStateChanged,
 }
 
 #[cfg(test)]

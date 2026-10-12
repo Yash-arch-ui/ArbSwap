@@ -497,6 +497,139 @@
       "args": []
     },
     {
+      "name": "commit_quote",
+      "docs": [
+        "S2-11: commit a staged quote against the `PriceUpdateV2` account written",
+        "by the Pyth instruction that precedes this instruction in the same",
+        "transaction. Every oracle, mint-normalization, anchor, ladder, inventory,",
+        "flow and capacity guard is re-applied here; nothing is trusted from",
+        "staging beyond the payload itself. Any failure leaves the active quote",
+        "unchanged (transaction atomicity)."
+      ],
+      "discriminator": [
+        2,
+        56,
+        74,
+        255,
+        219,
+        109,
+        237,
+        247
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_quote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "keeper"
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_update"
+        },
+        {
+          "name": "base_reserve"
+        },
+        {
+          "name": "quote_reserve"
+        },
+        {
+          "name": "keeper_bond"
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "crank_epoch",
       "discriminator": [
         172,
@@ -1427,6 +1560,143 @@
       ]
     },
     {
+      "name": "stage_quote",
+      "docs": [
+        "S2-11: stage a quote into the `PendingQuote` PDA without touching the",
+        "active `QuoteState`. The staged payload is only ever applied by",
+        "`commit_quote`, which runs in the same transaction as the fresh Pyth",
+        "price update, so the oracle write and the quote commit are atomic."
+      ],
+      "discriminator": [
+        215,
+        19,
+        142,
+        228,
+        58,
+        229,
+        74,
+        184
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_quote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "keeper"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_reserve"
+        },
+        {
+          "name": "quote_reserve"
+        },
+        {
+          "name": "keeper_bond",
+          "docs": [
+            "MVP allowlist path pays no PDA-derivation CU; the body checks it only when",
+            "`min_bond > 0`."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "update",
+          "type": {
+            "defined": {
+              "name": "QuoteUpdate"
+            }
+          }
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "swap",
       "discriminator": [
         248,
@@ -1916,6 +2186,19 @@
       ]
     },
     {
+      "name": "PendingQuote",
+      "discriminator": [
+        205,
+        143,
+        177,
+        236,
+        152,
+        2,
+        209,
+        153
+      ]
+    },
+    {
       "name": "ProgramConfig",
       "discriminator": [
         196,
@@ -2149,6 +2432,32 @@
         218,
         221,
         245
+      ]
+    },
+    {
+      "name": "QuoteCommitted",
+      "discriminator": [
+        55,
+        147,
+        138,
+        117,
+        202,
+        129,
+        39,
+        29
+      ]
+    },
+    {
+      "name": "QuoteStaged",
+      "discriminator": [
+        5,
+        72,
+        242,
+        75,
+        67,
+        134,
+        68,
+        183
       ]
     },
     {
@@ -2420,6 +2729,21 @@
       "code": 6037,
       "name": "UpdateSlotTooOld",
       "msg": "Update slot is older than the configured maximum age"
+    },
+    {
+      "code": 6038,
+      "name": "NoPendingQuote",
+      "msg": "No staged quote to commit"
+    },
+    {
+      "code": 6039,
+      "name": "StalePendingQuote",
+      "msg": "Staged quote is stale, replayed, or superseded"
+    },
+    {
+      "code": 6040,
+      "name": "StagedStateChanged",
+      "msg": "Quote-relevant vault state changed between staging and commit"
     }
   ],
   "types": [
@@ -3305,6 +3629,108 @@
       }
     },
     {
+      "name": "PendingQuote",
+      "docs": [
+        "S2-11: a staged quote bound to the canonical vault and authorized keeper,",
+        "seeded `[b\"pending_quote\", vault, keeper]`. It never affects the active",
+        "`QuoteState` until `commit_quote` succeeds in the same transaction as the",
+        "fresh Pyth price update."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "Monotonic staged nonce; must exceed `committed_nonce`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "committed_nonce",
+            "docs": [
+              "Highest nonce ever committed; makes a committed payload unreplayable."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending",
+            "docs": [
+              "1 while a payload is staged and unconsumed."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "stage_slot",
+            "type": "u64"
+          },
+          {
+            "name": "base_reserve_at_stage",
+            "docs": [
+              "Snapshots of quote-relevant state at staging time (change detection)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quote_reserve_at_stage",
+            "type": "u64"
+          },
+          {
+            "name": "insurance_base",
+            "type": "u64"
+          },
+          {
+            "name": "insurance_quote",
+            "type": "u64"
+          },
+          {
+            "name": "keeper_base",
+            "type": "u64"
+          },
+          {
+            "name": "keeper_quote",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_base",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_quote",
+            "type": "u64"
+          },
+          {
+            "name": "quote_version_at_stage",
+            "type": "u64"
+          },
+          {
+            "name": "quote_update_slot_at_stage",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "update",
+            "type": {
+              "defined": {
+                "name": "QuoteUpdate"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "PriceFeedMessage",
       "repr": {
         "kind": "c"
@@ -3439,6 +3865,56 @@
           {
             "name": "admin",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteCommitted",
+      "docs": [
+        "S2-11: a staged quote was committed and the active quote advanced."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "version",
+            "type": "u64"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteStaged",
+      "docs": [
+        "S2-11: a quote payload was staged (active quote unchanged)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "oracle_publish_time",
+            "type": "i64"
+          },
+          {
+            "name": "update_slot",
+            "type": "u64"
           }
         ]
       }

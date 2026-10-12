@@ -14,9 +14,10 @@
 //! The default transports are dry-run/replay; nothing here embeds a private key.
 
 use arbswap_keeper::{
-    build_update_quote_transaction, compute_quote, confidence_bps, encode_update_quote_instruction,
-    pyth_decimal_to_q64, DryRunSender, KeeperCore, KeeperParams, OracleTick, PrevalidateBounds,
-    QuoteSender, UpdateQuotePlan, VolatilityState, MAX_UPDATE_COMPUTE_UNITS,
+    build_update_quote_transaction, compute_quote, confidence_bps, encode_quote_update_body,
+    encode_update_quote_instruction, pyth_decimal_to_q64, DryRunSender, KeeperCore, KeeperParams,
+    OracleTick, PrevalidateBounds, QuoteSender, UpdateQuotePlan, VolatilityState,
+    MAX_UPDATE_COMPUTE_UNITS,
 };
 use base64::Engine;
 use solana_address::Address;
@@ -41,6 +42,7 @@ fn main() {
             args.next(),
             args.next(),
         ),
+        Some("quote-json") => quote_json(args.collect()),
         Some("live") => live(args.collect()),
         Some("init-program") => init_program(args.collect()),
         Some("init-vault") => init_vault_cmd(args.collect()),
@@ -119,6 +121,101 @@ fn single_quote(
             level.sqrt_lo, level.sqrt_hi, level.liquidity
         );
     }
+}
+
+/// S2-11: emit a complete `QuoteUpdate` payload as JSON (snake_case, u128 fields
+/// as decimal strings) so the staged-quote live driver can stage exactly the
+/// quote this engine computed. Args:
+/// `quote-json <price_q64> <base> <quote> [prev_price] [base_dec] [quote_dec]
+///  [publish_time] [slot] [confidence_bps]`.
+fn quote_json(args: Vec<String>) {
+    let get = |index: usize, name: &str| -> String {
+        args.get(index)
+            .unwrap_or_else(|| panic!("quote-json requires {name}"))
+            .clone()
+    };
+    let price_q64: u128 = get(0, "price_q64").parse().expect("price_q64");
+    let base: u128 = get(1, "base").parse().expect("base");
+    let quote: u128 = get(2, "quote").parse().expect("quote");
+    let previous_price_q64: u128 = args
+        .get(3)
+        .map(|value| value.parse().expect("previous_price_q64"))
+        .unwrap_or(0);
+    let base_decimals: u8 = args
+        .get(4)
+        .map(|value| value.parse().expect("base_decimals"))
+        .unwrap_or(0);
+    let quote_decimals: u8 = args
+        .get(5)
+        .map(|value| value.parse().expect("quote_decimals"))
+        .unwrap_or(0);
+    let publish_time: i64 = args
+        .get(6)
+        .map(|value| value.parse().expect("publish_time"))
+        .unwrap_or(0);
+    let slot: u64 = args
+        .get(7)
+        .map(|value| value.parse().expect("slot"))
+        .unwrap_or(0);
+    let confidence_bps: u32 = args
+        .get(8)
+        .map(|value| value.parse().expect("confidence_bps"))
+        .unwrap_or(1);
+    let params = KeeperParams {
+        base_decimals,
+        quote_decimals,
+        ..KeeperParams::default()
+    };
+    let tick = OracleTick {
+        slot,
+        publish_time,
+        price_q64,
+        confidence_bps,
+    };
+    let next = compute_quote(
+        tick,
+        VolatilityState::default(),
+        base,
+        quote,
+        0,
+        previous_price_q64,
+        params,
+    )
+    .expect("quote");
+    let levels = |ls: &[arbswap_keeper::Level]| {
+        ls.iter()
+            .map(|l| {
+                serde_json::json!({
+                    "sqrt_lo": l.sqrt_lo.to_string(),
+                    "sqrt_hi": l.sqrt_hi.to_string(),
+                    "liquidity": l.liquidity.to_string(),
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    let out = serde_json::json!({
+        "update_slot": next.slot,
+        "oracle_publish_time": next.publish_time,
+        "oracle_conf_bps": next.confidence_bps,
+        "anchor_sqrt_price": next.anchor_sqrt_price.to_string(),
+        "p_res_sqrt": next.reservation_sqrt_price.to_string(),
+        "half_spread_bps": next.half_spread_bps,
+        "ask_extra_bps": next.ask_extra_bps,
+        "bid_extra_bps": next.bid_extra_bps,
+        "depth_mult_bps": next.depth_mult_bps,
+        "offsets_bps": next.offsets_bps,
+        "weights_bps": next.weights_bps,
+        "ask_levels": levels(&next.ask_levels),
+        "bid_levels": levels(&next.bid_levels),
+        // The exact Borsh payload shared by `update_quote`/`stage_quote`, so the
+        // live driver can build `stage_quote` without re-encoding in another
+        // language (and without depending on the JS IDL coder).
+        "body_hex": encode_quote_update_body(&next)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
+    });
+    println!("{out}");
 }
 
 /// The replay transport wraps the shared [`KeeperCore`] (h6): the CSV path and

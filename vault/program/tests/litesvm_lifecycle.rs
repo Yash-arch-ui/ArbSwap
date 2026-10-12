@@ -792,6 +792,74 @@ impl Fixture {
         send(&mut self.svm, &[admin], instruction)
     }
 
+    fn pending_quote(&self, keeper: &Keypair) -> Address {
+        pda(
+            &[
+                b"pending_quote",
+                self.vault.as_ref(),
+                keeper.pubkey().as_ref(),
+            ],
+            &self.program_id,
+        )
+        .0
+    }
+
+    fn stage_quote(
+        &mut self,
+        keeper: &Keypair,
+        update: QuoteUpdate,
+        nonce: u64,
+    ) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::StageQuote { update, nonce },
+            arbswap::accounts::StageQuote {
+                keeper: to_address(keeper.pubkey()),
+                vault: self.vault,
+                config: self.config,
+                quote_state: self.quote_state,
+                pending_quote: self.pending_quote(keeper),
+                base_reserve: self.base_reserve,
+                quote_reserve: self.quote_reserve,
+                keeper_bond: self.keeper_bond(keeper),
+                system_program: anchor_lang::system_program::ID,
+            },
+        );
+        send(&mut self.svm, &[keeper], instruction)
+    }
+
+    fn commit_quote(
+        &mut self,
+        keeper: &Keypair,
+        price_update: Address,
+        nonce: u64,
+    ) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::CommitQuote { nonce },
+            arbswap::accounts::CommitQuote {
+                keeper: to_address(keeper.pubkey()),
+                vault: self.vault,
+                config: self.config,
+                quote_state: self.quote_state,
+                pending_quote: self.pending_quote(keeper),
+                price_update,
+                base_reserve: self.base_reserve,
+                quote_reserve: self.quote_reserve,
+                keeper_bond: self.keeper_bond(keeper),
+                base_mint: self.base_mint,
+                quote_mint: self.quote_mint,
+            },
+        );
+        send(&mut self.svm, &[keeper], instruction)
+    }
+
+    fn advance_slot(&mut self, by: u64) {
+        let mut clock = self.svm.get_sysvar::<Clock>();
+        clock.slot += by;
+        self.svm.set_sysvar(&clock);
+    }
+
     fn update_quote(
         &mut self,
         keeper: &Keypair,
@@ -4265,4 +4333,269 @@ fn admin_rotation_rejects_a_config_from_another_vault() {
     );
     let result = send(&mut fixture.svm, &[&keys.admin], instruction);
     assert!(result.is_err(), "a foreign config account must be rejected");
+}
+
+// --- S2-11: staged quote (stage_quote + commit_quote) ----------------------
+
+/// Staging alone must never touch the active quote; a matching commit advances
+/// it exactly once and consumes the staged nonce.
+#[test]
+fn staged_quote_is_atomic_and_bumps_version_once() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    fixture
+        .stage_quote(&keys.keeper, quote_update(SLOT), 1)
+        .expect("stage");
+    assert_eq!(
+        fixture.quote_state_value().version,
+        0,
+        "staging must not modify the active quote"
+    );
+
+    let price = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .commit_quote(&keys.keeper, price, 1)
+        .expect("commit");
+    let quote = fixture.quote_state_value();
+    assert_eq!(quote.version, 1);
+    assert_eq!(quote.update_slot, SLOT);
+    assert_eq!(quote.oracle_publish_time, PUBLISH_TIME);
+    assert_eq!(quote.anchor_sqrt_price, ANCHOR_SQRT);
+    assert_eq!(quote.expiry_slot, SLOT + 10);
+
+    // The staged record is consumed: replaying the same nonce is rejected, and a
+    // nonce at or below the committed one is refused by `stage_quote`.
+    let price2 = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.commit_quote(&keys.keeper, price2, 1),
+        "NoPendingQuote",
+    );
+    assert_anchor_error(
+        fixture.stage_quote(&keys.keeper, quote_update(SLOT + 1), 1),
+        "StalePendingQuote",
+    );
+    assert_eq!(fixture.quote_state_value().version, 1);
+}
+
+/// A failed commit (oracle mismatch) must leave the active quote unchanged.
+#[test]
+fn failed_commit_leaves_active_quote_unchanged() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    fixture
+        .stage_quote(&keys.keeper, quote_update(SLOT), 2)
+        .expect("stage");
+
+    // Publica a price whose publish_time does not match the staged payload.
+    let mismatched = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME + 1, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.commit_quote(&keys.keeper, mismatched, 2),
+        "InvalidOracle",
+    );
+    assert_eq!(
+        fixture.quote_state_value().version,
+        0,
+        "a failed commit must not advance the quote"
+    );
+    // The staged payload survives a failed commit, so a matching retry succeeds.
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .commit_quote(&keys.keeper, honest, 2)
+        .expect("commit after retry");
+    assert_eq!(fixture.quote_state_value().version, 1);
+}
+
+/// Every oracle rejection path applies to `commit_quote`, exactly as it does to
+/// `update_quote`: wrong feed, stale, wide confidence, partial verification, and
+/// an imposter-owned account.
+#[test]
+fn commit_quote_applies_the_full_oracle_suite() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let cases: Vec<(&str, Address)> = vec![
+        (
+            "InvalidOracle",
+            fixture.post_pyth_with_feed([9u8; 32], PYTH_PRICE, 1, PUBLISH_TIME),
+        ),
+        (
+            "InvalidOracle",
+            fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME - 100, VerificationLevel::Full),
+        ),
+        (
+            "WideConfidence",
+            fixture.post_pyth(
+                PYTH_PRICE,
+                100_000_000,
+                PUBLISH_TIME,
+                VerificationLevel::Full,
+            ),
+        ),
+        (
+            "InvalidOracle",
+            fixture.post_pyth(
+                PYTH_PRICE,
+                1,
+                PUBLISH_TIME,
+                VerificationLevel::Partial { num_signatures: 1 },
+            ),
+        ),
+    ];
+
+    let mut nonce = 10;
+    for (expected, price) in cases {
+        fixture
+            .stage_quote(&keys.keeper, quote_update(SLOT), nonce)
+            .expect("stage");
+        assert_anchor_error(fixture.commit_quote(&keys.keeper, price, nonce), expected);
+        assert_eq!(fixture.quote_state_value().version, 0);
+        nonce += 1;
+    }
+
+    // An imposter-owned PriceUpdateV2 fails the context owner check, so it can
+    // never reach the oracle validation.
+    let imposter = fixture.post_pyth_owned_by(Address::new_unique(), PYTH_PRICE, 1, PUBLISH_TIME);
+    fixture
+        .stage_quote(&keys.keeper, quote_update(SLOT), nonce)
+        .expect("stage");
+    let result = fixture.commit_quote(&keys.keeper, imposter, nonce);
+    assert_account_rejected(result, "price_update");
+    assert_eq!(fixture.quote_state_value().version, 0);
+}
+
+/// Staging that is too old to commit is rejected, and a staged payload built for
+/// a different vault keeper cannot be committed by anyone else.
+#[test]
+fn commit_rejects_expired_and_foreign_staging() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    fixture
+        .stage_quote(&keys.keeper, quote_update(SLOT), 5)
+        .expect("stage");
+    // 30 slots later the staged quote is past MAX_STAGE_AGE_SLOTS (25).
+    fixture.advance_slot(30);
+    let price = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.commit_quote(&keys.keeper, price, 5),
+        "StalePendingQuote",
+    );
+    assert_eq!(fixture.quote_state_value().version, 0);
+
+    // A different keeper cannot commit the staged payload: its pending PDA does
+    // not exist under its own key, so the account constraint rejects it.
+    let foreign = Keypair::new();
+    airdrop(&mut fixture.svm, &foreign, 1_000_000_000);
+    let instruction = ix(
+        fixture.program_id,
+        arbswap::instruction::CommitQuote { nonce: 5 },
+        arbswap::accounts::CommitQuote {
+            keeper: to_address(foreign.pubkey()),
+            vault: fixture.vault,
+            config: fixture.config,
+            quote_state: fixture.quote_state,
+            pending_quote: fixture.pending_quote(&foreign),
+            price_update: price,
+            base_reserve: fixture.base_reserve,
+            quote_reserve: fixture.quote_reserve,
+            keeper_bond: fixture.keeper_bond(&foreign),
+            base_mint: fixture.base_mint,
+            quote_mint: fixture.quote_mint,
+        },
+    );
+    let result = send(&mut fixture.svm, &[&foreign], instruction);
+    assert!(result.is_err(), "a foreign keeper must not commit");
+}
+
+/// A reserve change between staging and commit is detected (fail-closed), so a
+/// payload sized against stale depth cannot be committed.
+#[test]
+fn commit_detects_reserve_changes_since_staging() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    fixture
+        .stage_quote(&keys.keeper, quote_update(SLOT), 7)
+        .expect("stage");
+
+    // A second deposit moves both reserves after staging.
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("second deposit");
+
+    let price = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.commit_quote(&keys.keeper, price, 7),
+        "StagedStateChanged",
+    );
+    assert_eq!(fixture.quote_state_value().version, 0);
+}
+
+/// `stage_quote` applies the cheap shape checks and rejects malformed payloads
+/// before they can be committed.
+#[test]
+fn stage_quote_rejects_malformed_payloads() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let mut bad_weights = quote_update(SLOT);
+    bad_weights.weights_bps[0] += 1;
+    assert_anchor_error(
+        fixture.stage_quote(&keys.keeper, bad_weights, 1),
+        "InvalidWeights",
+    );
+
+    let mut bad_ladder = quote_update(SLOT);
+    bad_ladder.ask_levels[0].liquidity = 0;
+    assert_anchor_error(
+        fixture.stage_quote(&keys.keeper, bad_ladder, 1),
+        "InvalidLadder",
+    );
+
+    // The MVP allowlist rejects a non-keeper at staging time.
+    assert_anchor_error(
+        fixture.stage_quote(&keys.lp, quote_update(SLOT), 1),
+        "NotKeeper",
+    );
+    assert_eq!(fixture.quote_state_value().version, 0);
+}
+
+/// The `PendingQuote` account layout is exactly the `space` declared at init,
+/// so the account is neither oversized nor truncated.
+#[test]
+fn pending_quote_account_size_matches_space() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    fixture
+        .stage_quote(&keys.keeper, quote_update(SLOT), 1)
+        .expect("stage");
+    let address = fixture.pending_quote(&keys.keeper);
+    let account = fixture.svm.get_account(&address).expect("pending account");
+    assert_eq!(account.data.len(), 8 + 64 + 13 * 8 + 2 + 692);
+    let pending: arbswap::PendingQuote = read_state(&fixture.svm, address);
+    assert_eq!(pending.vault, pubkey(fixture.vault));
+    assert_eq!(pending.nonce, 1);
+    assert_eq!(pending.pending, 1);
+    assert_eq!(pending.update.update_slot, SLOT);
 }

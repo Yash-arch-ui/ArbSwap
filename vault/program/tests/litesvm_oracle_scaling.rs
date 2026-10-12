@@ -10,7 +10,7 @@ mod common;
 
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AccountSerialize, AnchorSerialize};
-use arbswap::{Config, Level, LevelUpdate, QuoteState, QuoteUpdate, Vault};
+use arbswap::{Config, Level, QuoteState, QuoteUpdate, Vault};
 use common::*;
 use litesvm::LiteSVM;
 use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, VerificationLevel};
