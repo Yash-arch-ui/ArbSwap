@@ -501,3 +501,37 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 - **No transaction submitted**; no mint/deposit/keeper. `epoch_slots = 1,500`
   remains pending operator approval. Docs: `docs/DEVNET.md` §S2.3C.
 - **S2.3C: READY FOR OPERATOR REVIEW.**
+
+## Part 3 / Step 1 — fix-sbf: stale SBF artifact caused the LiteSVM bootstrap fault — on `integration`
+
+- **Symptom (2026-10-12):** every `litesvm` integration test failed on its first
+  instruction with `Program failed: Access violation writing 48 bytes at address
+  0x8 (in unallocated region)` at ~445 CU, with no `Program log:` lines, across
+  unrelated instructions (`initialize_program`, `trip_breaker`, `update_quote`).
+- **Root cause:** the harness executes the prebuilt `target/deploy/arbswap.so`.
+  The artifact present in the tree was **stale** (SHA-256 `41ab61…`, 690216 bytes)
+  — it did not correspond to the current program source, so its account layouts
+  did not match the fixtures the current host library serializes. Anchor's
+  account deserialization then faulted in the SBF VM. Because the fault is in the
+  shared dispatch/deserialize path, it appeared on every instruction regardless of
+  logic. The same stale artifact was present on `main` and `integration` (the
+  backend source is byte-identical between the two), so it reproduced on both.
+  `cargo build-sbf` did not regenerate it (the SBF build cache considered the
+  target current); a clean build (`CARGO_TARGET_DIR` set to a fresh directory)
+  produced a matching artifact (SHA-256 `9a0505…`, 688616 bytes) and the whole
+  suite passed.
+- **Fix:**
+  - `vault/program/tests/common/mod.rs`: new `sbf_artifact_path()` requires the
+    artifact to exist and to be no older than the newest `vault/program/src` /
+    `vault/math/src` file; a missing or stale artifact panics with an actionable
+    message instead of a cryptic SBF access violation. `load_arbswap` uses it.
+  - `vault/program/tests/litesvm_breaker.rs`: the two inline loaders now use
+    `common::sbf_artifact_path()`.
+  - `.github/workflows/ci.yml` (`rust` job): installs Solana CLI 4.1.2 and builds
+    the program fresh into a clean `CARGO_TARGET_DIR` before
+    `cargo test --workspace`, so the LiteSVM suite always runs a current artifact.
+- **Evidence:** fresh artifact `9a0505…` (688616 bytes): breaker 2/2, security
+  3/3, lifecycle 81/81 pass. Stale `41ab61…`: every test faults. With the guard,
+  a stale artifact fails at `common/mod.rs` with the explicit stale message.
+- **No protocol, formula, dependency or account-layout change.** No devnet
+  transaction; no mint/deposit/keeper/swap.

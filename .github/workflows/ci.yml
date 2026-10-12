@@ -17,6 +17,21 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Clippy (workspace incl. program)
         run: cargo clippy -p arb-math -p arbswap-keeper -p arb-aggregator -p arbswap -- -D warnings
+      - name: "Install Solana CLI 4.1.2 for the LiteSVM SBF artifact"
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v4.1.2/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Build SBF program (fresh) before the LiteSVM suite
+        # The LiteSVM integration tests execute the prebuilt
+        # `target/deploy/arbswap.so`. A cached/stale artifact carries an
+        # outdated account layout and faults in the SBF VM ("Access violation
+        # writing N bytes ...") on every instruction. Build it from the current
+        # source into a clean target directory so the tests never run stale.
+        run: |
+          rm -rf target/deploy target/sbf-fresh
+          CARGO_TARGET_DIR="$PWD/target/sbf-fresh" cargo build-sbf --manifest-path vault/program/Cargo.toml
+          mkdir -p target/deploy
+          cp target/sbf-fresh/deploy/arbswap.so target/deploy/arbswap.so
       - name: Tests
         run: cargo test --workspace
       - name: Frontend account fixtures are fresh (P1.2-iii)

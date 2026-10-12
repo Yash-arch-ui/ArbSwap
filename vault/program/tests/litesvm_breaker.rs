@@ -5,7 +5,8 @@ use litesvm::LiteSVM;
 
 mod common;
 use common::{
-    anchor_bid_ladder, anchor_ladder, pda, pubkey, set_token_account, to_address, ANCHOR_SQRT,
+    anchor_bid_ladder, anchor_ladder, pda, pubkey, sbf_artifact_path, set_token_account,
+    to_address, ANCHOR_SQRT,
 };
 use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, VerificationLevel};
 use pythnet_sdk::messages::PriceFeedMessage;
@@ -53,8 +54,7 @@ fn instruction(
 fn expired_quote_can_trip_breaker_and_live_quote_cannot() {
     let program_id = address(arbswap::ID);
     let mut svm = LiteSVM::new();
-    let program =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/deploy/arbswap.so");
+    let program = sbf_artifact_path();
     svm.add_program(program_id, &std::fs::read(program).unwrap())
         .unwrap();
     let payer = Keypair::new();
@@ -222,8 +222,7 @@ fn expired_quote_can_trip_breaker_and_live_quote_cannot() {
 fn update_quote_executes_only_with_full_pyth_account() {
     let program_id = address(arbswap::ID);
     let mut svm = LiteSVM::new();
-    let program =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/deploy/arbswap.so");
+    let program = sbf_artifact_path();
     svm.add_program(program_id, &std::fs::read(program).unwrap())
         .unwrap();
     let payer = Keypair::new();

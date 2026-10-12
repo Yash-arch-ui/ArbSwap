@@ -141,10 +141,74 @@ pub fn pda(seeds: &[&[u8]], program: &Address) -> (Address, u8) {
     Address::find_program_address(seeds, program)
 }
 
+/// Absolute path to the SBF artifact the LiteSVM tests execute.
+///
+/// The harness runs a *prebuilt* `target/deploy/arbswap.so`; nothing rebuilds
+/// it as part of the test run. A stale artifact (for example one restored from
+/// CI's `rust-cache`, or left behind by an earlier revision) carries account
+/// layouts that no longer match the fixtures the current host library
+/// serializes, so the SBF VM faults during account deserialization with
+/// `Access violation writing N bytes ...`. Guard against that: require the
+/// artifact to exist and to be no older than the newest program/math source
+/// file, so a stale binary fails loudly here instead of producing a cryptic
+/// runtime access violation.
+pub fn sbf_artifact_path() -> std::path::PathBuf {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let artifact = manifest.join("../../target/deploy/arbswap.so");
+    let meta = std::fs::metadata(&artifact).unwrap_or_else(|_| {
+        panic!(
+            "SBF artifact not found at {}; build it first with `cargo build-sbf` \
+             (or `anchor build`) before running the LiteSVM tests",
+            artifact.display()
+        )
+    });
+    let built = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+    if let Some((source, source_time)) = newest_source_mtime(manifest) {
+        if built < source_time {
+            panic!(
+                "SBF artifact {} is older than {} — it is stale. Rebuild it with \
+                 `cargo build-sbf` (or `anchor build`); a stale artifact reuses an \
+                 outdated account layout and faults in the SBF VM.",
+                artifact.display(),
+                source.display()
+            );
+        }
+    }
+    artifact
+}
+
+fn newest_source_mtime(
+    manifest: &std::path::Path,
+) -> Option<(std::path::PathBuf, std::time::SystemTime)> {
+    let mut newest: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+    for root in [manifest.join("src"), manifest.join("../math/src")] {
+        visit_sources(&root, &mut newest);
+    }
+    newest
+}
+
+fn visit_sources(
+    dir: &std::path::Path,
+    newest: &mut Option<(std::path::PathBuf, std::time::SystemTime)>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            visit_sources(&path, newest);
+        } else if let Ok(mtime) = entry.metadata().and_then(|meta| meta.modified()) {
+            if newest.as_ref().map(|(_, t)| mtime > *t).unwrap_or(true) {
+                *newest = Some((path, mtime));
+            }
+        }
+    }
+}
+
 pub fn load_arbswap(svm: &mut LiteSVM) -> Address {
     let program_id = to_address(arbswap::ID);
-    let path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/deploy/arbswap.so");
+    let path = sbf_artifact_path();
     svm.add_program(program_id, &std::fs::read(path).unwrap())
         .unwrap();
     program_id
