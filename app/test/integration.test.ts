@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseUnits, formatUnits } from '../src/chain/amounts';
-import { swapUnavailableReason } from '../src/chain/gating';
+import { swapUnavailableReason, claimWithdrawState } from '../src/chain/gating';
+import { feeAtoms, expectedOutAtoms, minOutWithSlippage, swapAmounts } from '../src/chain/swapMath';
 import { deriveVaultAddresses, expectedDepositShares } from '../src/chain/program';
 import { CANONICAL_VAULT, ACTIVE_VAULT } from '../src/chain/config';
 
@@ -80,6 +81,53 @@ describe('expectedDepositShares mirrors the program math', () => {
         minLiquidity: 1000n,
       }),
     ).toBe(0n);
+  });
+});
+
+describe('integer swap math (no floating point)', () => {
+  // Raw token-unit price 4 quote-atoms per base-atom => pResSqrt = 2 << 64.
+  const pResSqrt = 2n << 64n;
+
+  it('sell base: out = net * price', () => {
+    const a = swapAmounts({ side: 'sellBase', amountInAtoms: 1_000_000_000n, feeBps: 1, slippageBps: 10, pResSqrtQ64: pResSqrt });
+    expect(a.fee).toBe(100_000n);
+    expect(a.netIn).toBe(999_900_000n);
+    expect(a.expectedOut).toBe(3_999_600_000n);
+    expect(a.minOut).toBe((3_999_600_000n * 9990n) / 10000n); // 10 bps slippage
+  });
+
+  it('buy base: out = net / price (floored)', () => {
+    const a = swapAmounts({ side: 'buyBase', amountInAtoms: 100_000_000n, feeBps: 1, slippageBps: 10, pResSqrtQ64: pResSqrt });
+    expect(a.fee).toBe(10_000n);
+    expect(a.netIn).toBe(99_990_000n);
+    expect(a.expectedOut).toBe(24_997_500n);
+  });
+
+  it('fee uses ceiling and slippage floors down', () => {
+    expect(feeAtoms(1n, 1)).toBe(1n);
+    expect(minOutWithSlippage(1000n, 10)).toBe(999n); // 10 bps
+    expect(minOutWithSlippage(101n, 1)).toBe(100n); // 1 bps, floored
+  });
+
+  it('no quote (pResSqrt = 0) yields zero output, never a fabricated amount', () => {
+    expect(expectedOutAtoms('sellBase', 1_000_000_000n, 0n)).toBe(0n);
+    expect(expectedOutAtoms('buyBase', 1_000_000_000n, 0n)).toBe(0n);
+  });
+});
+
+describe('claim gating mirrors the program precondition (ticket.epoch <= vault.epoch)', () => {
+  it('blocks without a ticket / wallet', () => {
+    expect(claimWithdrawState({ walletConnected: true, hasTicket: false, ticketEpoch: 0, vaultEpoch: 0, ticketShares: 0n }).allowed).toBe(false);
+    expect(claimWithdrawState({ walletConnected: false, hasTicket: true, ticketEpoch: 0, vaultEpoch: 5, ticketShares: 1n }).allowed).toBe(false);
+  });
+  it('blocks until the requested epoch is reached', () => {
+    const s = claimWithdrawState({ walletConnected: true, hasTicket: true, ticketEpoch: 3, vaultEpoch: 2, ticketShares: 10n });
+    expect(s.allowed).toBe(false);
+    expect(s.reason).toMatch(/epoch 3/);
+  });
+  it('allows once the epoch is reached, and after an already-claimed ticket (shares 0)', () => {
+    expect(claimWithdrawState({ walletConnected: true, hasTicket: true, ticketEpoch: 3, vaultEpoch: 3, ticketShares: 10n }).allowed).toBe(true);
+    expect(claimWithdrawState({ walletConnected: true, hasTicket: true, ticketEpoch: 3, vaultEpoch: 4, ticketShares: 0n }).allowed).toBe(false);
   });
 });
 

@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
-import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, withdrawTicket as deriveWithdrawTicket, expectedDepositShares } from '../chain/program';
+import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, claimWithdraw as claimWithdrawOnChain, withdrawTicket as deriveWithdrawTicket, expectedDepositShares } from '../chain/program';
 import { parseUnits, formatUnits } from '../chain/amounts';
+import { claimWithdrawState } from '../chain/gating';
 import { ACTIVE_VAULT, explorerTxUrl } from '../chain/config';
 
 export const VaultPage: React.FC = () => {
@@ -28,6 +29,15 @@ export const VaultPage: React.FC = () => {
   const [depositUsdc, setDepositUsdc] = useState<string>('11.00');
   const [withdrawShares, setWithdrawShares] = useState<string>('0');
   const [notice, setNotice] = useState<string | null>(null);
+  const [isClaiming, setIsClaiming] = useState(false);
+
+  const claimState = claimWithdrawState({
+    walletConnected: connected,
+    hasTicket: !!withdrawTicket,
+    ticketEpoch: withdrawTicket?.requestedEpoch ?? 0,
+    vaultEpoch: vaultState.epoch,
+    ticketShares: withdrawTicket?.shares ?? 0n,
+  });
 
   const solNum = parseFloat(depositSol) || 0;
   const usdcNum = parseFloat(depositUsdc) || 0;
@@ -93,6 +103,29 @@ export const VaultPage: React.FC = () => {
       await refreshBalances();
     } catch (error) {
       setNotice(`Withdraw request failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+    }
+  };
+
+  const handleClaim = async () => {
+    if (!connected || !publicKey || !wallet) {
+      setVisible(true);
+      return;
+    }
+    if (!claimState.allowed) {
+      setNotice(claimState.reason);
+      return;
+    }
+    setIsClaiming(true);
+    setNotice('Claiming settled withdrawal…');
+    try {
+      const signature = await claimWithdrawOnChain(connection, wallet);
+      setNotice(`Claim confirmed ${signature.slice(0, 8)}… — ${explorerTxUrl(signature)}`);
+      await refreshProtocol();
+      await refreshBalances();
+    } catch (error) {
+      setNotice(`Claim failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+    } finally {
+      setIsClaiming(false);
     }
   };
 
@@ -246,6 +279,23 @@ export const VaultPage: React.FC = () => {
               <button type="button" className="uni-main-button accent" onClick={handleWithdraw} disabled={!vaultInitialized}>
                 {!vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Queue withdrawal for next epoch'}
               </button>
+
+              <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ color: 'var(--uni-neutral2)' }}>Claim status</span>
+                  <span className="mono" style={{ color: claimState.allowed ? 'var(--uni-success)' : 'var(--uni-neutral2)', textAlign: 'right' }}>
+                    {claimState.reason}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={`uni-main-button ${claimState.allowed ? 'accent' : 'disabled'}`}
+                  onClick={handleClaim}
+                  disabled={!claimState.allowed || isClaiming}
+                >
+                  {isClaiming ? 'Claiming…' : claimState.allowed ? 'Claim settled withdrawal' : 'Claim unavailable'}
+                </button>
+              </div>
             </div>
           )}
 

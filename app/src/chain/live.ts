@@ -79,6 +79,7 @@ export function toQuoteState(
     expirySlot: expiry,
     oraclePrice,
     anchorSqrtPrice: q ? q.anchorSqrtPrice.toString() : '0',
+    pResSqrt: q ? q.pResSqrt.toString() : '0',
     reservationPrice,
     halfSpreadBps: q ? q.halfSpreadBps : 0,
     askExtraBps: q ? q.askExtraBps : 0,

@@ -42,12 +42,19 @@ The following values must agree across `Anchor.toml`, `vault/program/src/lib.rs`
 | Cluster | Solana devnet |
 | RPC | `https://api.devnet.solana.com` |
 | Program ID | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
-| Base token | tSOL, mint `76XvqdSVi2LhYWgeWjx6E1V2c7oBeB6ndUEp6xC44jp2`, 9 decimals |
-| Quote token | tUSDC, mint `q3xHxvxCBvYCMwuA6dFtTDHHwbqkrruTYWAWXdPuNFX`, 6 decimals |
+| Base token | WSOL, mint `So11111111111111111111111111111111111111112`, 9 decimals |
+| Quote token | Circle devnet USDC, mint `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`, 6 decimals |
+| Canonical vault | `8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt` |
 | Token program | Classic SPL Token |
 | App | `app/` |
 
-These are worthless test tokens. They are not mainnet SOL and USDC.
+The app reads the **canonical WSOL/USDC** vault (`app/src/chain/config.ts`). The
+legacy custom tSOL/tUSDC vault is retained for reference only and is not used.
+
+> **Blocker:** the configured Pyth credential is not entitled to the crypto-spot
+> SOL/USD feed, so there is no on-chain quote and the app keeps swaps disabled
+> (strict 2-second freshness). Deposit/withdraw flows remain usable; swaps are
+> gated until an entitled Pyth source publishes a fresh `PriceUpdateV2`.
 
 ## 3. Install prerequisites
 

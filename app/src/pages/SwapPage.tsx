@@ -3,7 +3,8 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
 import { swap as swapOnChain } from '../chain/program';
-import { parseUnits } from '../chain/amounts';
+import { parseUnits, formatUnits } from '../chain/amounts';
+import { swapAmounts, type SwapSideName } from '../chain/swapMath';
 import { swapUnavailableReason } from '../chain/gating';
 import './SwapPage.css';
 
@@ -26,21 +27,33 @@ export const SwapPage: React.FC = () => {
   const parsedInAmount = parseFloat(inAmount) || 0;
 
   const isSellingSol = inTokenSymbol === 'SOL';
-  const effectivePrice = isSellingSol
-    ? quoteState.reservationPrice * (1 - quoteState.halfSpreadBps / 10000 - quoteState.bidExtraBps / 10000)
-    : quoteState.reservationPrice * (1 + quoteState.halfSpreadBps / 10000 + quoteState.askExtraBps / 10000);
+  const side: SwapSideName = isSellingSol ? 'sellBase' : 'buyBase';
+  const feeBps = 1;
 
-  const expectedOut = isSellingSol
-    ? parsedInAmount * effectivePrice
-    : parsedInAmount / effectivePrice;
+  // Integer amount plan derived from the on-chain reservation sqrt price (no
+  // floating point in the transaction path). `expectedOutAtoms` is a
+  // reservation-price floor, NOT a full ladder simulation; the deployed program
+  // enforces `out >= min_out`. When there is no quote, `pResSqrt` is "0" and the
+  // estimate is 0 (and submission is disabled anyway).
+  const pResSqrtQ64 = (() => {
+    try {
+      return BigInt(quoteState.pResSqrt || '0');
+    } catch {
+      return 0n;
+    }
+  })();
+  const amountInAtoms = (() => {
+    try {
+      return parseUnits(inAmount || '0', inToken.decimals);
+    } catch {
+      return 0n;
+    }
+  })();
+  const amounts = swapAmounts({ side, amountInAtoms, feeBps, slippageBps, pResSqrtQ64 });
+  const expectedOutHuman = formatUnits(amounts.expectedOut, outToken.decimals, 6);
+  const minOutHuman = formatUnits(amounts.minOut, outToken.decimals, 6);
 
-  const feeBps = 1.0;
-  const protocolFeeAmount = (expectedOut * feeBps) / 10000;
-  const netOut = Math.max(0, expectedOut - protocolFeeAmount);
-  const minOut = netOut * (1 - slippageBps / 10000);
-
-  // Fail closed: swaps require a fresh on-chain quote. The client-side numbers
-  // above are a display *estimate only* and are never authoritative execution.
+  // Fail closed: swaps require a fresh on-chain quote.
   const swapBlockedReason = swapUnavailableReason({
     vaultInitialized,
     circuitBreakerTripped: riskBreakers.circuitBreakerTripped,
@@ -65,17 +78,18 @@ export const SwapPage: React.FC = () => {
     setSwapNote(null);
     try {
       // SOL in = trader sells base; USDC in = trader buys base.
-      const isSellingSol = inTokenSymbol === 'SOL';
-      const side = isSellingSol ? { sellBase: {} } : { buyBase: {} };
-      const amountIn = isSellingSol
-        ? parseUnits(inAmount, tokens.SOL.decimals)
-        : parseUnits(inAmount, tokens.USDC.decimals);
-      const minOutAtoms = isSellingSol
-        ? parseUnits(minOut.toFixed(tokens.USDC.decimals), tokens.USDC.decimals)
-        : parseUnits(minOut.toFixed(tokens.SOL.decimals), tokens.SOL.decimals);
+      const ixSide = isSellingSol ? { sellBase: {} } : { buyBase: {} };
       const signature = await swapOnChain(
-        connection, wallet, side as never, amountIn, minOutAtoms, BigInt(quoteState.version));
-      setSwapNote(`Swap confirmed ${signature.slice(0, 8)}… (executed at the on-chain quoted price).`);
+        connection,
+        wallet,
+        ixSide as never,
+        amountInAtoms,
+        amounts.minOut,
+        BigInt(quoteState.version),
+      );
+      setSwapNote(
+        `Swap confirmed ${signature.slice(0, 8)}… — minimum received enforced on-chain (${minOutHuman} ${outTokenSymbol}).`,
+      );
       await refreshBalances();
     } catch (error) {
       setSwapNote(`Swap failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
@@ -222,7 +236,7 @@ export const SwapPage: React.FC = () => {
                 className="uni-amount"
                 readOnly
                 placeholder="0"
-                value={parsedInAmount > 0 ? netOut.toFixed(outTokenSymbol === 'SOL' ? 4 : 2) : ''}
+                value={parsedInAmount > 0 ? expectedOutHuman : ''}
               />
               <div className="uni-token-pill">
                 <img src={outToken.logo} alt={outToken.symbol} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
@@ -230,7 +244,7 @@ export const SwapPage: React.FC = () => {
               </div>
             </div>
             <div className="uni-panel-foot">
-              <span>~${(netOut * (outTokenSymbol === 'SOL' ? quoteState.oraclePrice : 1)).toFixed(2)} USD</span>
+              <span>~${(Number(expectedOutHuman) * (outTokenSymbol === 'SOL' ? quoteState.oraclePrice : 1)).toFixed(2)} USD (estimate)</span>
               <span>Balance: {outToken.balance} {outToken.symbol}</span>
             </div>
           </div>
@@ -273,7 +287,7 @@ export const SwapPage: React.FC = () => {
                 className="uni-details-toggle"
                 onClick={() => setDetailsOpen(!detailsOpen)}
               >
-                <span className="mono">1 {inTokenSymbol} = {effectivePrice.toFixed(4)} {outTokenSymbol}</span>
+                <span className="mono">Est. out ≈ {expectedOutHuman} {outTokenSymbol} (reservation-price floor)</span>
                 <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>
                   Fee: 1.0 bps {detailsOpen ? '▲' : '▼'}
                 </span>
@@ -287,7 +301,7 @@ export const SwapPage: React.FC = () => {
                   <div>
                     <dt>Min. Received (Protected)</dt>
                     <dd style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>
-                      {minOut.toFixed(outTokenSymbol === 'SOL' ? 4 : 2)} {outTokenSymbol}
+                      {minOutHuman} {outTokenSymbol}
                     </dd>
                   </div>
                   <div><dt>Order Routing</dt><dd>ArbSwap Engine (Direct On-Chain)</dd></div>

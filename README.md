@@ -6,6 +6,18 @@ are quoted is the price you get.**
 
 Formerly "TruQuote" (working name); all spec documents use the old name.
 
+> **Current deployment (2026-10, post-integration).** The active frontend is
+> `app/` (Vite + React). It reads the **canonical funded WSOL/USDC Devnet vault**
+> `8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt` (program
+> `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`, verified B1 build). The legacy
+> custom tSOL/tUSDC vault and the old `frontend/` scaffold are **not** used by the
+> demo. **Live swaps are currently blocked:** the configured Pyth credential is
+> not entitled to the crypto-spot SOL/USD feed, so no quote is on-chain
+> (`QuoteState.version = 0`); the protocol keeps its strict 2-second oracle
+> freshness rule. See `docs/FINAL_INTEGRATION_GAP_AUDIT.md` and
+> `docs/INTEGRATION.md`. The status table below reflects the earlier engine
+> milestones, not the current quote state.
+
 ## Status
 
 | Phase | Scope | Status |

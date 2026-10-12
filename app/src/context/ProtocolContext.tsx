@@ -24,7 +24,7 @@ const QUOTE_SYMBOL = ACTIVE_VAULT.quoteMint.equals(QUOTE_MINT) ? 'USDC' : 'QUOTE
 /** Neutral state used before/without a live vault. Numbers are zero, not mock. */
 const EMPTY_QUOTE_STATE: QuoteState = {
   version: 0, updateSlot: 0, currentSlot: 0, expirySlot: 0,
-  oraclePrice: 0, anchorSqrtPrice: '0', reservationPrice: 0,
+  oraclePrice: 0, anchorSqrtPrice: '0', pResSqrt: '0', reservationPrice: 0,
   halfSpreadBps: 0, askExtraBps: 0, bidExtraBps: 0, depthMultBps: 0,
   flowNetSold: 0, oraclePublishTime: 0, oracleConfBps: 0,
   shortVolBps: 0, mediumVolBps: 0, recentMoveBps: 0,

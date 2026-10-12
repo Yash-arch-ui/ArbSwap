@@ -490,17 +490,21 @@ export async function claimWithdraw(connection: Connection, wallet: unknown): Pr
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
   if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
-  const userBase = getAssociatedTokenAddressSync(BASE_MINT, owner);
-  const userQuote = getAssociatedTokenAddressSync(QUOTE_MINT, owner);
+  const base = await ensureAta(connection, BASE_MINT, owner);
+  const quote = await ensureAta(connection, QUOTE_MINT, owner);
+  const preInstructions = [base.createIx, quote.createIx].filter(
+    (ix): ix is TransactionInstruction => ix !== null,
+  );
   return program.methods
     .claimWithdraw()
     .accounts({
       user: owner, vault,
       baseReserve: state.vaultData.baseReserve, quoteReserve: state.vaultData.quoteReserve,
       shareMint: state.vaultData.shareMint, shareLock: state.vaultData.shareLock,
-      withdrawTicket: withdrawTicket(vault, owner), userBase, userQuote,
+      withdrawTicket: withdrawTicket(vault, owner), userBase: base.ata, userQuote: quote.ata,
       tokenProgram: TOKEN_PROGRAM_ID,
     })
+    .preInstructions(preInstructions)
     .rpc();
 }
 

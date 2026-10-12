@@ -45,13 +45,30 @@ These constants are currently defined in `Anchor.toml`, `vault/program/src/lib.r
 |---|---|
 | RPC | `https://api.devnet.solana.com` |
 | Program ID | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
-| Base mint | `76XvqdSVi2LhYWgeWjx6E1V2c7oBeB6ndUEp6xC44jp2` (`tSOL`, 9 decimals) |
-| Quote mint | `q3xHxvxCBvYCMwuA6dFtTDHHwbqkrruTYWAWXdPuNFX` (`tUSDC`, 6 decimals) |
+| Base mint | `So11111111111111111111111111111111111111112` (`WSOL`, 9 decimals) |
+| Quote mint | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (Circle devnet `USDC`, 6 decimals) |
+| Canonical vault | `8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt` |
+| Canonical config | `ErVDFAHWSK5SjKqvaNJoqv91r4vNH7VmqteURqdEo2aT` |
+| Canonical quote state | `5MsGbdHv3ouXrHT9f7JVQ6b7eVETTiVCzYSGw5DTYAgG` |
 | Pyth feed ID | `ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d` |
 | Token program | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` |
 | App directory | `app/` |
 
-These are worthless devnet test tokens. Do not substitute mainnet WSOL/USDC.
+The canonical public-demo vault is **WSOL/USDC** (funded on Devnet). The legacy
+custom **tSOL/tUSDC** vault (`52cNnsip…`, config `HhBCf2Xo…`) is retained for
+reference only and is **not** used by the app. `app/src/chain/config.ts` is the
+single source of truth; the app asserts the derived PDAs match it at startup.
+
+> **Blocker:** the configured `PYTH_API_KEY` authenticates but is **not entitled**
+> to the crypto-spot SOL/USD feed (`403 Not entitled … crypto/spot`), so no quote
+> is on-chain (`QuoteState.version = 0`) and the app keeps swaps disabled. The
+> deployed 2-second freshness rule is unchanged. Verify entitlement without
+> printing the key:
+> `curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $PYTH_API_KEY" "https://hermes.pyth.network/v2/updates/price/latest?ids[]=ef0d8b6f…b56d"`.
+>
+> **Live vs replay:** live = on-chain vault/quote/reserve/shares/tickets;
+> replay/model = `app/public/artifacts/*`; unavailable = keeper telemetry and
+> per-day LVR. Never label a model number as live.
 
 ### Important deployment fact
 

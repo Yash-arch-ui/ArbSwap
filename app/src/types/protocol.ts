@@ -29,6 +29,8 @@ export interface QuoteState {
   expirySlot: number;
   oraclePrice: number;
   anchorSqrtPrice: string;
+  /** Raw Q64.64 reservation sqrt price (string), for integer swap math. */
+  pResSqrt: string;
   reservationPrice: number;
   halfSpreadBps: number;
   askExtraBps: number;
