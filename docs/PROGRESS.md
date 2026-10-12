@@ -948,3 +948,152 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 - Not done (still open): swap `min_out` is still a client float estimate (only
   matters once a quote exists); no claim-withdraw UI; docs still describe the
   legacy tSOL/tUSDC app in `docs/INTEGRATION.md`/`FULLGUIDE.md`.
+
+## Part 3 / Step 12 — S2-7 remaining frontend gaps
+
+- **Swap amount integrity.** New `app/src/chain/swapMath.ts` computes the fee
+  (ceiling), net input, expected output, and `min_out` in integer atoms from the
+  on-chain reservation sqrt price (`QuoteState.pResSqrt`, Q64.64) and token
+  decimals — **no floating point in the transaction path**. `SwapPage` now sends
+  `amounts.minOut` and the live quote version; display output is labelled a
+  reservation-price floor. `QuoteState` type/live mapping gained `pResSqrt`.
+  Submission stays gated on a fresh quote.
+- **Claim-withdraw UI.** `VaultPage` withdraw tab shows a claim status and a
+  claim button, gated by `claimWithdrawState` (mirrors `ticket.epoch <=
+  vault.epoch`); `claimWithdraw` now idempotently ensures the user base/quote
+  ATAs. Full sign→send→confirm→explorer→refresh lifecycle; no claim tx submitted.
+- **Docs refreshed.** `README.md`, `docs/INTEGRATION.md`, `FULLGUIDE.md` now
+  describe the canonical WSOL/USDC vault, the B1 build, the app as the active
+  frontend, the Pyth entitlement blocker, and live-vs-replay labels.
+- **Tests.** App `yarn test` **26 passed** (added integer swap math for both
+  directions, fee/rounding/slippage, zero-quote safety, and claim gating);
+  `tsc -b` clean; `yarn lint` clean; `yarn build` OK.
+- **Still unproven live (external):** `update_quote → swap → withdraw → claim`
+  remains blocked on entitled Pyth access; no fresh valid quote exists.
+
+## Part 3 / Step 13 — S2-8 Pyth entitlement UNBLOCKED, but keeper tx-too-large
+
+- **Pyth entitlement: FIXED (verified).** With the current `.ENV` `PYTH_API_KEY`
+  all three hosts return **HTTP 200** for the exact configured SOL/USD feed:
+  `hermes.pyth.network`, `benchmarks.pyth.network`, and
+  `pyth.dourolabs.app/v1/fixed_rate@1000ms/price?ids=6` (SOL/USD ≈ $107.42,
+  conf ≈ 9.3–9.6 bps, publish_time advancing).
+- **Fresh `PriceUpdateV2` posted.** `scripts/devnet/update_feed.ts` succeeded;
+  `scripts/devnet/post_feed_loop.ts` (POST_INTERVAL_MS=1000) published to the
+  shard-0 receiver account `7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE`
+  (owner `rec5EKMGg6…`, feed `ef0d8b6f…b56d`); `chain_age` observed dropping to
+  **2 s**. Example update sigs:
+  `4XNfVVH6BpxtdtWXZ6fERRhdoE6mfRLzKiENwNFy9KABrXA2SDhrpaj7RgdoJfAnvDj9Ya2xkkhs8uJtJKyZMQ8L`,
+  `42GEPdePt7sxRq3kt1JQnB5KsAwQXzmRocggX65tikmVRDSwuqJpQpCEnYoPMQCkB8ToQfS3c6tJLrNZ43b7yh5d`.
+- **NEW HARD BLOCKER — keeper `update_quote` exceeds the Solana 1232-byte tx limit.**
+  Running the existing keeper (`cargo run -p arbswap-keeper -- live …` with the
+  fresh feed) failed on every attempt:
+  `sendTransaction error: {"code":-32602,"message":"base64 encoded
+  solana_transaction::versioned::VersionedTransaction too large: 2160 bytes
+  (max: encoded/raw 1644/1232)"}` (`update failed after 3 attempts`).
+  - Root cause: the C3/B2 payload carries **5 × u128 per level × 12 levels =
+    960 B** of instruction data (`sqrt_lo, sqrt_hi, liquidity, inv_lo, inv_hi`),
+    ~1068 B with the header/discriminator. Even the leanest possible transaction
+    (all non-signer accounts in an address lookup table, no compute-budget ix)
+    needs ≥ ~1280 B once account keys + program id + signature + blockhash +
+    table-lookup overhead are added → **cannot fit under 1232 B**.
+  - This is **not** an oracle or entitlement problem; it is a program ABI payload
+    size problem exposed once the feed became publishable. The bid-side
+    `inv_lo`/`inv_hi` are documented as unused by the program but still occupy
+    192 B; the ask-side inverses are the C3/B2 optimization.
+- **`QuoteState` still version 0.** No `update_quote` landed; no swap/withdraw/
+  claim could be attempted. No asset-moving tx was submitted; no constraint,
+  feed id, authority, or config was changed.
+- **Recommended fix (needs a program change + redeploy, not done here):** shrink
+  `LevelUpdate` so the payload fits, e.g. drop the unused bid-side (and
+  optionally keeper-supplied) inverse-sqrt fields and compute the ask capacity
+  on-chain, or otherwise compress the per-level encoding. Removing `inv_lo`/
+  `inv_hi` entirely (~684 B data) fits comfortably; keeping ask-only inverses
+  (~876 B) also fits. The keeper encoder must change in lock-step.
+- **Poster stopped**; no lingering processes. Working tree unchanged by this step
+  except this record (no secrets printed).
+
+## Part 3 / Step 14 — S2-9 payload shrink + redeploy (quote still not landed)
+
+- **ABI change (redundant fields removed):**
+  - `LevelUpdate` (`vault/program/src/lib.rs`) dropped `inv_lo`/`inv_hi`. They were
+    only used for the ask-side capacity check (the bid side already ignored them);
+    the ask capacity is now computed on-chain with the existing
+    `MathLevel::base_capacity()` U256 division. −384 B of payload.
+  - `QuoteUpdate` dropped `oracle_price`. The B1 fix already required
+    `update.oracle_price == normalize(pyth, decimals)`, so the field was fully
+    determined on-chain; the program now uses its own normalized value directly
+    (`let oracle_price = expected_oracle_price`), which is strictly stronger.
+    −16 B.
+  - IDL regenerated (`anchor idl build`) and copied to `app/src/idl/arbswap.json`.
+- **Serialized size (measured by keeper test `update_quote_transaction_fits_packet_limit`):**
+  instruction data **1100 B → 700 B**; legacy tx **1644 B → 1220 B** (≤ 1232;
+  12 B headroom). Signer count 1; no address lookup table.
+- **Tests:** `cargo test --workspace` green (program lifecycle 80, oracle-scaling 3
+  rewritten to assert the derived price + mint binding, keeper 37 incl. the new
+  size test); `app` `tsc`/`yarn test` (24)/`lint`/`build` OK.
+- **Redeploy:** `solana program deploy … --upgrade-authority …arbswap-devnet.json`
+  sig `29zPYqTKHHpUDiEQ5Ba7CCrLHYatoHED1J8wPwRWfXvyevmrM213Bj5imET1cZQ4adVvgZBtnTKyeVNiVfkkF7Nr`,
+  slot **510365704**; `devnet_program_hash.py` → **MATCH** (local 687840 B
+  `7964121d8dbfd13b2edc06d6bdab25d9c7d33700d735e9b17567d4068b05fd04`; on-chain
+  padded). Previous deployed hash was `9a6e8498…`.
+- **Keeper:** now submits the transaction successfully (the 1232 B packet error
+  is gone) and reaches `update_quote`, but the program rejects it with
+  `InvalidOracle` (lib.rs:521/522). The keeper reader was also switched to
+  `processed` commitment.
+- **Remaining blocker (not the payload):** the deployed rule
+  `get_price_no_older_than(clock, 2 s)` + `price.publish_time ==
+  update.oracle_publish_time` cannot be met by an **out-of-band** poster. Two
+  writers (the Hermes poster and the keeper) act on the same feed account
+  asynchronously; the keeper's read→execute latency plus the poster's own
+  post→confirm latency pushes the chain-clock age past 2 s and/or changes the
+  account between the keeper's read and execution. Result: `QuoteState.version`
+  is still 0.
+- **Required next step:** have the keeper **post the Pyth `PriceUpdateV2` in-band**
+  (receiver `post_update` + `update_quote` in the same transaction) so the
+  publish_time and freshness are validated against the exact account the keeper
+  wrote. This is the clean path the Build Plan itself notes; it is a keeper-side
+  change, no oracle/constraint change. No asset-moving tx was submitted.
+
+## Part 3 / Step 15 — S2-10 atomic Pyth post + update_quote: GATE A FAIL (measured)
+
+- **Measured with the real Pyth SDK/Hermes update** (`scripts/devnet/measure_atomic.ts`,
+  `@pythnetwork/pyth-solana-receiver`, no send):
+  - `addUpdatePriceFeed(...)` produces **two transactions**:
+    - tx0 `raw=726 B`, 5 keys — system create + Wormhole core `HDwcJBJX…` (post VAA: data 52/8/308/8).
+    - tx1 `raw=747 B`, 8 keys — Pyth push-oracle `pythWSnsw…` update (data 376, 7 accounts).
+  - **Total post = 1473 B across 2 txs.** The Pyth post is inherently two
+    transactions (Wormhole VAA + push-oracle update) for this SDK/path.
+  - ArbSwap `update_quote` = **1220 B** (S2-9).
+- **Gate A result: FAIL.** A single transaction containing both the post and
+  `update_quote` is ≥ ~2600 B (post 1473 + quote 1220, even before merging keys);
+  the deficit against 1232 B is ~1400 B. The post alone (1473 B) already exceeds
+  the packet limit, so it cannot share any transaction with `update_quote`.
+- **Not done (per task rule):** no staging architecture implemented; no oversized
+  tx submitted; no ALT used; no oracle/constraint change; no redeploy.
+- **Proposed smallest safe program-side solution (for approval, not implemented):**
+  a **two-phase staged quote**:
+  1. `stage_quote(params)`: keeper writes a new `PendingQuote` PDA
+     (`seeds=[b"pending", vault, keeper]`) holding the current `QuoteUpdate`
+     payload (700 B) plus `{vault, keeper, nonce_u64, stage_slot}`. It **does not
+     touch `QuoteState`**. Serialized tx ≈ 700 B data + ~12 keys ≈ ~1200 B (fits).
+  2. `commit_quote(nonce)`: minimal instruction (data ≈ 8 B nonce) that reads the
+     `PendingQuote`, reads the **fresh `PriceUpdateV2`** passed in the same tx,
+     re-validates feed id / ≤2 s staleness / confidence / mint-bound normalization
+     / anchor+ladder+inventory+flow+edge bounds against current vault+reserves,
+     then writes `QuoteState` and clears `PendingQuote`. Commit tx = the fresh
+     Pyth post tx1 (747 B) + commit (~8 B data + reused accounts) ≈ **~900–1100 B**
+     (fits if appended to tx1).
+  - **Safety:** active quote unchanged until commit; commit validates against the
+    live oracle written in the same tx (freshness/equality by construction);
+    `PendingQuote` bound to canonical vault + authorized keeper; monotonic
+    `nonce` prevents replay/stale staging; cleared on commit; single atomic
+    instruction so no partial application; all existing bounds/breakers retained.
+  - **Files that would change:** `vault/program/src/lib.rs` (new account +
+    `stage_quote`/`commit_quote`, retire direct `update_quote`), IDL + app copy,
+    `vault/keeper/src/{lib.rs,main.rs}` (stage then commit with in-band post),
+    program tests, `vault/e2e`.
+  - **Why stop here:** this is a broader architecture change beyond the authorized
+    ABI reduction; the task requires returning the design + measurements for
+    approval before implementing.
+- `QuoteState.version` remains **0**; no quote landed. No asset-moving tx.
