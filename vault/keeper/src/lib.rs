@@ -269,14 +269,15 @@ pub struct QuoteUpdate {
 /// struct stays unchanged; the bid inverses are unused by the program (written
 /// as 0).
 pub fn encode_update_quote_instruction(update: &QuoteUpdate) -> Vec<u8> {
-    let mut data =
-        Vec::with_capacity(8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 160);
+    // S2-9: the payload no longer carries `oracle_price` (derived on-chain from
+    // Pyth + mint decimals) and each level is (sqrt_lo, sqrt_hi, liquidity) = 3
+    // u128 (capacity is computed on-chain, so no inverse-sqrt fields are sent).
+    let mut data = Vec::with_capacity(8 + 8 + 8 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 96);
     let mut hash = Sha256::new();
     hash.update(b"global:update_quote");
     data.extend_from_slice(&hash.finalize()[..8]);
     put_u64(&mut data, update.slot);
     put_i64(&mut data, update.publish_time);
-    put_u128(&mut data, update.oracle_price_q64);
     put_u32(&mut data, update.confidence_bps);
     put_u128(&mut data, update.anchor_sqrt_price);
     put_u128(&mut data, update.reservation_sqrt_price);
@@ -294,26 +295,13 @@ pub fn encode_update_quote_instruction(update: &QuoteUpdate) -> Vec<u8> {
         put_u128(&mut data, level.sqrt_lo);
         put_u128(&mut data, level.sqrt_hi);
         put_u128(&mut data, level.liquidity);
-        put_inverse(&mut data, level.sqrt_lo, level.sqrt_hi);
     }
     for level in &update.bid_levels {
         put_u128(&mut data, level.sqrt_lo);
         put_u128(&mut data, level.sqrt_hi);
         put_u128(&mut data, level.liquidity);
-        // Bid capacity is computed on-chain without inverses.
-        put_u128(&mut data, 0);
-        put_u128(&mut data, 0);
     }
     data
-}
-
-/// Write `inv_lo, inv_hi = ceil(2^128 / sqrt)` (0 when a sqrt is unusable, so
-/// the program's conservative check rejects it).
-fn put_inverse(out: &mut Vec<u8>, sqrt_lo: u128, sqrt_hi: u128) {
-    let inv_lo = arb_math::inv_sqrt_q64_ceil(sqrt_lo).unwrap_or(0);
-    let inv_hi = arb_math::inv_sqrt_q64_ceil(sqrt_hi).unwrap_or(0);
-    put_u128(out, inv_lo);
-    put_u128(out, inv_hi);
 }
 
 fn put_u32(out: &mut Vec<u8>, value: u32) {
@@ -1253,9 +1241,12 @@ mod tests {
         .unwrap();
         let payload = encode_update_quote_instruction(&q);
         assert_eq!(&payload[..8], &Sha256::digest(b"global:update_quote")[..8]);
+        // S2-9 layout: disc + slot + publish_time + conf + anchor + p_res +
+        // half_spread + ask_extra + bid_extra + depth + offsets[LEVELS] +
+        // weights[LEVELS] + 2 * LEVELS * (3 u128).
         assert_eq!(
             payload.len(),
-            8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + LEVELS * 8 + LEVELS * 160
+            8 + 8 + 8 + 4 + 16 + 16 + 4 + 4 + 4 + 4 + LEVELS * 8 + 2 * LEVELS * 48
         );
     }
     #[test]
@@ -1431,6 +1422,50 @@ mod tests {
         assert_eq!(tick.slot, 5);
         assert!(parse_hermes("not json", 1).is_none());
         assert!(parse_hermes(r#"{"parsed":[]}"#, 1).is_none());
+    }
+
+    #[test]
+    fn update_quote_transaction_fits_packet_limit() {
+        use solana_signer::Signer;
+        let keeper = Keypair::new();
+        let plan = UpdateQuotePlan {
+            program_id: Address::new_from_array([1u8; 32]),
+            keeper: keeper.pubkey(),
+            vault: Address::new_from_array([2u8; 32]),
+            config: Address::new_from_array([3u8; 32]),
+            quote_state: Address::new_from_array([4u8; 32]),
+            price_update: Address::new_from_array([5u8; 32]),
+            keeper_bond: Address::new_from_array([6u8; 32]),
+            base_reserve: Address::new_from_array([7u8; 32]),
+            quote_reserve: Address::new_from_array([8u8; 32]),
+            base_mint: Address::new_from_array([9u8; 32]),
+            quote_mint: Address::new_from_array([10u8; 32]),
+            recent_blockhash: Hash::default(),
+            compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
+        };
+        let quote = compute_quote(
+            OracleTick {
+                slot: 1,
+                publish_time: 1,
+                price_q64: 150 * Q64,
+                confidence_bps: 1,
+            },
+            VolatilityState::default(),
+            1_000,
+            150_000,
+            0,
+            0,
+            KeeperParams::default(),
+        )
+        .unwrap();
+        let transaction = build_update_quote_transaction(&plan, &keeper, &quote, 1_000);
+        let data = encode_update_quote_instruction(&quote).len();
+        let size = wincode::serialize(&transaction).unwrap().len();
+        println!("update_quote_instruction_data={data}B tx_size={size}B");
+        assert!(
+            size <= 1232,
+            "serialized update_quote tx is {size} B, above the Solana 1232 B packet limit"
+        );
     }
 
     #[test]

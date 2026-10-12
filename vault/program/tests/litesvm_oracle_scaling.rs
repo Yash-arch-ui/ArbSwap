@@ -236,13 +236,12 @@ fn harness(base_decimals: u8, quote_decimals: u8, anchor_price_q64: u128) -> Har
     }
 }
 
-fn quote_update(anchor_sqrt: u128, oracle_price: u128, update_slot: u64) -> QuoteUpdate {
+fn quote_update(anchor_sqrt: u128, update_slot: u64) -> QuoteUpdate {
     let ask_levels = anchor_ladder(anchor_sqrt, 2, [1, 2, 3, 4, 5, 6], 1_000);
     let bid_levels = anchor_bid_ladder(anchor_sqrt, 2, [1, 2, 3, 4, 5, 6], 1_000);
     QuoteUpdate {
         update_slot,
         oracle_publish_time: 1_000,
-        oracle_price,
         oracle_conf_bps: 1,
         anchor_sqrt_price: anchor_sqrt,
         p_res_sqrt: anchor_sqrt,
@@ -299,53 +298,39 @@ fn send_update(
 }
 
 #[test]
-fn nine_six_vault_accepts_normalized_and_rejects_wrong_scaling() {
+fn nine_six_vault_derives_normalized_price_from_verified_pyth() {
+    // S2-9: the payload carries no price; the program derives the token-unit
+    // price from the verified Pyth value (150.0) and the 9/6 mint decimals.
     let anchor = arb_math::sqrt_q64(NORMALIZED_9_6_Q64).unwrap();
     let mut h = harness(9, 6, NORMALIZED_9_6_Q64);
     let (bm, qm) = (h.base_mint, h.quote_mint);
 
-    // Correct token-unit price (human/1000) is accepted.
-    let ok = send_update(&mut h, &quote_update(anchor, NORMALIZED_9_6_Q64, 1), bm, qm);
-    assert!(ok.is_ok(), "normalized 9/6 price must be accepted: {ok:?}");
+    let ok = send_update(&mut h, &quote_update(anchor, 1), bm, qm);
+    assert!(ok.is_ok(), "normalized 9/6 update must be accepted: {ok:?}");
 
     // The stored price is exactly the token-unit value consumed by swap math.
     let stored: QuoteState = read_state(&h.svm, h.quote_address);
     assert_eq!(stored.oracle_price, NORMALIZED_9_6_Q64);
     assert_eq!(stored.version, 1);
 
-    // Submitting the *unscaled* human price must be rejected.
-    let wrong = send_update(&mut h, &quote_update(anchor, HUMAN_Q64, 2), bm, qm);
-    assert_anchor_error(wrong, "OraclePriceMismatch");
-
-    // A different mint account (even with the same decimals) is rejected by the
-    // address binding: decimals cannot be swapped in to change the expected
-    // price.
+    // A different mint account is rejected by the address binding: decimals
+    // cannot be swapped in to change the derived price.
     let forged_mint = Address::new_unique();
     set_token_mint(&mut h.svm, forged_mint, 6, h.payer.pubkey());
-    let forged = send_update(
-        &mut h,
-        &quote_update(anchor, NORMALIZED_9_6_Q64, 3),
-        bm,
-        forged_mint,
-    );
+    let forged = send_update(&mut h, &quote_update(anchor, 2), bm, forged_mint);
     assert_account_rejected(forged, "quote_mint");
 }
 
 #[test]
-fn nine_nine_vault_uses_unscaled_price() {
+fn nine_nine_vault_derives_unscaled_price() {
     let anchor = arb_math::sqrt_q64(HUMAN_Q64).unwrap();
     let mut h = harness(9, 9, HUMAN_Q64);
     let (bm, qm) = (h.base_mint, h.quote_mint);
 
-    let ok = send_update(&mut h, &quote_update(anchor, HUMAN_Q64, 1), bm, qm);
+    let ok = send_update(&mut h, &quote_update(anchor, 1), bm, qm);
     assert!(ok.is_ok(), "9/9 identity price must be accepted: {ok:?}");
     let stored: QuoteState = read_state(&h.svm, h.quote_address);
     assert_eq!(stored.oracle_price, HUMAN_Q64);
-
-    // For 9/9 the normalized value differs from the human value, so a
-    // 9/6-style scaled price is rejected.
-    let scaled = send_update(&mut h, &quote_update(anchor, NORMALIZED_9_6_Q64, 2), bm, qm);
-    assert_anchor_error(scaled, "OraclePriceMismatch");
 }
 
 #[test]
@@ -357,6 +342,6 @@ fn stale_oracle_still_fails_under_existing_rules() {
     clock.unix_timestamp = 10_000;
     h.svm.set_sysvar(&clock);
     let (bm, qm) = (h.base_mint, h.quote_mint);
-    let stale = send_update(&mut h, &quote_update(anchor, NORMALIZED_9_6_Q64, 1), bm, qm);
+    let stale = send_update(&mut h, &quote_update(anchor, 1), bm, qm);
     assert_anchor_error(stale, "InvalidOracle");
 }

@@ -3088,19 +3088,6 @@
           {
             "name": "liquidity",
             "type": "u128"
-          },
-          {
-            "name": "inv_lo",
-            "docs": [
-              "C3/B2: keeper-supplied Q64.64 inverse square roots, verified on-chain with",
-              "one multiply each (`inv_sqrt_is_conservative`). Used for the ask-side",
-              "base-capacity check via multiply+shift instead of a 256-bit division."
-            ],
-            "type": "u128"
-          },
-          {
-            "name": "inv_hi",
-            "type": "u128"
           }
         ]
       }
@@ -3597,10 +3584,6 @@
           {
             "name": "oracle_publish_time",
             "type": "i64"
-          },
-          {
-            "name": "oracle_price",
-            "type": "u128"
           },
           {
             "name": "oracle_conf_bps",

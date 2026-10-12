@@ -504,10 +504,7 @@ pub mod arbswap {
                 <= ctx.accounts.config.max_update_slot_age as u64,
             ErrorCode::UpdateSlotTooOld
         );
-        require!(
-            update.oracle_price > 0 && update.oracle_publish_time >= 0,
-            ErrorCode::InvalidPrice
-        );
+        require!(update.oracle_publish_time >= 0, ErrorCode::InvalidPrice);
         let feed = ctx.accounts.config.pyth_feed_id;
         require!(
             ctx.accounts.config.max_staleness_seconds >= 0,
@@ -538,10 +535,12 @@ pub mod arbswap {
             ctx.accounts.quote_mint.decimals,
         )
         .ok_or(ErrorCode::InvalidOracle)?;
-        require!(
-            expected_oracle_price == update.oracle_price,
-            ErrorCode::OraclePriceMismatch
-        );
+        // S2-9: `oracle_price` is no longer in the payload — it was fully
+        // determined by the verified Pyth value and the mint decimals, and the
+        // program now uses its own normalized value directly (strictly stronger
+        // than trusting a keeper-supplied field that had to equal it anyway).
+        let oracle_price = expected_oracle_price;
+        require!(oracle_price > 0, ErrorCode::InvalidPrice);
         let decoded_conf_bps = ((price.conf as u128)
             .saturating_mul(10_000)
             .saturating_add(price.price as u128 - 1)
@@ -618,7 +617,8 @@ pub mod arbswap {
         // With u = 0.5 and the recommended default d = 100 bps:
         //     loss_per_update <= 0.5 * 0.01 * V = 0.005 V   (0.5% of V per update)
         // and the per-window loss is additionally bounded by the flow cap (1a).
-        let oracle_price = update.oracle_price; // Q64 price, == Pyth, > 0 (checked)
+        // `oracle_price` (the verified, normalized Q64 token-unit price) is
+        // bound above from the Pyth account; no payload field is trusted here.
         let anchor_dev = anchor_price.abs_diff(oracle_price);
         require!(
             anchor_dev.saturating_mul(BPS_DENOM as u128)
@@ -696,25 +696,21 @@ pub mod arbswap {
         // `arb-math`; the fee buckets are liabilities and are excluded.
         let mut ask_base_capacity = 0u128;
         for level in update.ask_levels.iter() {
-            // C3/B2: verify the keeper-supplied inverse square roots (one
-            // multiply each) and compute the ask capacity by multiply+shift.
-            // The estimate is conservative (>= the exact floor), so the
-            // utilization cap can only reject, never wrongly accept.
-            require!(
-                arb_math::inv_sqrt_is_conservative(level.sqrt_lo, level.inv_lo)
-                    && arb_math::inv_sqrt_is_conservative(level.sqrt_hi, level.inv_hi),
-                ErrorCode::InvalidInverseSqrt
-            );
+            // S2-9: the ask base capacity is computed on-chain from the level's
+            // liquidity and sqrt bounds (the same U256 division the bid side
+            // already uses), so the payload no longer carries keeper-supplied
+            // inverse square roots. Exact floor; the utilization cap can only
+            // reject, never wrongly accept.
+            let math_level = MathLevel {
+                sqrt_lo: level.sqrt_lo,
+                sqrt_hi: level.sqrt_hi,
+                liquidity: level.liquidity,
+            };
             ask_base_capacity = ask_base_capacity
                 .checked_add(
-                    arb_math::base_capacity_from_inverse_sqrts(
-                        level.liquidity,
-                        level.sqrt_lo,
-                        level.sqrt_hi,
-                        level.inv_lo,
-                        level.inv_hi,
-                    )
-                    .map_err(|_| error!(ErrorCode::MathOverflow))?,
+                    math_level
+                        .base_capacity()
+                        .map_err(|_| error!(ErrorCode::MathOverflow))?,
                 )
                 .ok_or(ErrorCode::MathOverflow)?;
         }
@@ -782,7 +778,7 @@ pub mod arbswap {
         // h3: store the verified oracle for the swap-time edge measurement. The
         // realized-edge window is rolled by the slot clock at swap time, NOT on
         // every re-quote (so re-quoting cannot reset the loss tracker).
-        quote.oracle_price = update.oracle_price;
+        quote.oracle_price = oracle_price;
         for i in 0..LEVELS {
             quote.ask_levels[i] = Level {
                 sqrt_lo: update.ask_levels[i].sqrt_lo,
@@ -1618,17 +1614,11 @@ pub struct LevelUpdate {
     pub sqrt_lo: u128,
     pub sqrt_hi: u128,
     pub liquidity: u128,
-    /// C3/B2: keeper-supplied Q64.64 inverse square roots, verified on-chain with
-    /// one multiply each (`inv_sqrt_is_conservative`). Used for the ask-side
-    /// base-capacity check via multiply+shift instead of a 256-bit division.
-    pub inv_lo: u128,
-    pub inv_hi: u128,
 }
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
 pub struct QuoteUpdate {
     pub update_slot: u64,
     pub oracle_publish_time: i64,
-    pub oracle_price: u128,
     pub oracle_conf_bps: u32,
     pub anchor_sqrt_price: u128,
     pub p_res_sqrt: u128,

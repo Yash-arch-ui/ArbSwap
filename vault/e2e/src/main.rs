@@ -569,8 +569,6 @@ fn run_loop(
         sqrt_lo: l.sqrt_lo,
         sqrt_hi: l.sqrt_hi,
         liquidity: l.liquidity,
-        inv_lo: arb_math::inv_sqrt_q64_ceil(l.sqrt_lo).unwrap_or(0),
-        inv_hi: arb_math::inv_sqrt_q64_ceil(l.sqrt_hi).unwrap_or(0),
     };
     let mut ask_levels = [arbswap::LevelUpdate::default(); 6];
     let mut bid_levels = [arbswap::LevelUpdate::default(); 6];
@@ -581,7 +579,6 @@ fn run_loop(
     let update = arbswap::QuoteUpdate {
         update_slot: tick.slot,
         oracle_publish_time: q.publish_time,
-        oracle_price: q.oracle_price_q64,
         oracle_conf_bps: q.confidence_bps,
         anchor_sqrt_price: q.anchor_sqrt_price,
         p_res_sqrt: q.reservation_sqrt_price,

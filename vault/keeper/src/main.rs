@@ -376,9 +376,13 @@ fn rpc_token_amount(rpc_url: &str, account: &Address) -> Option<u128> {
 }
 
 fn rpc_slot(rpc_url: &str) -> u64 {
-    rpc_call(rpc_url, "getSlot", serde_json::json!([]))
-        .and_then(|value| value.get("result")?.as_u64())
-        .unwrap_or(0)
+    rpc_call(
+        rpc_url,
+        "getSlot",
+        serde_json::json!([{"commitment": "processed"}]),
+    )
+    .and_then(|value| value.get("result")?.as_u64())
+    .unwrap_or(0)
 }
 
 fn rpc_send_transaction(
@@ -419,10 +423,13 @@ fn read_price_feed(
     feed_account: &Address,
 ) -> Option<pyth_solana_receiver_sdk::price_update::PriceUpdateV2> {
     use anchor_lang::AccountDeserialize;
+    // Read at `processed` so the publish_time the keeper signs matches the
+    // account the program reads at execution (a finalized read lags the
+    // poster's latest update and causes a systematic InvalidOracle mismatch).
     let v = rpc_call(
         rpc_url,
         "getAccountInfo",
-        serde_json::json!([feed_account.to_string(), {"encoding": "base64"}]),
+        serde_json::json!([feed_account.to_string(), {"encoding": "base64", "commitment": "processed"}]),
     )?;
     let value = v.get("result")?.get("value")?;
     if value.is_null() {

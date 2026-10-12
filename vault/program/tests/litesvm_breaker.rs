@@ -405,7 +405,6 @@ fn update_quote_executes_only_with_full_pyth_account() {
     let update = QuoteUpdate {
         update_slot: 1,
         oracle_publish_time: 1_000,
-        oracle_price: 150u128 << 64,
         oracle_conf_bps: 1,
         anchor_sqrt_price: ANCHOR_SQRT,
         p_res_sqrt: ANCHOR_SQRT,

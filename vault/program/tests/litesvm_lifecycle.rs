@@ -69,7 +69,6 @@ fn quote_update(update_slot: u64) -> QuoteUpdate {
     QuoteUpdate {
         update_slot,
         oracle_publish_time: PUBLISH_TIME,
-        oracle_price: PRICE_Q64,
         oracle_conf_bps: CONF_BPS,
         anchor_sqrt_price: ANCHOR_SQRT,
         p_res_sqrt: ANCHOR_SQRT,
@@ -917,13 +916,11 @@ fn pyth_verification_rejects_untrusted_or_stale_updates() {
         "WideConfidence",
     );
 
+    // S2-9: the payload no longer carries `oracle_price`, so the old
+    // "submit a mismatched price" case no longer exists — the program derives
+    // the price from the verified Pyth account. Slot monotonicity is still
+    // enforced.
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
-    let mut bad_price = update;
-    bad_price.oracle_price = 151 << 64;
-    assert_anchor_error(
-        fixture.update_quote(&keys.keeper, honest, bad_price),
-        "OraclePriceMismatch",
-    );
 
     assert_anchor_error(
         fixture.update_quote(&keys.keeper, honest, quote_update(0)),
@@ -1504,24 +1501,6 @@ fn permissionless_bonded_keeper_may_quote_when_min_bond_is_set() {
     fixture
         .update_quote(&keeper2, honest, quote_update(SLOT))
         .expect("a permissionless bonded keeper may quote");
-}
-
-/// C3/B2: a keeper that under-estimates an inverse square root is rejected
-/// (`InvalidInverseSqrt`) — the conservative capacity check cannot be gamed.
-#[test]
-fn update_quote_rejects_an_under_estimated_inverse_sqrt() {
-    let keys = Keys::new();
-    let mut fixture = Fixture::new(&keys);
-    fixture
-        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
-        .expect("deposit");
-    let mut bad = quote_update(SLOT);
-    bad.ask_levels[0].inv_lo /= 2; // below 1/sqrt_lo
-    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
-    assert_anchor_error(
-        fixture.update_quote(&keys.keeper, honest, bad),
-        "InvalidInverseSqrt",
-    );
 }
 
 /// Spec §7.3: the half-spread cannot jump more than `max_spread_step_bps` in one
@@ -3279,7 +3258,6 @@ fn malicious_keeper_at_max_deviation_every_slot() {
         let update = QuoteUpdate {
             update_slot: SLOT + i,
             oracle_publish_time: PUBLISH_TIME,
-            oracle_price: PRICE_Q64,
             oracle_conf_bps: CONF_BPS,
             anchor_sqrt_price: anchor_sqrt,
             p_res_sqrt: anchor_sqrt,
@@ -3567,8 +3545,6 @@ fn keeper_two_sided_update(base: u128, quote: u128) -> QuoteUpdate {
         sqrt_lo: l.sqrt_lo,
         sqrt_hi: l.sqrt_hi,
         liquidity: l.liquidity,
-        inv_lo: arb_math::inv_sqrt_q64_ceil(l.sqrt_lo).unwrap_or(0),
-        inv_hi: arb_math::inv_sqrt_q64_ceil(l.sqrt_hi).unwrap_or(0),
     };
     let mut ask_levels = [LevelUpdate::default(); 6];
     let mut bid_levels = [LevelUpdate::default(); 6];
@@ -3579,7 +3555,6 @@ fn keeper_two_sided_update(base: u128, quote: u128) -> QuoteUpdate {
     QuoteUpdate {
         update_slot: SLOT,
         oracle_publish_time: PUBLISH_TIME,
-        oracle_price: q.oracle_price_q64,
         oracle_conf_bps: q.confidence_bps,
         anchor_sqrt_price: q.anchor_sqrt_price,
         p_res_sqrt: q.reservation_sqrt_price,
@@ -3837,7 +3812,6 @@ fn malicious_keeper_edge_loss_trips_within_the_window() {
         let update = QuoteUpdate {
             update_slot: SLOT + i,
             oracle_publish_time: PUBLISH_TIME,
-            oracle_price: PRICE_Q64,
             oracle_conf_bps: CONF_BPS,
             anchor_sqrt_price: anchor_sqrt,
             p_res_sqrt: anchor_sqrt,
