@@ -1185,3 +1185,54 @@ inside its 10-slot expiry window:
   `5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV`, token program.
 - **NOT executed.** Any asset-moving swap requires explicit approval of these
   exact amounts/direction.
+
+## Part 3 / Step 17 — S2-12 refresh + revalidate the small BuyBase preflight
+
+**Preflight-only. No swap/deposit/withdraw/claim submitted.**
+
+### State verified first (devnet)
+- Program `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`; deployed ELF 739656 B
+  sha256 `51844eb4ae0ff43808d2cb00b100807fb81312a926c856a17a11a7dc6bafbd33` →
+  `scripts/devnet_program_hash.py` **MATCH**; ProgramData length 739656; upgrade
+  authority `ddGs6hk5…`.
+- Reserves base 174120234 WSOL atoms / quote 19000000 USDC atoms; trader balances
+  WSOL 0 / USDC 1000000 atoms. Quote was **v10 and expired** (expiry 510392868 <
+  slot 510396022) before refresh — not reused.
+
+### Fresh quote committed (confirmed chain result)
+- stage `2pSCiKdMk3eTzdZATBgErWyc4QVyfSNVVXcgkyAxVB86kivW3gw7vyyqzp1uYchxbTx87rSyXNRvmqWcSHfuvF6k` slot 510396070 (18635 CU)
+- VAA   `fjTtRKtG46ZZBVPc5yXju9EWan1e1PmYgbWSDe74FqAqzjfzEHTF8htD3vhsf7mzQz6yDD13dyX9rggast8vWLB` slot 510396072 (84592 CU)
+- push+commit `aNVwgR9zR32pFBNUX85aUGfppGCRHCYz8eEUZ5FTazH5wKXr25aWxWznD1sRR8aNhejUxjP2kGWdoQfXBJeCHam` slot 510396078 (err null, 103172 CU)
+- Independent `QuoteState` reread @processed: **version = 11**, update_slot
+  510396066, expiry_slot 510396088 (= commit slot + 10), anchor=`p_res_sqrt`
+  6062185966141284647, half_spread_bps 6, depth_mult_bps 6000,
+  oracle_publish_time 1791839735, oracle_conf_bps 4, oracle_price
+  1992226841833669592 (normalized 9/6). `PendingQuote.pending = 0`,
+  `committed_nonce = nonce` (consumed). Oracle freshness/confidence/
+  publication-time-equality/normalization/bounds all passed under the unchanged
+  deployed rule.
+
+### Fresh BuyBase preflight (SIMULATION only — not submitted)
+Recalculated from the current v11 quote (integer-only, decimals 9/6, fee 1 bps):
+- direction **BuyBase** (USDC → WSOL); `amount_in = 500000` USDC atoms (0.5 USDC)
+- fee = 50 atoms; net in = 499950; **expected_out = 4629216** WSOL atoms;
+  **min_out = 4606069** (0.5% slippage floor); quote version 11; expiry
+  510396088; **tx size 507 B**; `simulateTransaction` → **err null** (Swap
+  success + `SwapEvent`; token transfer logged).
+- Accounts: trader `8R3V…`, vault `8yvF…`, config `ErVD…`, quote_state `5MsG…`,
+  base_reserve `8vfr…`, quote_reserve `G8q1…`, trader_base (WSOL)
+  `5MpRjKvzgW5C7x8sbam4KgA5KGkGyTKNCXarbqZceCnJ`, trader_quote (USDC)
+  `5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV`, token program `Tokenkeg…`.
+- Difference vs the previous preflight (v10 `min_out` 4603574): the **reservation
+  price moved** (v11 `p_res_sqrt` 6062186e9 vs v10 6063828e9; oracle 199.22e16 vs
+  199.33e16; spread 6 vs 5 bps; depth 6000 vs 7000), so expected output and the
+  slippage floor changed accordingly (4629216 vs 4626708). Fee, direction, size,
+  decimals and accounts are unchanged.
+- The quote expires in 10 slots (~4 s); execution needs a fresh commit within the
+  window. **No asset-moving transaction was submitted.**
+
+### Boundary
+Awaiting separate explicit approval for the exact BuyBase swap (0.5 USDC,
+`min_out` 4606069, version ≥ 11). P1–P6 unchanged: P1 PASS · P2 PARTIAL (live
+quote proven; swap/withdraw/claim unproven) · P3 PASS · P4 PARTIAL · P5
+PASS(sim) · P6 PASS(caveat).
