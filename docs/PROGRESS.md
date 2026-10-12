@@ -1097,3 +1097,91 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
     ABI reduction; the task requires returning the design + measurements for
     approval before implementing.
 - `QuoteState.version` remains **0**; no quote landed. No asset-moving tx.
+
+## Part 3 / Step 16 — S2-11 staged quotes: FIRST LIVE QUOTE LANDED (version>0)
+
+**Design (as prescribed): `stage_quote` (Tx A) + Pyth VAA (Tx V) + Pyth push +
+`commit_quote` (Tx B).** The quote payload is staged into a new `PendingQuote`
+PDA and only applied by `commit_quote`, which runs in the same transaction as the
+fresh Pyth push, so the oracle write and the quote commit are atomic.
+
+### Measured serialized sizes (real Pyth update + accounts, `scripts/devnet/measure_stage_commit.ts`)
+| tx | contents | serialized bytes | headroom vs 1232 |
+|----|----------|------------------|------------------|
+| A `stage_quote` | CB limit + stage (data 708 B) | 1183 | 49 |
+| V Pyth VAA | system create + init/write×2/verify (Wormhole) | 768 | 464 |
+| B `push + commit_quote` | CB limit+price + `updatePriceFeed` (376 B) + `commit_quote` (16 B) | 1180 | 52 |
+
+An Address Lookup Table is **not** used. The combined direct `update_quote` path
+(post alone = 2 txs, 1473 B) does not fit; this staged path does.
+
+### Program changes (`vault/program/src/lib.rs`)
+- New `PendingQuote` account `[b"pending_quote", vault, keeper]`
+  (space `8 + 64 + 13*8 + 2 + 692 = 870`), `init_if_needed`.
+- `stage_quote(update, nonce)`: keeper-authorized, monotonic `nonce >
+  committed_nonce`, cheap shape checks, snapshots reserves/buckets/quote
+  version+update-slot. **Never touches `QuoteState`.**
+- `commit_quote(nonce)`: re-reads the pending payload and the `PriceUpdateV2`
+  written by the preceding Pyth instruction **in the same transaction**, then
+  re-applies the *entire* existing oracle/mint-normalization/anchor/ladder/
+  inventory/capacity guard set. Rejects stale staging
+  (`MAX_STAGE_AGE_SLOTS = 25`), replayed/superseded nonces, wrong vault/keeper,
+  and any change to reserves/buckets/quote version since staging
+  (`StagedStateChanged`). Consumes the record (`pending=0`,
+  `committed_nonce=nonce`) only after success.
+- `update_quote` was refactored to call the shared `validate_quote_update` /
+  `apply_quote_update` helpers (identical behaviour; all 80 pre-existing
+  lifecycle tests pass unchanged). No oracle constraint relaxed.
+
+### Tests run (actual)
+- `cargo test --workspace`: **green** (program lifecycle **87** = 80 + 7 new
+  staged-quote tests; oracle-scaling 3; breaker 2; security 3; fixtures 1;
+  keeper **40** incl. `stage_quote_transaction_fits_packet_limit`,
+  `stage_and_commit_instruction_encodings`).
+- `yarn test` 26 passed; `yarn build` (tsc+vite) green; `yarn lint` clean.
+
+### Deployment
+- SBF artifact `target/deploy/arbswap.so` 739656 B sha256
+  `51844eb4ae0ff43808d2cb00b100807fb81312a926c856a17a11a7dc6bafbd33`.
+- Deploy tx `58izq9FmnRBsq6K4nqfpmQsR9y5U9mf16q5sijosaYMVNBiHZuQcmiExSLDgDVjAPpNYJvsMq37VTYz4b6X4Etoq`,
+  slot 510388097. Program id unchanged `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`;
+  ProgramData length 739656. `scripts/devnet_program_hash.py` → **MATCH**.
+- IDL regenerated (`target/idl/arbswap.json`, 93536 B) and copied to
+  `app/src/idl/arbswap.json`.
+
+### First live quote (devnet, `scripts/devnet/keeper_live.ts`)
+- stage  `2w3WYWWDgYb414cuYjGt1GpzMpiVnRh57DkJzV51RT7GfJ2qEMS6ZHU3cBKW6DLMeSusomNWWDTL6jhuZwBPvdjC` slot 510390067 (18635 CU)
+- VAA    `2D479Cga4m1cAJpnBACN8zpQqbh2E2P4b1QazZTgu1vMzX3zMegbczXGG5tM1WBTtDiHkXMv4toZrKxyT3o1Vd6w` slot 510390069 (84592 CU)
+- push+commit `28yabnt99YgJQ9JSfr7zQBvawWKCsZ43hiuTFXgVMzvtZoQKc7fMuGfidyiQdkryCbmxCfYWdqA4b97qUVUPxWGt` slot 510390072 (104644 CU, err null)
+- Independently reread `QuoteState` @processed: **version = 2**, update_slot
+  510390063, expiry_slot 510390082 (= commit slot + `expiry_slots` 10),
+  oracle_publish_time 1791838305, oracle_conf_bps 3, half_spread_bps 5,
+  depth_mult_bps 7000, oracle_price 2003838973703077301 (normalized 9/6 token
+  units). The publication-time equality check passed with the deployed
+  (unmodified) rule. `PendingQuote.pending = 0`, `committed_nonce = nonce` (the
+  staged record was consumed).
+- (An earlier run landed **version = 1** with stage
+  `2rb74iBuSFZmmALTTBBwMZxRXDTDzXMp3vS2qKgHmChJUWxTu6xdTXZEm4qjPmmmDV9aTGvTbskrENeAyzCUA61N`
+  and push+commit `5FY9EkgLpF3rBgaSa1Aaqvp8qUFHYBfCNj5XnvG4WrprFq3WYeHLJfiegb7Pc3VXFpz7Pj5txJbAEfZNyszGTprn`.)
+
+### Boundary
+No swap/deposit/withdraw/claim submitted. A separate integer-only swap preflight
+is prepared for approval. Gates: **P1 PASS · P2 PARTIAL (live quote proven;
+swap/withdraw/claim still unproven) · P3 PASS (keeper-driven quote now lands) ·
+P4 PARTIAL · P5 PASS(sim) · P6 PASS(caveat)**.
+
+### S2-11 swap PREFLIGHT (read-only, not submitted — needs separate approval)
+Built and **simulated** in `scripts/devnet/keeper_live.ts` (`SIMULATE_SWAP=1`) /
+`scripts/devnet/swap_preflight.ts`, immediately after a commit so the quote is
+inside its 10-slot expiry window:
+- direction **BuyBase** (spend USDC, receive WSOL); `amount_in = 500000` USDC
+  atoms (0.5 USDC); fee 1 bps → 50 atoms; net in 499950; expected out
+  `4626708` WSOL atoms; `min_out = 4603574` (0.5% slippage floor); quote
+  version 10; expiry slot 510392868; swap tx size **507 B**.
+- `simulateTransaction` result: **err null** (Swap success + `SwapEvent`).
+- Accounts: trader `8R3V…`, vault `8yvF…`, config `ErVD…`, quote_state `5MsG…`,
+  base_reserve `8vfr…`, quote_reserve `G8q1…`, trader_base (WSOL)
+  `5MpRjKvzgW5C7x8sbam4KgA5KGkGyTKNCXarbqZceCnJ`, trader_quote (USDC)
+  `5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV`, token program.
+- **NOT executed.** Any asset-moving swap requires explicit approval of these
+  exact amounts/direction.
