@@ -1368,3 +1368,36 @@ separate approval.
     16,216,440` (0.5% floor) → re-simulated **err null**
   - quote version 17; swap tx size **507 B**
   - **SIMULATION ONLY; NOT EXECUTED** (no swap submitted)
+
+## Part 3 / Step 21 — S2-15 FIRST LIVE END-TO-END SWAP (BuyBase, 1.75 USDC)
+
+Authorized: one BuyBase swap on devnet, max 1.75 USDC. Executed and verified.
+
+### Pre-state (fresh read)
+- Program hash MATCH; vault Active; reserves 0.329912021 SOL + 36 USDC;
+  total_shares 108,980,882; trader USDC 4,000,000 atoms (4 USDC), WSOL 0; wallet
+  11.842850767 SOL. Prior quote v17 expired.
+
+### Quote + swap (version 18)
+- Fresh staged quote committed: **v18**, push+commit
+  `qArBgMwxLikgvKk5yYGpmADrixN5P7686VQeKs5WZQEFRdkGB4LDEzNxSvaF2eC4uuuUuw78s72wrfErHuRmUuK`,
+  expiry 510407830.
+- BuyBase preflight (sim): input 1,750,000 USDC atoms (1.75 USDC), fee 175,
+  net in 1,749,825, expected out 16,290,295 WSOL atoms, `min_out` 16,208,843 →
+  **sim err null** (507 B).
+- **EXECUTED**:
+  `51TkKqfi9bt8QqpKKxJZnN2nyFv1HAMnSGW2mjctDYDEpuDi4Roch43RJapj3poz8H8DqYCfmE8QFSrbxVHx9TUC`
+  **slot 510407827**, err null, 66,038 CU, fee 5,000 lamports.
+  Explorer:
+  https://explorer.solana.com/tx/51TkKqfi9bt8QqpKKxJZnN2nyFv1HAMnSGW2mjctDYDEpuDi4Roch43RJapj3poz8H8DqYCfmE8QFSrbxVHx9TUC?cluster=devnet
+
+### Verified result (independent reread)
+- `SwapEvent`: side BuyBase (0), version 18, amount_in **1,750,000** USDC atoms,
+  amount_out **16,290,295** WSOL atoms (0.016290295 SOL), fee **175** atoms. Actual
+  out ≥ `min_out` 16,208,843; matches the simulation exactly.
+- Trader: USDC 4,000,000 → **2,250,000**; WSOL 0 → **16,290,295**.
+- Vault: base 329,912,021 → **313,621,726**; quote 36,000,000 → **37,750,000**.
+- Wallet SOL 11.842850767 → 11.840408187 (fee 5,000 lamports + rent). QuoteState
+  remains **v18**.
+- **First live end-to-end swap proven** (deposit → staged quote → atomic commit →
+  swap). One swap only; no withdrawals/claims/transfers.

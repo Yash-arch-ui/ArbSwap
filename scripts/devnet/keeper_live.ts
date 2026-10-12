@@ -72,7 +72,7 @@ async function simulateSwap(connection: Connection, trader: Keypair, qsData: Buf
   const amounts = (process.env.SWAP_ATOMS ?? "500000,1000000,2000000,3000000,3500000,3600000,4000000")
     .split(",").map((s) => BigInt(s.trim()));
 
-  const simulate = async (amountIn: bigint, minOut: bigint) => {
+  const buildSwapTx = async (amountIn: bigint, minOut: bigint) => {
     const data = Buffer.concat([disc("swap"), Buffer.from([0]), u64le(amountIn), u64le(minOut), u64le(version)]);
     const ix = new TransactionInstruction({
       programId: PROGRAM,
@@ -87,6 +87,10 @@ async function simulateSwap(connection: Connection, trader: Keypair, qsData: Buf
     tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }));
     tx.add(ix);
     tx.sign(trader);
+    return { tx, blockhash, size: tx.serialize().length };
+  };
+  const simulate = async (amountIn: bigint, minOut: bigint) => {
+    const { tx } = await buildSwapTx(amountIn, minOut);
     const sim = await connection.simulateTransaction(tx);
     return { err: sim.value.err, logs: sim.value.logs, size: tx.serialize().length };
   };
@@ -122,7 +126,25 @@ async function simulateSwap(connection: Connection, trader: Keypair, qsData: Buf
     const second = await simulate(BigInt(best.amount_in_atoms), floor);
     confirm = { amount_in_atoms: best.amount_in_atoms, min_out_atoms: floor.toString(), sim_err: second.err, tx_size_bytes: second.size };
   }
-  console.log(JSON.stringify({ buybase_preflight: { side: "buyBase", fee_bps: feeBps, quote_version: version.toString(), quote_expiry_slot: expiry.toString(), candidates: results, best_with_min_out: confirm } }));
+  let execution: any = null;
+  if (confirm && confirm.sim_err === null && process.env.EXECUTE_SWAP === "1") {
+    const amountIn = BigInt(confirm.amount_in_atoms);
+    const minOut = BigInt(confirm.min_out_atoms);
+    const { tx, blockhash } = await buildSwapTx(amountIn, minOut);
+    const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: "processed" });
+    const latest = await connection.getLatestBlockhash("confirmed");
+    const conf = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }, "confirmed");
+    const tb = await connection.getTokenAccountBalance(TRADER_WSOL, "confirmed");
+    const tq = await connection.getTokenAccountBalance(TRADER_USDC, "confirmed");
+    const vb = await connection.getTokenAccountBalance(BASE_RESERVE, "confirmed");
+    const vq = await connection.getTokenAccountBalance(QUOTE_RESERVE, "confirmed");
+    execution = {
+      signature: sig, confirm_err: conf.value.err, amount_in_atoms: amountIn.toString(), min_out_atoms: minOut.toString(),
+      trader_wsol: tb.value.amount, trader_usdc: tq.value.amount, vault_base: vb.value.amount, vault_quote: vq.value.amount,
+    };
+    console.log(JSON.stringify({ swap_executed: execution }));
+  }
+  console.log(JSON.stringify({ buybase_preflight: { side: "buyBase", fee_bps: feeBps, quote_version: version.toString(), quote_expiry_slot: expiry.toString(), candidates: results, best_with_min_out: confirm, execution } }));
 }
 
 function priceQ64(price: string, expo: number): bigint {
