@@ -168,8 +168,11 @@ impl Fixture {
 
         let base_mint = Address::new_unique();
         let quote_mint = Address::new_unique();
+        // B1: this end-to-end suite uses a 9/9 pair so the human oracle price
+        // equals the token-unit price (identity normalization). The mixed
+        // 9/6 acceptance/rejection path is covered by `litesvm_oracle_scaling`.
         set_token_mint(&mut svm, base_mint, 9, keys.admin.pubkey());
-        set_token_mint(&mut svm, quote_mint, 6, keys.admin.pubkey());
+        set_token_mint(&mut svm, quote_mint, 9, keys.admin.pubkey());
 
         let lp_base = Address::new_unique();
         let lp_quote = Address::new_unique();
@@ -808,6 +811,8 @@ impl Fixture {
                 keeper_bond: self.keeper_bond(keeper),
                 base_reserve: self.base_reserve,
                 quote_reserve: self.quote_reserve,
+                base_mint: self.base_mint,
+                quote_mint: self.quote_mint,
             },
         );
         send(&mut self.svm, &[keeper], instruction)

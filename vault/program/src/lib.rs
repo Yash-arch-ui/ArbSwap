@@ -528,8 +528,18 @@ pub mod arbswap {
         );
         let pyth_price_q64 =
             pyth_price_q64(price.price, price.exponent).ok_or(ErrorCode::InvalidOracle)?;
+        // B1: the executable token-unit price is derived here from the verified
+        // Pyth value and the vault's own (address-bound) mint decimals. The
+        // keeper must submit exactly this normalized value; it cannot choose an
+        // arbitrary scaling that merely passes the comparison.
+        let expected_oracle_price = normalize_pyth_price_q64(
+            pyth_price_q64,
+            ctx.accounts.base_mint.decimals,
+            ctx.accounts.quote_mint.decimals,
+        )
+        .ok_or(ErrorCode::InvalidOracle)?;
         require!(
-            pyth_price_q64 == update.oracle_price,
+            expected_oracle_price == update.oracle_price,
             ErrorCode::OraclePriceMismatch
         );
         let decoded_conf_bps = ((price.conf as u128)
@@ -1964,6 +1974,13 @@ pub struct UpdateQuote<'info> {
     pub base_reserve: Box<Account<'info, TokenAccount>>,
     #[account(address = vault.quote_reserve)]
     pub quote_reserve: Box<Account<'info, TokenAccount>>,
+    /// B1: the vault's base and quote mints, bound by address, so the program
+    /// derives the expected token-unit price from the verified Pyth value and
+    /// the *real* mint decimals instead of trusting a scaled keeper number.
+    #[account(address = vault.base_mint)]
+    pub base_mint: Box<Account<'info, Mint>>,
+    #[account(address = vault.quote_mint)]
+    pub quote_mint: Box<Account<'info, Mint>>,
 }
 #[derive(Accounts)]
 pub struct Swap<'info> {
@@ -2241,6 +2258,29 @@ fn pyth_price_q64(price: i64, exponent: i32) -> Option<u128> {
         positive
             .checked_mul(1u128 << 64)?
             .checked_div(10u128.checked_pow((-exponent) as u32)?)
+    }
+}
+
+/// B1: normalize a *human* Q64 oracle price (`quote per base`, e.g. USDC per
+/// SOL) into the executable **token-unit** price `quote-atoms per base-atom`,
+/// using the vault's own mint decimals. This is the single, deterministic
+/// definition of the stored/consumed price and mirrors the keeper's
+/// `normalize_price_q64` exactly (integer; floor on division).
+///
+/// It is computed on-chain from the already-verified Pyth value, so a keeper
+/// cannot pick an arbitrary scaled number that happens to pass the check.
+fn normalize_pyth_price_q64(
+    price_q64: u128,
+    base_decimals: u8,
+    quote_decimals: u8,
+) -> Option<u128> {
+    if base_decimals == quote_decimals {
+        return Some(price_q64);
+    }
+    if quote_decimals > base_decimals {
+        price_q64.checked_mul(10u128.checked_pow((quote_decimals - base_decimals) as u32)?)
+    } else {
+        Some(price_q64 / 10u128.checked_pow((base_decimals - quote_decimals) as u32)?)
     }
 }
 

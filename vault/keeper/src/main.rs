@@ -719,6 +719,8 @@ fn live(args: Vec<String>) {
             keeper_bond,
             base_reserve,
             quote_reserve,
+            base_mint: Address::new_from_array(vault_meta.base_mint.to_bytes()),
+            quote_mint: Address::new_from_array(vault_meta.quote_mint.to_bytes()),
             recent_blockhash: blockhash,
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
         };

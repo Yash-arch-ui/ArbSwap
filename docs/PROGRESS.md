@@ -600,3 +600,41 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   prerequisites: fund both reserves (operator-approved token funding, not done
   here) and run the keeper to post a fresh in-bounds quote.
 - **Stop point:** backend verification complete. No frontend integration.
+
+## Part 3 / Step 3 — B1 fix: on-chain token-unit oracle price — on `main`
+
+- **Root cause.** The keeper submitted `oracle_price = normalize_price_q64(pyth,
+  base_dec, quote_dec)` (token units), while `update_quote` validated it against
+  the **unscaled** `pyth_price_q64` (`vault/program/src/lib.rs`). For any pair
+  with `base_dec != quote_dec` (both vaults are 9/6) the two differed by 10^3, so
+  a keeper update would revert `OraclePriceMismatch` and the vault could never be
+  quoted.
+- **Fix (program, narrow).** `update_quote` now derives the expected token-unit
+  price **on-chain** from the verified Pyth value and the vault's own mint
+  decimals (`normalize_pyth_price_q64`), and requires the keeper payload to equal
+  it. Two read-only `Mint` accounts (`base_mint`, `quote_mint`) were added to
+  `update_quote`, bound by `#[account(address = vault.base_mint|quote_mint)]` so
+  incorrect mints/decimals cannot be substituted. Human → token-unit contract:
+  `P_token = P_human * 10^(quote_dec - base_dec)` (9/6 → ÷1000; 9/9 → identity).
+  No oracle verification was weakened; confidence/spread checks are unchanged
+  (both scale-invariant).
+- **ABI/IDL change.** `quotes/program` account layout (Vault/Config/QuoteState)
+  and all other instructions are unchanged; only `update_quote` gains two
+  read-only accounts. IDL regenerated (`anchor idl build`) and copied to
+  `app/src/idl/arbswap.json`. Keeper plan/builder and the e2e client updated to
+  pass the two mints. Compatible existing vault accounts are unaffected; a
+  **program redeploy is required** for devnet to reflect the fix.
+- **Regression tests.** New `vault/program/tests/litesvm_oracle_scaling.rs`:
+  9/6 accepts the normalized price and stores it; 9/6 rejects the unscaled human
+  price; a forged mint account is rejected by address binding (decimals cannot
+  bypass validation); 9/9 uses the unscaled price; a stale oracle still fails.
+  Expected values are computed independently (hard-coded `floor(150e-3·2^64)`).
+  The 9/9 end-to-end lifecycle and the breaker LiteSVM suites still pass.
+- **Gates.** `cargo fmt --all -- --check` clean; `cargo test --workspace`
+  **167 passed / 0 failed** (was 164; +3 new); `cargo build-sbf` OK;
+  `anchor idl build` OK. (Python suite unaffected by the ABI change.)
+- **No state-changing devnet transaction, no deploy/upgrade.** The fix is
+  source-only until an operator approves a redeploy. No mint/fund/deposit/swap/
+  keeper.
+- **Docs.** Pipeline documented in `docs/PIPELINE.md`; assessment B1 updated in
+  `docs/DEVNET_WSOL_USDC_ASSESSMENT.md`.

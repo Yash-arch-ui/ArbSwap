@@ -6,7 +6,7 @@ use litesvm::LiteSVM;
 mod common;
 use common::{
     anchor_bid_ladder, anchor_ladder, pda, pubkey, sbf_artifact_path, set_token_account,
-    to_address, ANCHOR_SQRT,
+    set_token_mint, to_address, ANCHOR_SQRT,
 };
 use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, VerificationLevel};
 use pythnet_sdk::messages::PriceFeedMessage;
@@ -395,6 +395,11 @@ fn update_quote_executes_only_with_full_pyth_account() {
         payer.pubkey(),
         1_000_000,
     );
+    // B1: `update_quote` reads the mint decimals to derive the expected
+    // token-unit price. 9/9 keeps the human oracle (150) as the token-unit
+    // price (identity normalization).
+    set_token_mint(&mut svm, to_address(base_mint), 9, payer.pubkey());
+    set_token_mint(&mut svm, to_address(quote_mint), 9, payer.pubkey());
     let ask_levels = anchor_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6], 1_000);
     let bid_levels = anchor_bid_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6], 1_000);
     let update = QuoteUpdate {
@@ -435,6 +440,8 @@ fn update_quote_executes_only_with_full_pyth_account() {
             ),
             AccountMeta::new_readonly(to_address(vault.base_reserve), false),
             AccountMeta::new_readonly(to_address(vault.quote_reserve), false),
+            AccountMeta::new_readonly(to_address(vault.base_mint), false),
+            AccountMeta::new_readonly(to_address(vault.quote_mint), false),
         ],
         data,
     };

@@ -1081,6 +1081,10 @@ pub struct UpdateQuotePlan {
     /// depth to the available reserves (p2-T3).
     pub base_reserve: Address,
     pub quote_reserve: Address,
+    /// B1: the vault's mints, required by `update_quote` to derive the expected
+    /// token-unit price on-chain from the real decimals.
+    pub base_mint: Address,
+    pub quote_mint: Address,
     pub recent_blockhash: Hash,
     pub compute_unit_limit: u32,
 }
@@ -1106,6 +1110,8 @@ pub fn build_update_quote_transaction(
             AccountMeta::new_readonly(plan.keeper_bond, false),
             AccountMeta::new_readonly(plan.base_reserve, false),
             AccountMeta::new_readonly(plan.quote_reserve, false),
+            AccountMeta::new_readonly(plan.base_mint, false),
+            AccountMeta::new_readonly(plan.quote_mint, false),
         ],
         data,
     };
@@ -1377,6 +1383,8 @@ mod tests {
             keeper_bond: Address::new_from_array([6u8; 32]),
             base_reserve: Address::new_from_array([7u8; 32]),
             quote_reserve: Address::new_from_array([8u8; 32]),
+            base_mint: Address::new_from_array([9u8; 32]),
+            quote_mint: Address::new_from_array([10u8; 32]),
             recent_blockhash: Hash::default(),
             compute_unit_limit: 60_000,
         };
@@ -1466,6 +1474,8 @@ mod tests {
             keeper_bond: Address::new_from_array([6u8; 32]),
             base_reserve: Address::new_from_array([7u8; 32]),
             quote_reserve: Address::new_from_array([8u8; 32]),
+            base_mint: Address::new_from_array([9u8; 32]),
+            quote_mint: Address::new_from_array([10u8; 32]),
             recent_blockhash: Hash::default(),
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
         };
@@ -1855,6 +1865,8 @@ mod tests {
             keeper_bond: Address::new_from_array([6u8; 32]),
             base_reserve: Address::new_from_array([7u8; 32]),
             quote_reserve: Address::new_from_array([8u8; 32]),
+            base_mint: Address::new_from_array([9u8; 32]),
+            quote_mint: Address::new_from_array([10u8; 32]),
             recent_blockhash: Hash::new_from_array([9u8; 32]),
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
         };

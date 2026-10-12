@@ -1800,6 +1800,17 @@
         },
         {
           "name": "quote_reserve"
+        },
+        {
+          "name": "base_mint",
+          "docs": [
+            "B1: the vault's base and quote mints, bound by address, so the program",
+            "derives the expected token-unit price from the verified Pyth value and",
+            "the *real* mint decimals instead of trusting a scaled keeper number."
+          ]
+        },
+        {
+          "name": "quote_mint"
         }
       ],
       "args": [

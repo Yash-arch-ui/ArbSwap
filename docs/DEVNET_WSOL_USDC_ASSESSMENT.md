@@ -62,6 +62,14 @@ This was verified by source inspection and test vectors only; it should be
 confirmed empirically with a single `update_quote` against the existing vault
 (not performed here — state-changing).
 
+> **RESOLVED in source (`s2-3f`, on `main`).** `update_quote` now computes the
+> expected token-unit price **on-chain** from the verified Pyth value and the
+> vault's own mint decimals (`normalize_pyth_price_q64`), and requires the keeper
+> payload to equal it. Two read-only mint accounts were added to `update_quote`,
+> bound by address to `vault.base_mint`/`vault.quote_mint`. Regression tests:
+> `vault/program/tests/litesvm_oracle_scaling.rs`. A **program redeploy** is
+> required for devnet to carry the fix; no deploy/state-changing tx was sent.
+
 Likely fix direction (requires a design decision + program change + redeploy,
 or a keeper change): either scale the Pyth price by the vault mints' decimals
 on-chain (pass the two `Mint` accounts to `update_quote`), or keep the on-chain

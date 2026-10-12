@@ -506,6 +506,8 @@ fn run_loop(
         addr(&state.lp_quote),
         addr(&state.lp_shares),
     );
+    let base_mint = addr(&state.base_mint);
+    let quote_mint = addr(&state.quote_mint);
     let price_update = addr(&pyth.price_update);
     let user = payer.pubkey();
 
@@ -608,6 +610,8 @@ fn run_loop(
             keeper_bond,
             base_reserve,
             quote_reserve,
+            base_mint,
+            quote_mint,
         },
     );
     let sig = send(rpc_url, payer, &[payer], vec![uq]);
