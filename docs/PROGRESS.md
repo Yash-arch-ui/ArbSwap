@@ -1282,3 +1282,44 @@ Awaiting operator decision: (A) approve deposit A as-is, or (B) authorize the
 USDC required for a larger matched deposit (deficit above). No swap will be
 submitted; the largest admissible swap will be preflighted and returned for a
 separate approval. P1–P6 unchanged.
+
+## Part 3 / Step 19 — S2-13B devnet USDC funding investigation + funding plan
+
+**No transaction submitted. Funding investigation + decision-ready plan only.**
+
+### Verified current state (unchanged)
+- Program hash **MATCH**; wallet `8R3V…` 12.013273034 SOL, 0 WSOL, 1,000,000
+  USDC atoms (1 USDC), 57,516,688 SHARE; vault 0.174120234 SOL + 19.00 USDC;
+  quote v11 expired (510396088 < 510403971). The 0.5 USDC swap remains
+  simulation-only.
+
+### Legitimate devnet USDC sources
+- **Circle Public Faucet** `faucet.circle.com` — Solana Devnet supported, **20
+  USDC per request, one request per address per 2 hours** (captcha, no account).
+  Practical max ≈ 20 USDC now, ≈ 240 USDC/day.
+- **Circle Developer Console faucet** — 20 USDC/request, 10 requests/24h, but
+  only to **Circle Wallets** (not our external keypair) → not usable here.
+- **Coinbase CDP faucet** — Solana Devnet USDC SPL, **1 USDC/claim, 10
+  claims/24h** → ≤ 10 USDC/day.
+- No other authorized canonical-USDC source. Minting custom tokens, unrelated
+  wallets, or CCTP from mainnet are out of scope/bypass.
+
+### Constraint math (proportional deposit: 1 USDC ↔ 0.009163899 SOL)
+- **0.5 SOL-flow target**: base_reserve ≥ 5.0 SOL ⇒ deposit **+4.825880 SOL +
+  526.60 USDC**, plus ≈ 54 USDC trader input ⇒ **~580.6 USDC**. **Infeasible**
+  from faucets (20 USDC/2h).
+- **Recommended fallback** (1 Circle request → 21 USDC total):
+  - deposit **17.00 USDC (17,000,000 atoms) + 0.155791788 SOL (155,791,788
+    atoms)**; shares **51,463,194**, `min_shares` 51,205,878
+  - post reserves **0.329912021 SOL + 36.00 USDC**; `flow_cap` **0.032991202 SOL**
+  - keep **4 USDC** for the trader ⇒ largest BuyBase ≈ **3.56 USDC** → 0.033 SOL
+    out (≈ 7× the 0.5 USDC test)
+  - remaining wallet ≈ 11.857 SOL + 4 USDC
+- Scaling: 41 USDC total (2 requests) → deposit 35 USDC + 0.320748 SOL → flow cap
+  0.049487 SOL → largest BuyBase ≈ **5.35 USDC**.
+
+### Boundary
+Awaiting approval to (a) request 20 USDC from the Circle faucet to
+`5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV`, and (b) execute the approved
+matched deposit. The 0.5 SOL target needs a further ~560 USDC. No swap until a
+separate approval.
