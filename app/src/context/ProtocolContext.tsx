@@ -85,6 +85,8 @@ interface ProtocolContextType {
   quoteAvailable: boolean;
   quoteFresh: boolean;
   shareBalanceAtoms: bigint | null;
+  /** Raw atom amounts for integer-safe deposit/share math (null until read). */
+  vaultAtoms: { totalShares: bigint; baseNet: bigint; quoteNet: bigint; minLiquidity: bigint } | null;
   depositTicket: DepositTicketView | null;
   withdrawTicket: WithdrawTicketView | null;
   currentSlot: number;
@@ -112,6 +114,7 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [quoteAvailable, setQuoteAvailable] = useState(false);
   const [quoteFresh, setQuoteFresh] = useState(false);
   const [shareBalanceAtoms, setShareBalanceAtoms] = useState<bigint | null>(null);
+  const [vaultAtoms, setVaultAtoms] = useState<ProtocolContextType['vaultAtoms']>(null);
   const [depositTicket, setDepositTicket] = useState<DepositTicketView | null>(null);
   const [withdrawTicket, setWithdrawTicket] = useState<WithdrawTicketView | null>(null);
   const [currentSlot, setCurrentSlot] = useState(0);
@@ -191,6 +194,20 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setShareBalanceAtoms(shares);
       setDepositTicket(dep);
       setWithdrawTicket(wd);
+      if (state.vaultData) {
+        const v = state.vaultData;
+        const b = (x?: { toString(): string }) => BigInt((x?.toString() ?? '0'));
+        const baseNet = b(v.baseReserveAmount) - b(v.insuranceBase) - b(v.keeperBase) - b(v.protocolBase);
+        const quoteNet = b(v.quoteReserveAmount) - b(v.insuranceQuote) - b(v.keeperQuote) - b(v.protocolQuote);
+        setVaultAtoms({
+          totalShares: b(v.totalShares),
+          baseNet: baseNet > 0n ? baseNet : 0n,
+          quoteNet: quoteNet > 0n ? quoteNet : 0n,
+          minLiquidity: state.configData ? b(state.configData.minLiquidity) : 0n,
+        });
+      } else {
+        setVaultAtoms(null);
+      }
       setVaultState(toVaultState(state, quote.oraclePrice, shares === null ? 0 : Number(shares.toString()) / 10 ** ACTIVE_VAULT.shareDecimals));
 
       setStatus({
@@ -252,6 +269,7 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         quoteAvailable,
         quoteFresh,
         shareBalanceAtoms,
+        vaultAtoms,
         depositTicket,
         withdrawTicket,
         currentSlot,

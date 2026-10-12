@@ -6,7 +6,12 @@ import {
   PublicKey,
   SystemProgram,
 } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
+import {
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountIdempotentInstruction,
+} from '@solana/spl-token';
+import type { TransactionInstruction } from '@solana/web3.js';
 import idl from '../idl/arbswap.json';
 import { ARBSWAP_PROGRAM_ID, BASE_MINT, QUOTE_MINT } from './solana';
 import { ACTIVE_VAULT } from './config';
@@ -339,15 +344,30 @@ export async function fetchProtocolState(
   return { exists: true, vault, config, quoteState, vaultData, quoteData, configData };
 }
 
-async function ensureAta(connection: Connection, mint: PublicKey, owner: PublicKey) {
+/** Address of an ATA, plus an idempotent-create instruction if it is missing. */
+async function ensureAta(
+  connection: Connection,
+  mint: PublicKey,
+  owner: PublicKey,
+): Promise<{ ata: PublicKey; createIx: TransactionInstruction | null }> {
   const ata = getAssociatedTokenAddressSync(mint, owner);
   const info = await connection.getAccountInfo(ata);
-  return { ata, needsCreate: !info };
+  const createIx = info
+    ? null
+    : createAssociatedTokenAccountIdempotentInstruction(owner, ata, owner, mint);
+  return { ata, createIx };
 }
 
-/** Build + send a `deposit` (both tokens) and return the signature. */
+/**
+ * Build + send a `deposit` (both tokens) and return the signature.
+ *
+ * The program's `deposit` requires the user base/quote/share token accounts to
+ * already exist, so missing ones are created idempotently in the same
+ * transaction (as pre-instructions). `minShares` is the slippage floor the
+ * caller computes from live state; it is never silently hardcoded here.
+ */
 export async function deposit(
-  connection: Connection, wallet: unknown, baseAmount: bigint, quoteAmount: bigint, minShares = 1n,
+  connection: Connection, wallet: unknown, baseAmount: bigint, quoteAmount: bigint, minShares: bigint,
 ): Promise<string> {
   const w = wallet as Wallet;
   const program = getProgram(connection, wallet);
@@ -355,20 +375,58 @@ export async function deposit(
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
   if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
-  const userBase = (await ensureAta(connection, BASE_MINT, owner)).ata;
-  const userQuote = (await ensureAta(connection, QUOTE_MINT, owner)).ata;
-  const userShares = getAssociatedTokenAddressSync(state.vaultData.shareMint, owner);
+  const base = await ensureAta(connection, BASE_MINT, owner);
+  const quote = await ensureAta(connection, QUOTE_MINT, owner);
+  const share = await ensureAta(connection, state.vaultData.shareMint, owner);
+  const preInstructions = [base.createIx, quote.createIx, share.createIx].filter(
+    (ix): ix is TransactionInstruction => ix !== null,
+  );
   return program.methods
     .deposit(new BN(baseAmount.toString()), new BN(quoteAmount.toString()), new BN(minShares.toString()))
     .accounts({
       user: owner, vault, config,
       baseReserve: state.vaultData.baseReserve, quoteReserve: state.vaultData.quoteReserve,
       shareMint: state.vaultData.shareMint, shareLock: state.vaultData.shareLock,
-      userBase, userQuote, userShares,
+      userBase: base.ata, userQuote: quote.ata, userShares: share.ata,
       depositTicket: depositTicket(vault, owner),
       tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYSTEM_PROGRAM_ID,
     })
+    .preInstructions(preInstructions)
     .rpc();
+}
+
+function bigintSqrt(n: bigint): bigint {
+  if (n < 2n) return n;
+  let x = n / 2n + 1n;
+  let y = (x + n / x) / 2n;
+  while (y < x) {
+    x = y;
+    y = (x + n / x) / 2n;
+  }
+  return x;
+}
+
+/**
+ * Expected shares for a proportional deposit, mirroring the deployed program's
+ * integer math (`deposit` in `vault/program/src/lib.rs`). Pure and testable; use
+ * it to derive a conservative `min_shares` (never a hardcoded 1).
+ */
+export function expectedDepositShares(args: {
+  baseAmount: bigint;
+  quoteAmount: bigint;
+  totalShares: bigint;
+  baseNet: bigint;
+  quoteNet: bigint;
+  minLiquidity: bigint;
+}): bigint {
+  if (args.totalShares === 0n) {
+    const root = bigintSqrt(args.baseAmount * args.quoteAmount);
+    return root > args.minLiquidity ? root - args.minLiquidity : 0n;
+  }
+  if (args.baseNet === 0n || args.quoteNet === 0n) return 0n;
+  const byBase = (args.baseAmount * args.totalShares) / args.baseNet;
+  const byQuote = (args.quoteAmount * args.totalShares) / args.quoteNet;
+  return byBase < byQuote ? byBase : byQuote;
 }
 
 export type SwapSide = { buyBase: Record<string, never> } | { sellBase: Record<string, never> };

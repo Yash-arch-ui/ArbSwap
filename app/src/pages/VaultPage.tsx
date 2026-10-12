@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
-import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, withdrawTicket as deriveWithdrawTicket } from '../chain/program';
+import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, withdrawTicket as deriveWithdrawTicket, expectedDepositShares } from '../chain/program';
 import { parseUnits, formatUnits } from '../chain/amounts';
 import { ACTIVE_VAULT, explorerTxUrl } from '../chain/config';
 
@@ -17,6 +17,7 @@ export const VaultPage: React.FC = () => {
     depositTicket,
     withdrawTicket,
     shareBalanceAtoms,
+    vaultAtoms,
   } = useProtocol();
   const { connection } = useConnection();
   const { connected, publicKey, wallet } = useWallet();
@@ -62,7 +63,15 @@ export const VaultPage: React.FC = () => {
     try {
       const base = parseUnits(depositSol, tokens.SOL.decimals);
       const quote = parseUnits(depositUsdc, tokens.USDC.decimals);
-      const signature = await depositOnChain(connection, wallet, base, quote, 1n);
+      if (!vaultAtoms) throw new Error('vault state not loaded yet');
+      const expected = expectedDepositShares({
+        baseAmount: base,
+        quoteAmount: quote,
+        ...vaultAtoms,
+      });
+      if (expected <= 0n) throw new Error('deposit too small for the current vault');
+      const minShares = (expected * 9950n) / 10000n; // 0.5% slippage floor
+      const signature = await depositOnChain(connection, wallet, base, quote, minShares);
       setNotice(`Deposit confirmed ${signature.slice(0, 8)}… — ${explorerTxUrl(signature)} (shares activate after warm-up).`);
       await refreshProtocol();
       await refreshBalances();

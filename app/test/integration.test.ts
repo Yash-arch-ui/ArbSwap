@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseUnits, formatUnits } from '../src/chain/amounts';
 import { swapUnavailableReason } from '../src/chain/gating';
-import { deriveVaultAddresses } from '../src/chain/program';
+import { deriveVaultAddresses, expectedDepositShares } from '../src/chain/program';
 import { CANONICAL_VAULT, ACTIVE_VAULT } from '../src/chain/config';
 
 describe('canonical vault wiring', () => {
@@ -39,6 +39,47 @@ describe('integer-safe amounts (9/6 decimals)', () => {
     expect(() => parseUnits('abc', 6)).toThrow();
     expect(() => parseUnits('', 6)).toThrow();
     expect(() => parseUnits('1.1234567', 6)).toThrow(/decimal/);
+  });
+});
+
+describe('expectedDepositShares mirrors the program math', () => {
+  it('first deposit uses isqrt(base*quote) - min_liquidity', () => {
+    expect(
+      expectedDepositShares({
+        baseAmount: 174_120_234n,
+        quoteAmount: 19_000_000n,
+        totalShares: 0n,
+        baseNet: 0n,
+        quoteNet: 0n,
+        minLiquidity: 1000n,
+      }),
+    ).toBe(57_516_688n);
+  });
+
+  it('later deposit uses the min of the proportional sides', () => {
+    expect(
+      expectedDepositShares({
+        baseAmount: 10n,
+        quoteAmount: 10n,
+        totalShares: 1000n,
+        baseNet: 100n,
+        quoteNet: 100n,
+        minLiquidity: 1000n,
+      }),
+    ).toBe(100n);
+  });
+
+  it('returns 0 for a dust first deposit', () => {
+    expect(
+      expectedDepositShares({
+        baseAmount: 2n,
+        quoteAmount: 2n,
+        totalShares: 0n,
+        baseNet: 0n,
+        quoteNet: 0n,
+        minLiquidity: 1000n,
+      }),
+    ).toBe(0n);
   });
 });
 
