@@ -23,6 +23,11 @@ const TIMELOCK_SLOTS: u64 = 216_000;
 const STALENESS_TRIP_MULTIPLE: i64 = 2;
 /// S2-11: max age (slots) of a staged quote before `commit_quote` rejects it.
 const MAX_STAGE_AGE_SLOTS: u64 = 25;
+/// S2-21A: allocated account lengths for `QuoteState`. `LEGACY` is the pre-S2-19
+/// layout (no appended `keeper` field); `CURRENT` appends a 32-byte `keeper`.
+/// These must match the `InitializeVault` `space` expression exactly.
+const LEGACY_QUOTE_STATE_LEN: usize = 865;
+const CURRENT_QUOTE_STATE_LEN: usize = 897;
 
 #[program]
 pub mod arbswap {
@@ -143,9 +148,78 @@ pub mod arbswap {
         ctx.accounts.quote_state.flow_n = 0;
         ctx.accounts.quote_state.ask_levels = [Level::default(); LEVELS];
         ctx.accounts.quote_state.bid_levels = [Level::default(); LEVELS];
+        ctx.accounts.quote_state.keeper = Pubkey::default();
         emit!(VaultInitialized {
             slot: Clock::get()?.slot,
             vault: vault.key()
+        });
+        Ok(())
+    }
+
+    /// S2-21A: permissionless, one-time layout upgrade of a legacy `QuoteState`
+    /// (865 B, no appended `keeper`) to the current layout (897 B). Only the
+    /// account allocation and the appended `keeper` field change: every existing
+    /// quote field is preserved byte-for-byte. The appended field is set to the
+    /// unattributed sentinel (`Pubkey::default()`); a legacy quote has no
+    /// cryptographically established author, so it must never be attributed to
+    /// `config.keeper` and can never generate keeper rewards. Any payer may fund
+    /// the rent shortfall and invoke this; it grants no control over the vault,
+    /// quote contents, reserves, shares, or fee accounting.
+    pub fn migrate_quote_state(ctx: Context<MigrateQuoteState>) -> Result<()> {
+        let account = ctx.accounts.quote_state.to_account_info();
+        require!(
+            account.owner.to_bytes() == crate::ID.to_bytes(),
+            ErrorCode::InvalidAccountOwner
+        );
+        let rent = Rent::get()?;
+        let required = rent.minimum_balance(CURRENT_QUOTE_STATE_LEN);
+
+        // Inspect + validate the existing bytes without ever deserialising the
+        // shorter legacy account into the larger current struct.
+        let state = {
+            let data = account.try_borrow_data()?;
+            require!(
+                data.starts_with(<QuoteState as anchor_lang::Discriminator>::DISCRIMINATOR),
+                ErrorCode::InvalidAccountDiscriminator
+            );
+            if data.len() == CURRENT_QUOTE_STATE_LEN {
+                // Already migrated: idempotent no-op (do not resize/rewrite).
+                return Ok(());
+            }
+            require!(
+                data.len() == LEGACY_QUOTE_STATE_LEN,
+                ErrorCode::UnsupportedAccountLength
+            );
+            let legacy = LegacyQuoteState::deserialize(&mut &data[8..])?;
+            legacy.into_current()
+        };
+
+        // Fund only the rent shortfall for the larger account, from the payer.
+        if required > account.lamports() {
+            let shortfall = required - account.lamports();
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.key(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.payer.to_account_info(),
+                        to: account.clone(),
+                    },
+                ),
+                shortfall,
+            )?;
+        }
+
+        // Grow the account (zero-extending the new tail), then write the current
+        // serialization (discriminator + preserved fields + keeper).
+        account.resize(CURRENT_QUOTE_STATE_LEN)?;
+        let mut buf = Vec::with_capacity(CURRENT_QUOTE_STATE_LEN);
+        state.try_serialize(&mut buf)?;
+        let mut data = account.try_borrow_mut_data()?;
+        data[..buf.len()].copy_from_slice(&buf);
+        emit!(QuoteStateMigrated {
+            slot: Clock::get()?.slot,
+            from_len: LEGACY_QUOTE_STATE_LEN as u64,
+            to_len: CURRENT_QUOTE_STATE_LEN as u64,
         });
         Ok(())
     }
@@ -444,16 +518,11 @@ pub mod arbswap {
         // the monotonic-slot guard below make updates accountable and
         // first-writer-per-slot). The allowlist is the MVP path only
         // (`min_bond == 0`).
-        if ctx.accounts.config.min_bond == 0 {
-            require!(
-                ctx.accounts.keeper.key() == ctx.accounts.config.keeper,
-                ErrorCode::NotKeeper
-            );
-        }
-        // D-07: when a minimum bond is configured, the keeper must be bonded.
-        // The PDA derivation only runs when bonding is enabled, so the MVP
-        // allowlist path keeps the update CU low (the `keeper_bond` account is
-        // unvalidated in the context for exactly this reason).
+        // S2-19: quote maintenance is permissionless. With `min_bond == 0` any
+        // valid signer may quote; with `min_bond > 0` any keeper meeting the
+        // on-chain bond requirement may quote. There is no single-keeper
+        // allowlist. The D-07 bond check below still applies when bonded.
+        // (The allowlist equality check against `config.keeper` was removed.)
         if ctx.accounts.config.min_bond > 0 {
             let (expected, _) = Pubkey::find_program_address(
                 &[
@@ -518,13 +587,15 @@ pub mod arbswap {
             ctx.accounts.quote_mint.decimals,
             &clock,
         )?;
-        apply_quote_update(
+        let _version = apply_quote_update(
             &mut ctx.accounts.quote_state,
             &ctx.accounts.config,
             &update,
             oracle_price,
             &clock,
         )?;
+        // S2-19: record the keeper that authored this quote version.
+        set_quote_author(&mut ctx.accounts.quote_state, ctx.accounts.keeper.key());
         Ok(())
     }
     /// S2-11: stage a quote into the `PendingQuote` PDA without touching the
@@ -665,6 +736,8 @@ pub mod arbswap {
             oracle_price,
             &clock,
         )?;
+        // S2-19: record the keeper that authored this committed quote version.
+        set_quote_author(&mut ctx.accounts.quote_state, ctx.accounts.keeper.key());
         // Consume the staged record only after the quote is applied, so a failed
         // commit leaves it intact for a retry while a consumed nonce cannot replay.
         pq.pending = 0;
@@ -691,6 +764,25 @@ pub mod arbswap {
         require!(
             clock.slot < ctx.accounts.quote_state.expiry_slot,
             ErrorCode::QuoteExpired
+        );
+        // S2-21A: a migrated legacy quote has no verified author. It must not be
+        // swapped against (that could accrue unclaimable rewards and enable an
+        // unattributed quote); a newly committed, attributed quote is required.
+        require!(
+            ctx.accounts.quote_state.keeper != Pubkey::default(),
+            ErrorCode::UnattributedQuote
+        );
+        // S2-19: the reward PDA seeds bind this account to `quote_state.keeper`
+        // (the author of the active quote). Initialise its metadata on first use
+        // so a freshly-created account accrues to the correct keeper, then
+        // re-assert the binding explicitly.
+        if ctx.accounts.keeper_reward.keeper == Pubkey::default() {
+            ctx.accounts.keeper_reward.keeper = ctx.accounts.quote_state.keeper;
+            ctx.accounts.keeper_reward.bump = ctx.bumps.keeper_reward;
+        }
+        require!(
+            ctx.accounts.keeper_reward.keeper == ctx.accounts.quote_state.keeper,
+            ErrorCode::QuoteAttributionMismatch
         );
         require!(
             amount_in > 0 && amount_in <= ctx.accounts.config.max_quote_size,
@@ -813,6 +905,12 @@ pub mod arbswap {
                     .keeper_quote
                     .checked_add(keeper as u64)
                     .ok_or(ErrorCode::MathOverflow)?;
+                ctx.accounts.keeper_reward.quote = ctx
+                    .accounts
+                    .keeper_reward
+                    .quote
+                    .checked_add(keeper as u64)
+                    .ok_or(ErrorCode::MathOverflow)?;
                 ctx.accounts.vault.protocol_quote = ctx
                     .accounts
                     .vault
@@ -851,6 +949,12 @@ pub mod arbswap {
                     .accounts
                     .vault
                     .keeper_base
+                    .checked_add(keeper as u64)
+                    .ok_or(ErrorCode::MathOverflow)?;
+                ctx.accounts.keeper_reward.base = ctx
+                    .accounts
+                    .keeper_reward
+                    .base
                     .checked_add(keeper as u64)
                     .ok_or(ErrorCode::MathOverflow)?;
                 ctx.accounts.vault.protocol_base = ctx
@@ -1040,7 +1144,10 @@ pub mod arbswap {
         config.max_quote_size = update.max_quote_size;
         config.max_inventory_bps = update.max_inventory_bps;
         config.utilization_max_bps = update.utilization_max_bps;
-        config.min_bond = update.min_bond;
+        // S2-19: `config.min_bond` and `config.keeper` are deliberately NOT
+        // applied here (they are not in `ParamsUpdate`). Keeper eligibility is
+        // immutable after initialization — the admin cannot turn quoting into a
+        // single-wallet allowlist or raise the bond to exclude everyone.
         config.unbond_cooldown_slots = update.unbond_cooldown_slots;
         config.max_update_slot_age = update.max_update_slot_age;
         config.edge_window_slots = update.edge_window_slots;
@@ -1048,9 +1155,6 @@ pub mod arbswap {
         config.max_anchor_dev_bps = update.max_anchor_dev_bps;
         config.flow_window_slots = update.flow_window_slots;
         config.max_window_flow_bps = update.max_window_flow_bps;
-        if let Some(new_keeper) = update.keeper {
-            config.keeper = new_keeper;
-        }
         ctx.accounts.pending_config.activate_slot = u64::MAX;
         emit!(ParamsApplied {
             slot: Clock::get()?.slot
@@ -1250,12 +1354,24 @@ pub mod arbswap {
     /// Only the keeper can claim, only the `keeper_*` buckets move, and they are
     /// zeroed, so no vault principal can ever be drained.
     pub fn claim_keeper_reward(ctx: Context<ClaimKeeperReward>) -> Result<()> {
+        // S2-19: rewards are per-keeper. The signer claims only their own
+        // attributed accrual; `config.keeper` no longer confers any exclusive
+        // entitlement. The aggregate vault keeper buckets still track the total
+        // outstanding and cap the claim, so LP/protocol principal cannot drain.
         require!(
-            ctx.accounts.keeper.key() == ctx.accounts.config.keeper,
+            ctx.accounts.keeper_reward.keeper == ctx.accounts.keeper.key(),
             ErrorCode::NotKeeper
         );
-        let base_reward = ctx.accounts.vault.keeper_base;
-        let quote_reward = ctx.accounts.vault.keeper_quote;
+        let base_reward = ctx
+            .accounts
+            .keeper_reward
+            .base
+            .min(ctx.accounts.vault.keeper_base);
+        let quote_reward = ctx
+            .accounts
+            .keeper_reward
+            .quote
+            .min(ctx.accounts.vault.keeper_quote);
         let bump = [ctx.accounts.vault.bump];
         let seeds: &[&[u8]] = &[
             b"vault",
@@ -1291,8 +1407,12 @@ pub mod arbswap {
                 quote_reward,
             )?;
         }
-        ctx.accounts.vault.keeper_base = 0;
-        ctx.accounts.vault.keeper_quote = 0;
+        let vault = &mut ctx.accounts.vault;
+        vault.keeper_base = vault.keeper_base.saturating_sub(base_reward);
+        vault.keeper_quote = vault.keeper_quote.saturating_sub(quote_reward);
+        let reward = &mut ctx.accounts.keeper_reward;
+        reward.base = reward.base.saturating_sub(base_reward);
+        reward.quote = reward.quote.saturating_sub(quote_reward);
         emit!(RewardClaimed {
             keeper: ctx.accounts.keeper.key(),
             base: base_reward,
@@ -1419,7 +1539,11 @@ fn require_keeper_authorized(
     keeper_bond: &AccountInfo,
 ) -> Result<()> {
     if config.min_bond == 0 {
-        require!(keeper == &config.keeper, ErrorCode::NotKeeper);
+        // S2-19: with no bond threshold, quote maintenance is permissionless.
+        // The on-chain quote validation is the authorization; there is no
+        // allowlist. Any valid signer whose quote passes the same checks may
+        // stage/commit. (This replaces the former `keeper == config.keeper`
+        // equality gate.)
         return Ok(());
     }
     let (expected, _) = Pubkey::find_program_address(
@@ -1444,6 +1568,27 @@ fn require_keeper_authorized(
 /// This is the single, authoritative body used by both `update_quote` and
 /// `commit_quote`; it returns the verified, normalized oracle price (Q64) the
 /// ladder was bound against. Any failure rejects the quote.
+/// S2-18: true when the committed quote is eligible for a step-guard-free
+/// re-anchor. It is derived purely from the on-chain clock and committed state
+/// (never caller input): no prior quote exists, the stored quote is expired at
+/// the current slot, or its stored oracle publish time is older than
+/// `max_staleness_seconds`. While the quote is live this returns false, so a
+/// keeper cannot request recovery early to evade the normal step guard.
+fn quote_reanchor_eligible(config: &Config, quote_state: &QuoteState, clock: &Clock) -> bool {
+    if quote_state.version == 0 || quote_state.anchor_sqrt_price == 0 {
+        return true;
+    }
+    if clock.slot >= quote_state.expiry_slot {
+        return true;
+    }
+    config.max_staleness_seconds > 0
+        && quote_state.oracle_publish_time > 0
+        && clock
+            .unix_timestamp
+            .saturating_sub(quote_state.oracle_publish_time)
+            > config.max_staleness_seconds
+}
+
 #[allow(clippy::too_many_arguments)]
 fn validate_quote_update(
     config: &Config,
@@ -1505,7 +1650,14 @@ fn validate_quote_update(
             ErrorCode::SpreadStepTooLarge
         );
     }
-    if quote_state.anchor_sqrt_price > 0 {
+    // S2-18: the per-update anchor step bound applies only while the committed
+    // quote is still live. Once it is genuinely expired or its stored oracle is
+    // stale, a keeper may re-anchor directly to the verified Pyth price; the
+    // oracle-deviation bound below (and every other check) still applies. This
+    // removes the deadlock that could otherwise occur when a market gap exceeds
+    // `step + dev` while the keeper was offline, without weakening the normal
+    // path or allowing an early bypass, and without touching any quote math.
+    if !quote_reanchor_eligible(config, quote_state, clock) && quote_state.anchor_sqrt_price > 0 {
         let old = quote_state.anchor_sqrt_price;
         let diff = update.anchor_sqrt_price.abs_diff(old);
         require!(
@@ -1744,6 +1896,12 @@ fn apply_quote_update(
     Ok(version)
 }
 
+/// S2-19: bind a committed quote's authoring keeper. Kept as a small helper so
+/// both the direct and staged update paths set it identically.
+fn set_quote_author(quote_state: &mut QuoteState, keeper: Pubkey) {
+    quote_state.keeper = keeper;
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
 pub struct ParamsUpdate {
     pub fee_bps: u16,
@@ -1760,7 +1918,10 @@ pub struct ParamsUpdate {
     pub max_quote_size: u64,
     pub max_inventory_bps: u32,
     pub utilization_max_bps: u32,
-    pub min_bond: u64,
+    /// S2-19: `min_bond` is NOT tunable. Keeper-eligibility policy is fixed at
+    /// vault initialization so an administrator can never re-introduce a
+    /// single-wallet allowlist or an exclusionary bond threshold after the fact.
+    /// (The `min_bond` and `keeper` fields were removed from this struct.)
     /// p2-T5: cooldown before a keeper's unbond releases (slots).
     pub unbond_cooldown_slots: u64,
     /// p2-T8: max age (slots) of the stored `update_slot` at update time.
@@ -1774,8 +1935,6 @@ pub struct ParamsUpdate {
     pub flow_window_slots: u64,
     /// Item 1a: max one-sided base flow per window, in bps of base reserve.
     pub max_window_flow_bps: u32,
-    /// Item 5: optional keeper rotation, applied (timelocked) when set.
-    pub keeper: Option<Pubkey>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -1984,6 +2143,71 @@ pub struct QuoteState {
     pub ask_levels: [Level; LEVELS],
     pub bid_levels: [Level; LEVELS],
     pub bump: u8,
+    /// S2-19: the keeper that authored the currently committed quote. Appended
+    /// (additive, migration-only) so existing field offsets are preserved. It
+    /// binds the keeper fee share to the quote version that a swap consumes.
+    pub keeper: Pubkey,
+}
+
+/// S2-21A: exact serialization of the pre-S2-19 `QuoteState` (no appended
+/// `keeper`). Plain `AnchorSerialize/Deserialize` (no `#[account]`), so it
+/// carries no discriminator; `migrate_quote_state` verifies the `QuoteState`
+/// discriminator and deserializes this struct from the body.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy)]
+pub struct LegacyQuoteState {
+    pub version: u64,
+    pub update_slot: u64,
+    pub expiry_slot: u64,
+    pub anchor_sqrt_price: u128,
+    pub p_res_sqrt: u128,
+    pub half_spread_bps: u32,
+    pub ask_extra_bps: u32,
+    pub bid_extra_bps: u32,
+    pub depth_mult_bps: u32,
+    pub window_start_slot: u64,
+    pub window_base_sold: u64,
+    pub window_base_bought: u64,
+    pub oracle_publish_time: i64,
+    pub oracle_conf_bps: u32,
+    pub oracle_price: u128,
+    pub edge_window_start_slot: u64,
+    pub realized_edge: i128,
+    pub flow_n: i128,
+    pub ask_levels: [Level; LEVELS],
+    pub bid_levels: [Level; LEVELS],
+    pub bump: u8,
+}
+
+impl LegacyQuoteState {
+    /// Promote to the current layout, preserving every legacy field and setting
+    /// the appended `keeper` to the unattributed sentinel. A legacy quote has no
+    /// verified author, so it is never attributed to `config.keeper`.
+    fn into_current(self) -> QuoteState {
+        QuoteState {
+            version: self.version,
+            update_slot: self.update_slot,
+            expiry_slot: self.expiry_slot,
+            anchor_sqrt_price: self.anchor_sqrt_price,
+            p_res_sqrt: self.p_res_sqrt,
+            half_spread_bps: self.half_spread_bps,
+            ask_extra_bps: self.ask_extra_bps,
+            bid_extra_bps: self.bid_extra_bps,
+            depth_mult_bps: self.depth_mult_bps,
+            window_start_slot: self.window_start_slot,
+            window_base_sold: self.window_base_sold,
+            window_base_bought: self.window_base_bought,
+            oracle_publish_time: self.oracle_publish_time,
+            oracle_conf_bps: self.oracle_conf_bps,
+            oracle_price: self.oracle_price,
+            edge_window_start_slot: self.edge_window_start_slot,
+            realized_edge: self.realized_edge,
+            flow_n: self.flow_n,
+            ask_levels: self.ask_levels,
+            bid_levels: self.bid_levels,
+            bump: self.bump,
+            keeper: Pubkey::default(),
+        }
+    }
 }
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
 pub struct Level {
@@ -2022,6 +2246,18 @@ pub struct PendingQuote {
     pub bump: u8,
     pub update: QuoteUpdate,
 }
+/// S2-19: per-keeper claimable reward. Credited at swap time to the author of
+/// the quote used by that swap (the keeper recorded in `QuoteState.keeper`).
+/// Bookkeeping only — the tokens stay in the vault reserves exactly as before
+/// and move only at claim, so the fee split and reserve accounting are
+/// unchanged.
+#[account]
+pub struct KeeperReward {
+    pub keeper: Pubkey,
+    pub base: u64,
+    pub quote: u64,
+    pub bump: u8,
+}
 #[account]
 pub struct DepositTicket {
     pub owner: Pubkey,
@@ -2048,7 +2284,7 @@ pub struct InitializeVault<'info> {
     pub vault: Box<Account<'info, Vault>>,
     #[account(seeds = [b"config", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 32*4 + 2*4 + 8*8 + 4*6 + 8 + 4 + 1 + 4 + 4 + 8 + 4 + 8 + 4 + 32 + 8 + 4)]
     pub config: Box<Account<'info, Config>>,
-    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + 16 + 8 + 16 + (4+4+16+16+16)*LEVELS + (4+4+16+16+16)*LEVELS + 1 + 16)]
+    #[account(seeds = [b"quote", vault.key().as_ref()], bump, init, payer = admin, space = 8 + 8*6 + 16*2 + 4*5 + 16 + 8 + 4 + 16 + 8 + 16 + (4+4+16+16+16)*LEVELS + (4+4+16+16+16)*LEVELS + 1 + 16 + 32)]
     pub quote_state: Box<Account<'info, QuoteState>>,
     #[account(address = params.base_mint)]
     pub base_mint: Box<Account<'info, Mint>>,
@@ -2283,6 +2519,14 @@ pub struct Swap<'info> {
     pub trader_base: Box<Account<'info, TokenAccount>>,
     #[account(mut,constraint=trader_quote.owner==trader.key(),constraint=trader_quote.mint==vault.quote_mint)]
     pub trader_quote: Box<Account<'info, TokenAccount>>,
+    /// S2-19: the reward account of the keeper attributed to the active quote
+    /// (`quote_state.keeper`). Declared after the vault-token bindings so a
+    /// mis-bound reserve/config still fails on its own account. Created lazily
+    /// (trader pays) only when the quote was committed through the legacy direct
+    /// path; the normal staged path creates it in `stage_quote` (keeper pays).
+    #[account(init_if_needed, payer=trader, space=8+32+8+8+1, seeds=[b"reward", vault.key().as_ref(), quote_state.keeper.as_ref()], bump)]
+    pub keeper_reward: Box<Account<'info, KeeperReward>>,
+    pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
 }
 impl<'info> Swap<'info> {
@@ -2400,8 +2644,11 @@ pub struct ClaimKeeperReward<'info> {
     pub keeper: Signer<'info>,
     #[account(mut)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(seeds=[b"config", vault.key().as_ref()], bump=config.bump)]
-    pub config: Box<Account<'info, Config>>,
+    /// S2-19: the signer's own reward account. Rewards are per-keeper, so no
+    /// keeper can claim another keeper's accrual, and `config.keeper` no longer
+    /// confers any exclusive reward entitlement.
+    #[account(mut, seeds=[b"reward", vault.key().as_ref(), keeper.key().as_ref()], bump=keeper_reward.bump)]
+    pub keeper_reward: Box<Account<'info, KeeperReward>>,
     #[account(mut, address=vault.base_reserve)]
     pub base_reserve: Box<Account<'info, TokenAccount>>,
     #[account(mut, address=vault.quote_reserve)]
@@ -2411,6 +2658,23 @@ pub struct ClaimKeeperReward<'info> {
     #[account(mut, constraint=keeper_quote.owner==keeper.key(), constraint=keeper_quote.mint==vault.quote_mint)]
     pub keeper_quote: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct MigrateQuoteState<'info> {
+    /// Funds any rent shortfall for the larger account. May be any signer.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    /// CHECK: validated in the handler — program-owned, the canonical QuoteState
+    /// PDA for `vault` (enforced by the `seeds`/`bump` constraint), the correct
+    /// `QuoteState` discriminator, and a supported legacy length. It is an
+    /// `UncheckedAccount` because the legacy bytes cannot be deserialized into
+    /// the larger current `QuoteState` struct.
+    #[account(mut, seeds=[b"quote", vault.key().as_ref()], bump)]
+    pub quote_state: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -2571,6 +2835,13 @@ fn normalize_pyth_price_q64(
 pub struct VaultInitialized {
     pub slot: u64,
     pub vault: Pubkey,
+}
+/// S2-21A: a legacy `QuoteState` account was migrated to the current layout.
+#[event]
+pub struct QuoteStateMigrated {
+    pub slot: u64,
+    pub from_len: u64,
+    pub to_len: u64,
 }
 #[event]
 pub struct DepositEvent {
@@ -2795,6 +3066,16 @@ pub enum ErrorCode {
     StalePendingQuote,
     #[msg("Quote-relevant vault state changed between staging and commit")]
     StagedStateChanged,
+    #[msg("Quote attribution does not match the active quote version")]
+    QuoteAttributionMismatch,
+    #[msg("Quote has no verified keeper attribution")]
+    UnattributedQuote,
+    #[msg("Account is not owned by this program")]
+    InvalidAccountOwner,
+    #[msg("Incorrect account discriminator")]
+    InvalidAccountDiscriminator,
+    #[msg("Unsupported account length for this operation")]
+    UnsupportedAccountLength,
 }
 
 #[cfg(test)]

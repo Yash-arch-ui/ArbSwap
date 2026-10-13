@@ -123,6 +123,7 @@ fn expired_quote_can_trip_breaker_and_live_quote_cannot() {
             liquidity: 1,
         }; 6],
         bump: quote_bump,
+        keeper: Pubkey::default(),
     };
     svm.set_account(
         vault_address,
@@ -323,6 +324,7 @@ fn update_quote_executes_only_with_full_pyth_account() {
         ask_levels: [Level::default(); 6],
         bid_levels: [Level::default(); 6],
         bump: quote_bump,
+        keeper: Pubkey::default(),
     };
     svm.set_account(
         vault_address,

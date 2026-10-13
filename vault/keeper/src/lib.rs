@@ -588,6 +588,109 @@ pub fn compute_quote(
     })
 }
 
+/// S2-18: exact integer anchor-candidate selection for the two on-chain anchor
+/// guards, using the program's own `price_from_sqrt`/`sqrt_q64` semantics.
+///
+/// * step guard (sqrt space):  `|x - x_old| * 10_000 <= x_old * step_bps`
+/// * dev guard  (price space): `|price_from_sqrt(x) - P| * 10_000 <= P * dev_bps`
+///
+/// Returns the program target `sqrt_q64(P)` clamped into the intersection of
+/// both feasible intervals, or `None` when the intervals are disjoint (normal
+/// refresh is then genuinely infeasible and the contract's expired-quote
+/// recovery path must be relied on). Never fabricates a candidate outside the
+/// intersection.
+pub fn select_anchor_sqrt(
+    old_anchor_sqrt: u128,
+    oracle_price_q64: u128,
+    step_bps: u32,
+    dev_bps: u32,
+) -> Option<u128> {
+    let (lo, hi) = anchor_interval(old_anchor_sqrt, oracle_price_q64, step_bps, dev_bps)?;
+    let target = sqrt_q64(oracle_price_q64).ok()?;
+    Some(target.max(lo).min(hi))
+}
+
+/// The feasible `anchor_sqrt` intersection `[lo, hi]` satisfying both guards, or
+/// `None` when no value satisfies both.
+pub fn anchor_interval(
+    old_anchor_sqrt: u128,
+    oracle_price_q64: u128,
+    step_bps: u32,
+    dev_bps: u32,
+) -> Option<(u128, u128)> {
+    if oracle_price_q64 == 0 {
+        return None;
+    }
+    let d = oracle_price_q64.checked_mul(dev_bps as u128)? / BPS_DENOM as u128;
+    let price_lo = oracle_price_q64.checked_sub(d)?;
+    let price_hi = oracle_price_q64.checked_add(d)?;
+    let dev_lo = sqrt_lower_bound(price_lo)?;
+    let dev_hi = sqrt_upper_bound(price_hi)?;
+    let (step_lo, step_hi) = if old_anchor_sqrt == 0 {
+        (dev_lo, dev_hi)
+    } else {
+        let s = old_anchor_sqrt.checked_mul(step_bps as u128)? / BPS_DENOM as u128;
+        (
+            old_anchor_sqrt.checked_sub(s)?,
+            old_anchor_sqrt.checked_add(s)?,
+        )
+    };
+    let lo = step_lo.max(dev_lo);
+    let hi = step_hi.min(dev_hi);
+    if lo > hi {
+        None
+    } else {
+        Some((lo, hi))
+    }
+}
+
+/// Smallest `x` with `price_from_sqrt(x) >= price` (exact).
+fn sqrt_lower_bound(price: u128) -> Option<u128> {
+    let mut s = sqrt_q64(price).ok()?;
+    while arb_math::price_from_sqrt(s).ok()? < price {
+        s = s.checked_add(1)?;
+    }
+    Some(s)
+}
+
+/// Largest `x` with `price_from_sqrt(x) <= price` (exact).
+fn sqrt_upper_bound(price: u128) -> Option<u128> {
+    let mut s = sqrt_q64(price).ok()?;
+    loop {
+        let next = s.checked_add(1)?;
+        match arb_math::price_from_sqrt(next) {
+            Ok(p) if p <= price => s = next,
+            _ => break,
+        }
+    }
+    Some(s)
+}
+
+/// Independently re-check a candidate with the exact on-chain anchor semantics
+/// (same comparison order and rounding) before staging.
+pub fn anchor_within_bounds(
+    old_anchor_sqrt: u128,
+    candidate_sqrt: u128,
+    oracle_price_q64: u128,
+    step_bps: u32,
+    dev_bps: u32,
+) -> bool {
+    if old_anchor_sqrt > 0 {
+        let diff = candidate_sqrt.abs_diff(old_anchor_sqrt);
+        if diff.saturating_mul(BPS_DENOM as u128) > old_anchor_sqrt.saturating_mul(step_bps as u128)
+        {
+            return false;
+        }
+    }
+    let Ok(price) = arb_math::price_from_sqrt(candidate_sqrt) else {
+        return false;
+    };
+    price
+        .abs_diff(oracle_price_q64)
+        .saturating_mul(BPS_DENOM as u128)
+        <= oracle_price_q64.saturating_mul(dev_bps as u128)
+}
+
 fn mul_div(a: u128, b: u128, c: u128) -> Option<u128> {
     if c == 0 {
         None
@@ -945,9 +1048,27 @@ impl KeeperCore {
             previous_price,
             self.params,
         )?;
+        let mut next = next;
         if let Some(bounds) = self.bounds {
+            let old = self.accepted_anchor_sqrt_price;
+            if old > 0 {
+                // S2-18: clamp the anchor into the step ∩ dev intersection so a
+                // moderate move is staged at the feasible edge instead of being
+                // rejected for an out-of-band full jump. If the intervals are
+                // disjoint, normal refresh is infeasible: skip (the on-chain
+                // expired-quote recovery path handles the re-anchor).
+                match select_anchor_sqrt(
+                    old,
+                    next.oracle_price_q64,
+                    bounds.max_anchor_step_bps,
+                    bounds.max_anchor_dev_bps,
+                ) {
+                    Some(candidate) => next.anchor_sqrt_price = candidate,
+                    None => return None,
+                }
+            }
             let bounds = PrevalidateBounds {
-                previous_anchor_sqrt_price: self.accepted_anchor_sqrt_price,
+                previous_anchor_sqrt_price: old,
                 ..bounds
             };
             if prevalidate_quote(&next, &bounds).is_err() {
@@ -2060,6 +2181,59 @@ mod tests {
             prevalidate_quote(&update, &stepped),
             Err(PrevalidateError::AnchorStepTooLarge)
         );
+    }
+
+    #[test]
+    fn select_anchor_keeps_the_target_when_already_in_band() {
+        // Deployed v18 anchor and its own (unchanged) oracle.
+        let old = 6_036_613_448_307_627_517u128;
+        let oracle = 1_975_454_409_660_514_979u128;
+        let candidate = select_anchor_sqrt(old, oracle, 50, 25).unwrap();
+        // The full target is already feasible, so it is not moved.
+        assert_eq!(candidate, 6_036_613_448_307_627_515u128);
+        assert!(anchor_within_bounds(old, candidate, oracle, 50, 25));
+    }
+
+    #[test]
+    fn select_anchor_clamps_a_moderate_jump_to_the_step_edge() {
+        // S2-16B reported price (108.272): the full jump violates the step bound
+        // but the step and dev intervals still overlap at the step edge.
+        let old = 6_036_613_448_307_627_517u128;
+        let oracle = 1_997_265_874_348_680_572u128;
+        let target = sqrt_q64(oracle).unwrap();
+        let candidate = select_anchor_sqrt(old, oracle, 50, 25).unwrap();
+        let step_hi = old + (old * 50 / 10_000);
+        assert!(
+            target > step_hi,
+            "the unmodified jump must violate the step"
+        );
+        assert_eq!(candidate, step_hi, "must clamp to the feasible step edge");
+        assert!(anchor_within_bounds(old, candidate, oracle, 50, 25));
+        // One past the step edge fails the exact on-chain comparison.
+        assert!(!anchor_within_bounds(old, step_hi + 1, oracle, 50, 25));
+    }
+
+    #[test]
+    fn select_anchor_returns_none_when_the_intervals_are_disjoint() {
+        // Current live price (~108.57): +1.378% exceeds the +1.256% reachable
+        // under step=50/dev=25, so no candidate exists.
+        let old = 6_036_613_448_307_627_517u128;
+        let oracle = 2_002_683_570_189_055_336u128;
+        assert!(select_anchor_sqrt(old, oracle, 50, 25).is_none());
+        assert!(anchor_interval(old, oracle, 50, 25).is_none());
+    }
+
+    #[test]
+    fn anchor_interval_is_exact_at_integer_boundaries() {
+        let old = 6_036_613_448_307_627_517u128;
+        let s = old * 50 / 10_000; // floor -> exact step edge
+        let oracle = arb_math::price_from_sqrt(old + s).unwrap();
+        // Exactly on the step edge passes; one unit beyond fails the step.
+        assert!(anchor_within_bounds(old, old + s, oracle, 50, 25));
+        assert!(!anchor_within_bounds(old, old + s + 1, oracle, 50, 25));
+        // A pure dev band around the previous price still contains the anchor.
+        let oracle = arb_math::price_from_sqrt(old).unwrap();
+        assert!(anchor_interval(old, oracle, 50, 0).is_some());
     }
 
     #[test]

@@ -595,6 +595,11 @@ fn run_loop(
         &[b"keeper", vault.as_ref(), keeper.pubkey().as_ref()],
         &program_id,
     );
+    // S2-19: per-keeper reward PDA (attribution lives in QuoteState.keeper).
+    let (keeper_reward, _) = Address::find_program_address(
+        &[b"reward", vault.as_ref(), keeper.pubkey().as_ref()],
+        &program_id,
+    );
     let uq = ix(
         program_id,
         arbswap::instruction::UpdateQuote { update },
@@ -632,6 +637,8 @@ fn run_loop(
             quote_reserve,
             trader_base: lp_base,
             trader_quote: lp_quote,
+            keeper_reward,
+            system_program: anchor_lang::system_program::ID,
             token_program: token,
         },
     );
@@ -655,6 +662,8 @@ fn run_loop(
             quote_reserve,
             trader_base: lp_base,
             trader_quote: lp_quote,
+            keeper_reward,
+            system_program: anchor_lang::system_program::ID,
             token_program: token,
         },
     );

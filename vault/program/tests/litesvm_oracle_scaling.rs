@@ -159,6 +159,7 @@ fn harness(base_decimals: u8, quote_decimals: u8, anchor_price_q64: u128) -> Har
         ask_levels: [Level::default(); 6],
         bid_levels: [Level::default(); 6],
         bump: quote_bump,
+        keeper: Pubkey::default(),
     };
     for (key, data) in [
         (vault_address, account_data(&vault)),

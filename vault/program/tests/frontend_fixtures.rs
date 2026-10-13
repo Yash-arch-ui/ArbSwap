@@ -146,6 +146,7 @@ fn quote_state() -> QuoteState {
         ask_levels: ask_levels(),
         bid_levels: bid_levels(),
         bump: 252,
+        keeper: Pubkey::default(),
     }
 }
 

@@ -9,6 +9,7 @@ use arbswap::{
 use common::*;
 use litesvm::LiteSVM;
 use pyth_solana_receiver_sdk::price_update::VerificationLevel;
+use sha2::{Digest, Sha256};
 use solana_address::Address;
 use solana_clock::Clock;
 use solana_compute_budget::compute_budget::ComputeBudget;
@@ -316,6 +317,10 @@ impl Fixture {
             keys.trader.pubkey(),
             0,
         );
+        // S2-19: pre-create the attribution accounts for the configured keeper so
+        // a swap attempted before any commit resolves its reward PDA (and then
+        // fails honestly on the expired/absent quote) instead of panicking.
+        fixture.init_attribution(&keys.keeper);
         fixture
     }
 
@@ -385,10 +390,12 @@ impl Fixture {
                 vault: self.vault,
                 config: self.config,
                 quote_state: self.quote_state,
+                keeper_reward: self.attributed_reward(),
                 base_reserve: self.base_reserve,
                 quote_reserve: self.quote_reserve,
                 trader_base: self.trader_base,
                 trader_quote: self.trader_quote,
+                system_program: anchor_lang::system_program::ID,
                 token_program: token_program_id(),
             },
         );
@@ -448,6 +455,104 @@ impl Fixture {
         .0
     }
 
+    /// S2-19: a keeper's own reward PDA.
+    fn keeper_reward(&self, keeper: &Keypair) -> Address {
+        pda(
+            &[b"reward", self.vault.as_ref(), keeper.pubkey().as_ref()],
+            &self.program_id,
+        )
+        .0
+    }
+
+    /// S2-19: the keeper currently attributed to the committed quote.
+    fn attributed_keeper(&self) -> Address {
+        read_state::<arbswap::QuoteState>(&self.svm, self.quote_state).keeper
+    }
+
+    /// S2-19: the reward PDA of whichever keeper authored the active quote.
+    fn attributed_reward(&self) -> Address {
+        let keeper = self.attributed_keeper();
+        pda(
+            &[b"reward", self.vault.as_ref(), keeper.as_ref()],
+            &self.program_id,
+        )
+        .0
+    }
+
+    /// S2-21A: overwrite the vault's QuoteState PDA with a genuine legacy-format
+    /// account (865 B, no appended `keeper`) for migration tests. The account
+    /// carries the canonical PDA bump, exactly as `initialize_vault` stored it.
+    fn write_legacy_quote_state(&mut self, legacy: &arbswap::LegacyQuoteState) {
+        use anchor_lang::AnchorSerialize;
+        let mut effective = *legacy;
+        effective.bump = self.quote_state_bump();
+        let mut data = Vec::new();
+        data.extend_from_slice(&Sha256::digest(b"account:QuoteState")[..8]);
+        effective.serialize(&mut data).unwrap();
+        data.resize(865, 0);
+        self.write_quote_state_raw(data, self.program_id, 10_000_000);
+    }
+
+    fn quote_state_bump(&self) -> u8 {
+        pda(&[b"quote", self.vault.as_ref()], &self.program_id).1
+    }
+
+    /// S2-21A: overwrite the quote_state account with arbitrary bytes/owner.
+    fn write_quote_state_raw(&mut self, data: Vec<u8>, owner: Address, lamports: u64) {
+        self.svm
+            .set_account(
+                self.quote_state,
+                solana_account::Account {
+                    lamports,
+                    data,
+                    owner,
+                    ..solana_account::Account::default()
+                },
+            )
+            .unwrap();
+    }
+
+    fn migrate_quote_state(&mut self, payer: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::MigrateQuoteState {},
+            arbswap::accounts::MigrateQuoteState {
+                payer: to_address(payer.pubkey()),
+                vault: self.vault,
+                quote_state: self.quote_state,
+                system_program: anchor_lang::system_program::ID,
+            },
+        );
+        send(&mut self.svm, &[payer], instruction)
+    }
+
+    /// S2-19: pre-create a keeper's reward PDA for account-binding negatives
+    /// that never commit (so the intended vault-account constraint is still the
+    /// first one to fail). The normal swap path also creates it lazily.
+    fn init_attribution(&mut self, keeper: &Keypair) {
+        let (kr, kr_bump) = pda(
+            &[b"reward", self.vault.as_ref(), keeper.pubkey().as_ref()],
+            &self.program_id,
+        );
+        let kr_val = arbswap::KeeperReward {
+            keeper: keeper.pubkey(),
+            base: 0,
+            quote: 0,
+            bump: kr_bump,
+        };
+        self.svm
+            .set_account(
+                kr,
+                solana_account::Account {
+                    lamports: 10_000_000,
+                    data: account_data(&kr_val),
+                    owner: self.program_id,
+                    ..solana_account::Account::default()
+                },
+            )
+            .unwrap();
+    }
+
     fn bond_keeper(&mut self, keeper: &Keypair, amount: u64) -> litesvm::types::TransactionResult {
         let instruction = ix(
             self.program_id,
@@ -495,7 +600,7 @@ impl Fixture {
             arbswap::accounts::ClaimKeeperReward {
                 keeper: to_address(keeper.pubkey()),
                 vault: self.vault,
-                config: self.config,
+                keeper_reward: self.keeper_reward(keeper),
                 base_reserve: self.base_reserve,
                 quote_reserve: self.quote_reserve,
                 keeper_base: self.keeper_base,
@@ -905,10 +1010,12 @@ impl Fixture {
                 vault: self.vault,
                 config: self.config,
                 quote_state: self.quote_state,
+                keeper_reward: self.attributed_reward(),
                 base_reserve: self.base_reserve,
                 quote_reserve: self.quote_reserve,
                 trader_base: self.trader_base,
                 trader_quote: self.trader_quote,
+                system_program: anchor_lang::system_program::ID,
                 token_program: token_program_id(),
             },
         );
@@ -994,7 +1101,10 @@ fn pyth_verification_rejects_untrusted_or_stale_updates() {
         fixture.update_quote(&keys.keeper, honest, quote_update(0)),
         "NonMonotonicSlot",
     );
-    assert_anchor_error(fixture.update_quote(&keys.lp, honest, update), "NotKeeper");
+    // S2-19: quoting is permissionless — an independent signer is not rejected
+    // for being a different wallet than `config.keeper`. (The former `NotKeeper`
+    // gate was removed; the permissionless path is asserted explicitly in
+    // `permissionless_quote_maintenance_by_non_configured_keeper`.)
 
     assert_eq!(
         fixture.quote_state_value().version,
@@ -1921,35 +2031,76 @@ fn lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value() {
     );
 }
 
-/// Item 5: the keeper role can be rotated through the timelock, so a compromised
-/// or retired keeper key cannot permanently DoS quoting. After the change the
-/// old key is rejected with `NotKeeper`.
+/// S2-19: quote maintenance is permissionless when `min_bond == 0`. A signer
+/// that is not `config.keeper` may maintain quotes and is attributed correctly.
 #[test]
-fn keeper_can_be_rotated_via_the_timelock() {
+fn permissionless_quote_maintenance_by_non_configured_keeper() {
     let keys = Keys::new();
     let mut fixture = Fixture::new(&keys);
-    let new_keeper = Keypair::new();
-    airdrop(&mut fixture.svm, &new_keeper, 10_000_000_000);
 
-    let rotation = arbswap::ParamsUpdate {
-        keeper: Some(new_keeper.pubkey()),
-        ..Default::default()
-    };
+    let other = Keypair::new();
+    airdrop(&mut fixture.svm, &other, 10_000_000_000);
+    assert_ne!(other.pubkey(), keys.keeper.pubkey());
     fixture
-        .set_params(&keys.admin, rotation)
-        .expect("admin proposes the rotation");
-    let pending = read_state::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
-    fixture.warp_to_slot(pending.activate_slot);
-    fixture
-        .apply_params(&keys.admin)
-        .expect("rotation applies after the timelock");
-    assert_eq!(fixture.config_state().keeper, new_keeper.pubkey());
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
 
     let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
-    assert_anchor_error(
-        fixture.update_quote(&keys.keeper, honest, quote_update(SLOT)),
-        "NotKeeper",
+    fixture
+        .update_quote(&other, honest, quote_update(SLOT))
+        .expect("any signer may quote while min_bond == 0");
+    assert_eq!(
+        fixture.attributed_keeper(),
+        other.pubkey(),
+        "the committing keeper is attributed"
     );
+}
+
+/// S2-19: keeper eligibility is immutable after initialization. `ParamsUpdate`
+/// no longer carries `min_bond`/`keeper`, so an administrator cannot
+/// re-introduce a single-wallet allowlist or an exclusionary bond threshold.
+#[test]
+fn params_update_cannot_change_keeper_eligibility() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let before = fixture.config_state();
+    assert_eq!(before.min_bond, 0, "fixture is the permissionless mode");
+
+    // A parameter update can change fees but not eligibility. Preserve every
+    // other field so nothing else is inadvertently zeroed.
+    let params = arbswap::ParamsUpdate {
+        fee_bps: 2,
+        insurance_bps: before.insurance_bps,
+        keeper_bps: before.keeper_bps,
+        protocol_bps: before.protocol_bps,
+        max_staleness_seconds: before.max_staleness_seconds,
+        max_conf_bps: before.max_conf_bps,
+        max_anchor_step_bps: before.max_anchor_step_bps,
+        max_spread_step_bps: before.max_spread_step_bps,
+        min_spread_bps: before.min_spread_bps,
+        max_spread_bps: before.max_spread_bps,
+        max_quote_size: before.max_quote_size,
+        max_inventory_bps: before.max_inventory_bps,
+        utilization_max_bps: before.utilization_max_bps,
+        unbond_cooldown_slots: before.unbond_cooldown_slots,
+        max_update_slot_age: before.max_update_slot_age,
+        edge_window_slots: before.edge_window_slots,
+        max_edge_loss_bps: before.max_edge_loss_bps,
+        max_anchor_dev_bps: before.max_anchor_dev_bps,
+        flow_window_slots: before.flow_window_slots,
+        max_window_flow_bps: before.max_window_flow_bps,
+    };
+    fixture
+        .set_params(&keys.admin, params)
+        .expect("admin proposes");
+    let pending = read_state::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture.apply_params(&keys.admin).expect("applies");
+
+    let after = fixture.config_state();
+    assert_eq!(after.fee_bps, 2, "the intended parameter changed");
+    assert_eq!(after.keeper, before.keeper, "keeper is immutable");
+    assert_eq!(after.min_bond, before.min_bond, "min_bond is immutable");
 }
 
 /// Item 5: a fee claim is timelocked and can only ever pay the fixed
@@ -2299,6 +2450,8 @@ fn state_machine_random_actions_preserve_invariants() {
                 quote_reserve: fixture.quote_reserve,
                 trader_base: fixture.trader_base,
                 trader_quote: fixture.trader_quote,
+                keeper_reward: fixture.attributed_reward(),
+                system_program: anchor_lang::system_program::ID,
                 token_program: token_program_id(),
             },
         );
@@ -2451,6 +2604,7 @@ fn foreign_vault_address(program_id: &Address) -> Address {
 fn swap_rejects_a_reserve_from_another_vault() {
     let keys = Keys::new();
     let mut fixture = Fixture::new(&keys);
+    fixture.init_attribution(&keys.keeper);
     let swap = ix(
         fixture.program_id,
         arbswap::instruction::Swap {
@@ -2468,6 +2622,8 @@ fn swap_rejects_a_reserve_from_another_vault() {
             quote_reserve: fixture.quote_reserve,
             trader_base: fixture.trader_base,
             trader_quote: fixture.trader_quote,
+            keeper_reward: fixture.attributed_reward(),
+            system_program: anchor_lang::system_program::ID,
             token_program: token_program_id(),
         },
     );
@@ -2679,6 +2835,7 @@ fn slash_keeper_rejects_a_bond_vault_from_another_vault() {
 fn swap_rejects_a_config_from_another_vault() {
     let keys = Keys::new();
     let mut fixture = Fixture::new(&keys);
+    fixture.init_attribution(&keys.keeper);
     let foreign_vault = foreign_vault_address(&fixture.program_id);
     let (foreign_config, _) = pda(&[b"config", foreign_vault.as_ref()], &fixture.program_id);
     let config_value: Config = read_state(&fixture.svm, fixture.config);
@@ -2711,6 +2868,8 @@ fn swap_rejects_a_config_from_another_vault() {
             quote_reserve: fixture.quote_reserve,
             trader_base: fixture.trader_base,
             trader_quote: fixture.trader_quote,
+            keeper_reward: fixture.attributed_reward(),
+            system_program: anchor_lang::system_program::ID,
             token_program: token_program_id(),
         },
     );
@@ -4570,11 +4729,12 @@ fn stage_quote_rejects_malformed_payloads() {
         "InvalidLadder",
     );
 
-    // The MVP allowlist rejects a non-keeper at staging time.
-    assert_anchor_error(
-        fixture.stage_quote(&keys.lp, quote_update(SLOT), 1),
-        "NotKeeper",
-    );
+    // S2-19: staging is permissionless — the malformed-payload checks above are
+    // the authorization, not keeper identity. A valid payload from any signer
+    // is accepted (staging never touches the active quote).
+    fixture
+        .stage_quote(&keys.lp, quote_update(SLOT), 1)
+        .expect("any signer may stage while min_bond == 0");
     assert_eq!(fixture.quote_state_value().version, 0);
 }
 
@@ -4598,4 +4758,458 @@ fn pending_quote_account_size_matches_space() {
     assert_eq!(pending.nonce, 1);
     assert_eq!(pending.pending, 1);
     assert_eq!(pending.update.update_slot, SLOT);
+}
+
+// ---------------------------------------------------------------------------
+// S2-19: permissionless multi-keeper staging, attribution and reward isolation.
+// ---------------------------------------------------------------------------
+
+/// Two independent keepers can stage simultaneously into their own pending
+/// accounts without overwriting each other.
+#[test]
+fn two_independent_keepers_stage_without_interference() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let keeper_a = Keypair::new();
+    let keeper_b = Keypair::new();
+    airdrop(&mut fixture.svm, &keeper_a, 10_000_000_000);
+    airdrop(&mut fixture.svm, &keeper_b, 10_000_000_000);
+
+    fixture
+        .stage_quote(&keeper_a, quote_update(SLOT), 1)
+        .expect("A stages");
+    fixture
+        .stage_quote(&keeper_b, quote_update(SLOT), 1)
+        .expect("B stages");
+
+    assert_ne!(
+        fixture.pending_quote(&keeper_a),
+        fixture.pending_quote(&keeper_b),
+        "pending accounts are per keeper"
+    );
+    let a: arbswap::PendingQuote = read_state(&fixture.svm, fixture.pending_quote(&keeper_a));
+    let b: arbswap::PendingQuote = read_state(&fixture.svm, fixture.pending_quote(&keeper_b));
+    assert_eq!(a.keeper, keeper_a.pubkey());
+    assert_eq!(b.keeper, keeper_b.pubkey());
+    assert_eq!((a.pending, b.pending), (1, 1));
+    assert_eq!(
+        fixture.quote_state_value().version,
+        0,
+        "staging does not commit"
+    );
+}
+
+/// Rewards follow the keeper who authored the active quote. A second keeper
+/// cannot accrue or lay claim to the first keeper's share, and replacing the
+/// quote does not move previously accrued rewards.
+#[test]
+fn keeper_attribution_is_isolated_across_two_keepers() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let keeper_a = Keypair::new();
+    let keeper_b = Keypair::new();
+    airdrop(&mut fixture.svm, &keeper_a, 10_000_000_000);
+    airdrop(&mut fixture.svm, &keeper_b, 10_000_000_000);
+
+    // Keeper A authors quote v1; a swap accrues A's share.
+    let h = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keeper_a, h, quote_update(SLOT))
+        .expect("A quotes");
+    assert_eq!(fixture.attributed_keeper(), keeper_a.pubkey());
+    fixture.swap(&keys.trader, AMOUNT_IN, 0, 1).expect("swap");
+    let a_reward =
+        read_state::<arbswap::KeeperReward>(&fixture.svm, fixture.keeper_reward(&keeper_a)).quote;
+    assert!(a_reward > 0, "A accrues a reward");
+    assert_eq!(fixture.vault_state().keeper_quote, a_reward);
+    assert!(
+        fixture
+            .svm
+            .get_account(&fixture.keeper_reward(&keeper_b))
+            .is_none(),
+        "B has no reward entitlement from A's quote"
+    );
+
+    // Keeper B authors the next quote; a swap accrues B's own share.
+    fixture.advance_slot(1);
+    let h = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keeper_b, h, quote_update(SLOT + 1))
+        .expect("B quotes");
+    assert_eq!(fixture.attributed_keeper(), keeper_b.pubkey());
+    fixture.swap(&keys.trader, AMOUNT_IN, 0, 1).expect("swap");
+
+    let a_after =
+        read_state::<arbswap::KeeperReward>(&fixture.svm, fixture.keeper_reward(&keeper_a)).quote;
+    let b_reward =
+        read_state::<arbswap::KeeperReward>(&fixture.svm, fixture.keeper_reward(&keeper_b)).quote;
+    assert_eq!(
+        a_after, a_reward,
+        "replacing the quote must not move A's reward"
+    );
+    assert!(b_reward > 0, "B accrues its own reward");
+    assert_eq!(
+        fixture.vault_state().keeper_quote,
+        a_reward + b_reward,
+        "aggregate equals the sum of per-keeper attributions; fee split unchanged"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// S2-21A: legacy QuoteState (865 B, no `keeper`) migration to 897 B.
+// ---------------------------------------------------------------------------
+
+fn legacy_levels(anchor: u128) -> [arbswap::Level; 6] {
+    let p = arb_math::price_from_sqrt(anchor).unwrap();
+    core::array::from_fn(|i| {
+        let off = OFFSETS[i];
+        let lo_p = arb_math::mul_div_floor(p, (10_000 + off - 1) as u128, 10_000).unwrap();
+        let hi_p = arb_math::mul_div_floor(p, (10_000 + off) as u128, 10_000).unwrap();
+        arbswap::Level {
+            offset_bps: off,
+            weight_bps: WEIGHTS[i],
+            sqrt_lo: arb_math::sqrt_q64(lo_p).unwrap(),
+            sqrt_hi: arb_math::sqrt_q64(hi_p).unwrap(),
+            liquidity: 1,
+        }
+    })
+}
+
+fn legacy_quote_state(
+    version: u64,
+    update_slot: u64,
+    expiry_slot: u64,
+    anchor: u128,
+) -> arbswap::LegacyQuoteState {
+    let levels = legacy_levels(anchor);
+    arbswap::LegacyQuoteState {
+        version,
+        update_slot,
+        expiry_slot,
+        anchor_sqrt_price: anchor,
+        p_res_sqrt: anchor,
+        half_spread_bps: 5,
+        ask_extra_bps: 1,
+        bid_extra_bps: 2,
+        depth_mult_bps: 9_000,
+        window_start_slot: 3,
+        window_base_sold: 7,
+        window_base_bought: 9,
+        oracle_publish_time: PUBLISH_TIME,
+        oracle_conf_bps: 1,
+        oracle_price: anchor,
+        edge_window_start_slot: 4,
+        realized_edge: -3,
+        flow_n: 11,
+        ask_levels: levels,
+        bid_levels: levels,
+        bump: 0,
+    }
+}
+
+fn legacy_bytes(legacy: &arbswap::LegacyQuoteState, len: usize) -> Vec<u8> {
+    use anchor_lang::AnchorSerialize;
+    let mut data = Vec::new();
+    data.extend_from_slice(&Sha256::digest(b"account:QuoteState")[..8]);
+    legacy.serialize(&mut data).unwrap();
+    data.resize(len, 0);
+    data
+}
+
+fn assert_legacy_preserved(a: &arbswap::LegacyQuoteState, b: &QuoteState) {
+    assert_eq!(a.version, b.version);
+    assert_eq!(a.update_slot, b.update_slot);
+    assert_eq!(a.expiry_slot, b.expiry_slot);
+    assert_eq!(a.anchor_sqrt_price, b.anchor_sqrt_price);
+    assert_eq!(a.p_res_sqrt, b.p_res_sqrt);
+    assert_eq!(a.half_spread_bps, b.half_spread_bps);
+    assert_eq!(a.ask_extra_bps, b.ask_extra_bps);
+    assert_eq!(a.bid_extra_bps, b.bid_extra_bps);
+    assert_eq!(a.depth_mult_bps, b.depth_mult_bps);
+    assert_eq!(a.window_start_slot, b.window_start_slot);
+    assert_eq!(a.window_base_sold, b.window_base_sold);
+    assert_eq!(a.window_base_bought, b.window_base_bought);
+    assert_eq!(a.oracle_publish_time, b.oracle_publish_time);
+    assert_eq!(a.oracle_conf_bps, b.oracle_conf_bps);
+    assert_eq!(a.oracle_price, b.oracle_price);
+    assert_eq!(a.edge_window_start_slot, b.edge_window_start_slot);
+    assert_eq!(a.realized_edge, b.realized_edge);
+    assert_eq!(a.flow_n, b.flow_n);
+    assert_eq!(a.bump, b.bump);
+    for i in 0..6 {
+        assert_eq!(a.ask_levels[i].sqrt_lo, b.ask_levels[i].sqrt_lo);
+        assert_eq!(a.ask_levels[i].sqrt_hi, b.ask_levels[i].sqrt_hi);
+        assert_eq!(a.ask_levels[i].liquidity, b.ask_levels[i].liquidity);
+        assert_eq!(a.ask_levels[i].offset_bps, b.ask_levels[i].offset_bps);
+        assert_eq!(a.ask_levels[i].weight_bps, b.ask_levels[i].weight_bps);
+    }
+}
+
+#[test]
+fn migrate_legacy_quote_state_preserves_fields_and_is_unattributed() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let mut legacy = legacy_quote_state(7, SLOT - 1, SLOT + 100, ANCHOR_SQRT);
+    legacy.bump = fixture.quote_state_bump();
+    fixture.write_legacy_quote_state(&legacy);
+    assert_eq!(
+        fixture
+            .svm
+            .get_account(&fixture.quote_state)
+            .unwrap()
+            .data
+            .len(),
+        865,
+        "legacy allocation"
+    );
+
+    // Any signer may pay for and run the migration (permissionless).
+    fixture
+        .migrate_quote_state(&keys.lp)
+        .expect("permissionless migration");
+
+    let account = fixture.svm.get_account(&fixture.quote_state).unwrap();
+    assert_eq!(account.data.len(), 897, "new allocation");
+    let migrated = fixture.quote_state_value();
+    assert_legacy_preserved(&legacy, &migrated);
+    assert_eq!(
+        migrated.keeper.to_bytes(),
+        [0u8; 32],
+        "unattributed sentinel"
+    );
+}
+
+#[test]
+fn migrated_legacy_quote_is_not_swappable_or_rewardable() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    // A *fresh* legacy quote (expiry in the future) that is unattributed.
+    let mut legacy = legacy_quote_state(7, SLOT - 1, SLOT + 100, ANCHOR_SQRT);
+    legacy.bump = fixture.quote_state_bump();
+    fixture.write_legacy_quote_state(&legacy);
+    fixture.migrate_quote_state(&keys.lp).expect("migrate");
+
+    assert_anchor_error(
+        fixture.swap(&keys.trader, AMOUNT_IN, 0, 1),
+        "UnattributedQuote",
+    );
+    assert!(
+        fixture
+            .svm
+            .get_account(&fixture.attributed_reward())
+            .is_none(),
+        "no reward entitlement for an unattributed quote"
+    );
+}
+
+#[test]
+fn fresh_commit_after_migration_attributes_independent_keeper() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    let mut legacy = legacy_quote_state(7, SLOT - 1, SLOT + 100, ANCHOR_SQRT);
+    legacy.bump = fixture.quote_state_bump();
+    fixture.write_legacy_quote_state(&legacy);
+    fixture.migrate_quote_state(&keys.lp).expect("migrate");
+
+    // A fresh quote from an independent keeper records that signer.
+    let keeper_a = Keypair::new();
+    airdrop(&mut fixture.svm, &keeper_a, 10_000_000_000);
+    let h = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keeper_a, h, quote_update(SLOT))
+        .expect("fresh attributed quote");
+    assert_eq!(fixture.attributed_keeper(), keeper_a.pubkey());
+
+    fixture
+        .swap(&keys.trader, AMOUNT_IN, 0, 1)
+        .expect("swap under attributed quote");
+    let reward =
+        read_state::<arbswap::KeeperReward>(&fixture.svm, fixture.keeper_reward(&keeper_a)).quote;
+    assert!(reward > 0, "the attributed keeper earns the share");
+}
+
+#[test]
+fn migrate_is_idempotent_on_an_already_migrated_account() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let mut legacy = legacy_quote_state(7, SLOT - 1, SLOT + 100, ANCHOR_SQRT);
+    legacy.bump = fixture.quote_state_bump();
+    fixture.write_legacy_quote_state(&legacy);
+    fixture
+        .migrate_quote_state(&keys.lp)
+        .expect("first migration");
+    let before = fixture
+        .svm
+        .get_account(&fixture.quote_state)
+        .unwrap()
+        .data
+        .clone();
+    fixture
+        .migrate_quote_state(&keys.lp)
+        .expect("second migration is a no-op");
+    let after = fixture
+        .svm
+        .get_account(&fixture.quote_state)
+        .unwrap()
+        .data
+        .clone();
+    assert_eq!(before, after, "already-migrated account is not rewritten");
+}
+
+#[test]
+fn migrate_rejects_a_wrong_pda() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let legacy = legacy_quote_state(1, 0, SLOT, ANCHOR_SQRT);
+    fixture.write_legacy_quote_state(&legacy);
+    let instruction = ix(
+        fixture.program_id,
+        arbswap::instruction::MigrateQuoteState {},
+        arbswap::accounts::MigrateQuoteState {
+            payer: to_address(keys.lp.pubkey()),
+            vault: fixture.vault,
+            quote_state: Address::new_unique(), // not the QuoteState PDA
+            system_program: anchor_lang::system_program::ID,
+        },
+    );
+    assert_anchor_error(
+        send(&mut fixture.svm, &[&keys.lp], instruction),
+        "ConstraintSeeds",
+    );
+}
+
+#[test]
+fn migrate_rejects_a_wrong_owner() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let legacy = legacy_quote_state(1, 0, SLOT, ANCHOR_SQRT);
+    fixture.write_quote_state_raw(
+        legacy_bytes(&legacy, 865),
+        Address::new_unique(), // foreign owner
+        10_000_000,
+    );
+    assert_anchor_error(fixture.migrate_quote_state(&keys.lp), "InvalidAccountOwner");
+}
+
+#[test]
+fn migrate_rejects_a_bad_discriminator() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture.write_quote_state_raw(vec![0u8; 865], fixture.program_id, 10_000_000);
+    assert_anchor_error(
+        fixture.migrate_quote_state(&keys.lp),
+        "InvalidAccountDiscriminator",
+    );
+}
+
+#[test]
+fn migrate_rejects_an_unsupported_length() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let legacy = legacy_quote_state(1, 0, SLOT, ANCHOR_SQRT);
+    // 850 is neither the legacy (865) nor the current (897) length.
+    fixture.write_quote_state_raw(legacy_bytes(&legacy, 850), fixture.program_id, 10_000_000);
+    assert_anchor_error(
+        fixture.migrate_quote_state(&keys.lp),
+        "UnsupportedAccountLength",
+    );
+}
+
+#[test]
+fn migrate_fails_safely_without_rent_funding() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let legacy = legacy_quote_state(1, 0, SLOT, ANCHOR_SQRT);
+    // Under-funded legacy account (1 lamport).
+    fixture.write_quote_state_raw(legacy_bytes(&legacy, 865), fixture.program_id, 1);
+    // A payer with insufficient lamports cannot cover the rent shortfall.
+    let broke = Keypair::new();
+    airdrop(&mut fixture.svm, &broke, 1_000_000);
+    assert!(
+        fixture.migrate_quote_state(&broke).is_err(),
+        "migration must fail atomically when rent cannot be funded"
+    );
+    // The account is untouched (still 865, still 1 lamport).
+    let account = fixture.svm.get_account(&fixture.quote_state).unwrap();
+    assert_eq!(account.data.len(), 865);
+    assert_eq!(account.lamports, 1);
+}
+
+/// A `QuoteUpdate` anchored at an arbitrary price (used for large-jump tests).
+fn jump_quote(anchor: u128, slot: u64) -> QuoteUpdate {
+    QuoteUpdate {
+        update_slot: slot,
+        oracle_publish_time: PUBLISH_TIME,
+        oracle_conf_bps: 1,
+        anchor_sqrt_price: anchor,
+        p_res_sqrt: anchor,
+        half_spread_bps: 2,
+        ask_extra_bps: 0,
+        bid_extra_bps: 0,
+        depth_mult_bps: 10_000,
+        offsets_bps: OFFSETS,
+        weights_bps: WEIGHTS,
+        ask_levels: anchor_ladder(anchor, 2, OFFSETS, 1_000),
+        bid_levels: anchor_bid_ladder(anchor, 2, OFFSETS, 1_000),
+    }
+}
+
+/// S2-22 end-to-end: keeper A authors a quote; a large jump is rejected while the
+/// quote is fresh; after it expires an independent keeper B recovers it under the
+/// S2-18 rules and is attributed as the new author.
+#[test]
+fn independent_keeper_recovers_expired_quote_after_large_jump() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    // Keeper A authors a normal quote (150).
+    let h = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, h, quote_update(SLOT))
+        .expect("A quotes");
+    assert_eq!(fixture.attributed_keeper(), keys.keeper.pubkey());
+
+    // A ~10% jump (150 -> 165) violates the anchor step while the quote is fresh.
+    let jump_price: i64 = 16_500_000_000; // 165.0 at exponent -8
+    let jump_anchor = arb_math::sqrt_q64(165u128 << 64).unwrap();
+    fixture.advance_slot(1);
+    let slot = fixture.svm.get_sysvar::<Clock>().slot;
+    let h = fixture.post_pyth(jump_price, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, h, jump_quote(jump_anchor, slot)),
+        "AnchorStepTooLarge",
+    );
+
+    // Let the committed quote expire; an independent keeper recovers it.
+    fixture.advance_slot(30);
+    let slot = fixture.svm.get_sysvar::<Clock>().slot;
+    let h = fixture.post_pyth(jump_price, 1, PUBLISH_TIME, VerificationLevel::Full);
+    let keeper_b = Keypair::new();
+    airdrop(&mut fixture.svm, &keeper_b, 10_000_000_000);
+    fixture
+        .update_quote(&keeper_b, h, jump_quote(jump_anchor, slot))
+        .expect("independent keeper B recovers the expired quote");
+    assert_eq!(fixture.attributed_keeper(), keeper_b.pubkey());
+    assert_eq!(fixture.quote_state_value().anchor_sqrt_price, jump_anchor);
 }
