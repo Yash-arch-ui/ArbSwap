@@ -21,7 +21,7 @@ proptest! {
             if let Some(lhs) = lhs {
                 prop_assert!(lhs <= a * b);
                 // (r+1)*2^64 > a*b  (no overflow for these bounds)
-                prop_assert!((r + 1).checked_mul(1 << 64).map_or(true, |x| x > a * b));
+                prop_assert!((r + 1).checked_mul(1 << 64).is_none_or(|x| x > a * b));
             }
         }
     }
@@ -30,8 +30,8 @@ proptest! {
     #[test]
     fn div_q64_is_exact_floor(a in 0u128..HI, b in 1u128..HI) {
         if let Ok(r) = div_q64(a, b) {
-            prop_assert!(r.checked_mul(b).map_or(true, |x| x <= a << 64));
-            prop_assert!((r + 1).checked_mul(b).map_or(true, |x| x > a << 64));
+            prop_assert!(r.checked_mul(b).is_none_or(|x| x <= a << 64));
+            prop_assert!((r + 1).checked_mul(b).is_none_or(|x| x > a << 64));
         }
     }
 
@@ -39,8 +39,8 @@ proptest! {
     #[test]
     fn sqrt_q64_is_exact_floor(v in 0u128..HI) {
         let r = sqrt_q64(v).unwrap();
-        prop_assert!(r.checked_mul(r).map_or(true, |x| x <= v << 64));
-        prop_assert!((r + 1).checked_mul(r + 1).map_or(true, |x| x > v << 64));
+        prop_assert!(r.checked_mul(r).is_none_or(|x| x <= v << 64));
+        prop_assert!((r + 1).checked_mul(r + 1).is_none_or(|x| x > v << 64));
     }
 
     /// `fee_amount` is the ceiling of `amount*fee_bps/10_000` and never exceeds input.

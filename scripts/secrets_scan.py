@@ -40,7 +40,10 @@ def main() -> int:
     for name in _tracked():
         if name in ALLOW:
             continue
-        if BAD_NAMES.search(name) and not name.endswith(".md"):
+        # `.env.example` / `.env.sample` are conventional placeholder files (no
+        # secrets); allow them while still rejecting any real `.env*`.
+        safe_example = name.endswith(".env.example") or name.endswith(".env.sample")
+        if BAD_NAMES.search(name) and not name.endswith(".md") and not safe_example:
             findings.append(f"suspicious filename: {name}")
             continue
         path = ROOT / name

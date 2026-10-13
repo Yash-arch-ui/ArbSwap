@@ -60,6 +60,20 @@ export const SOL_USD_FEED_ID =
 export const MAX_STALENESS_SECONDS = 2;
 
 /**
+ * S2-32 read-only integration mode. The frontend is connected to real on-chain
+ * and artifact data but must NOT submit transactions. Every action surface is
+ * disabled and labelled. Set `VITE_ARBSWAP_READ_ONLY=0` only for a future,
+ * explicitly-approved transaction-enabled build.
+ */
+export const READ_ONLY_MODE =
+  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env
+    ?.VITE_ARBSWAP_READ_ONLY ?? '1') !== '0';
+
+/** Canonical Devnet genesis hash — verified before on-chain data is trusted. */
+export const EXPECTED_GENESIS_HASH =
+  'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+
+/**
  * Canonical public-demo vault: WSOL / Circle Devnet USDC. Funded on Devnet
  * (deposit tx `3BEeTcuq…`); reserves and shares are read live, never assumed.
  */

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
 import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, claimWithdraw as claimWithdrawOnChain, withdrawTicket as deriveWithdrawTicket, expectedDepositShares } from '../chain/program';
@@ -20,7 +21,7 @@ export const VaultPage: React.FC = () => {
     shareBalanceAtoms,
     vaultAtoms,
   } = useProtocol();
-  const { connection } = useConnection();
+  const connection = APP_RPC_FAILOVER.connection;
   const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
 
@@ -134,15 +135,14 @@ export const VaultPage: React.FC = () => {
       <div>
         <h1 className="uni-headline">Active Market-Making Vault</h1>
         <p className="uni-subheadline">
-          Deposit tSOL and tUSDC pro-rata. The vault continuously quotes two-sided liquidity and captures trading fees with bounded risk.
+          Deposit {tokens.SOL.symbol} and {tokens.USDC.symbol} pro-rata. The vault continuously quotes two-sided liquidity and captures trading fees with bounded risk.
         </p>
       </div>
 
       {!vaultInitialized && (
         <div className="uni-card">
           <strong>Vault not initialized.</strong> No on-chain vault exists for the
-          tSOL/tUSDC pair yet, so deposit and withdrawal are disabled.
-          (TEST TOKEN, devnet.)
+          {tokens.SOL.symbol}/{tokens.USDC.symbol} pair yet, so deposit and withdrawal are disabled.
         </div>
       )}
 
@@ -211,7 +211,7 @@ export const VaultPage: React.FC = () => {
                     }}
                   />
                   <div className="uni-token-pill">
-                    <img src={tokens.SOL.logo} alt="SOL" />
+                    {tokens.SOL.logo && <img src={tokens.SOL.logo} alt={tokens.SOL.symbol} />}
                     <span>SOL</span>
                   </div>
                 </div>
@@ -230,7 +230,7 @@ export const VaultPage: React.FC = () => {
                     }}
                   />
                   <div className="uni-token-pill">
-                    <img src={tokens.USDC.logo} alt="USDC" />
+                    {tokens.USDC.logo && <img src={tokens.USDC.logo} alt={tokens.USDC.symbol} />}
                     <span>USDC</span>
                   </div>
                 </div>

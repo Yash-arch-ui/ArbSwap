@@ -102,7 +102,12 @@ def expected(
 
     sigma = 0
     sigma_factor = BPS if sigma == 0 else BPS
-    confidence_factor = BPS - min(BPS, CONFIDENCE_BPS * BPS // CONFIDENCE_MAX_BPS)
+    # S2-24: the keeper's confidence throttle ramps to a floor
+    # (confidence_floor_bps = 1000) at the cap, never to zero.
+    confidence_floor = 1000
+    confidence_factor = confidence_floor + (
+        BPS - min(BPS, CONFIDENCE_BPS * BPS // CONFIDENCE_MAX_BPS)
+    ) * (BPS - confidence_floor) // BPS
     jump_factor = 0
     rule = sigma_factor * confidence_factor // BPS
     rule = rule * (BPS - jump_factor) // BPS
@@ -322,5 +327,8 @@ def test_keeper_replay_emits_a_two_sided_payload(tmp_path):
     updates = [line for line in result.stdout.splitlines() if line.startswith("update,")]
     assert updates, result.stdout
     payload = bytes.fromhex(updates[0].split("instruction_hex=")[1])
-    two_sided_len = 8 + 8 + 8 + 16 + 4 + 16 + 16 + 16 + 6 * 4 + 6 * 4 + 6 * 80 * 2
+    # S2-9 layout: disc + slot + publish_time + conf + anchor + p_res +
+    # half_spread + ask_extra + bid_extra + depth + offsets[6] + weights[6] +
+    # 2 * 6 * (3 u128 levels) = 700 bytes.
+    two_sided_len = 8 + 8 + 8 + 4 + 16 + 16 + 4 * 4 + 6 * 4 + 6 * 4 + 2 * 6 * 48
     assert len(payload) == two_sided_len

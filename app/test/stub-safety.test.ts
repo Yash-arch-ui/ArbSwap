@@ -111,6 +111,9 @@ describe('toml stub safety', () => {
     const asks = q.ask_levels as Array<Record<string, unknown>>;
     expect(asks).toHaveLength(6);
     expect(asks[0].offset_bps).toBe(0);
+    // S2-25: the appended `keeper` field (QuoteState 897-byte layout) must decode
+    // through the committed IDL.
+    expect(q.keeper).toBeDefined();
 
     // The client decodes the vault + quote-state through fetchProtocolState.
     // This is the regression guard for the snake_case -> camelCase mapping
@@ -126,5 +129,6 @@ describe('toml stub safety', () => {
     expect(state.vaultData?.status).toBe(1);
     expect(state.quoteData?.version.toNumber()).toBe(7);
     expect(state.quoteData?.askLevels).toHaveLength(6);
+    expect(state.quoteData?.keeper).toBeDefined();
   });
 });

@@ -254,6 +254,16 @@ async function main() {
     const q64 = priceQ64(String(parsed.price), parsed.expo);
     console.log(`attempt=${attempt} publish_time=${publishTime} age_ms=${Date.now() - publishTime * 1000} slot=${slot} price_q64=${q64} conf_bps=${conf}`);
 
+    // S2-29: never spend a transaction on an update that is already too old to
+    // realistically satisfy the deployed 2 s freshness check (fetch age + the
+    // stage/VAA/push pipeline). Skip and refetch instead of failing on-chain.
+    const fetchAgeMs = Date.now() - publishTime * 1000;
+    const maxFetchAgeMs = Number(process.env.MAX_FETCH_AGE_MS ?? 1_000);
+    if (fetchAgeMs > maxFetchAgeMs) {
+      console.log(`attempt=${attempt} skip: update already ${fetchAgeMs}ms old (> ${maxFetchAgeMs}ms budget)`);
+      continue;
+    }
+
     // 2. Quote engine. Returns no quote (non-zero exit) when its own depth
     // throttle fails closed (e.g. confidence at the cap); skip and retry.
     let quote: any;
@@ -339,23 +349,23 @@ async function main() {
       continue;
     }
 
-    const send = async (tx: Transaction, bh: string): Promise<string> => {
+    const send = async (tx: Transaction, _bh: string): Promise<string> => {
       const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 2, preflightCommitment: "processed" });
-      try {
-        await connection.confirmTransaction({ signature: sig, blockhash: bh, lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight }, "processed");
-      } catch (e) {
-        // S2-23: an ambiguous confirm (timeout / blockhash expiry) must not abort
-        // the attempt when the signature actually landed. Inspect before failing.
+      // S2-29: confirm by fast bounded `getSignatureStatuses` polling rather than
+      // `confirmTransaction` (which relies on the websocket and fell back to slow
+      // polling, pushing the staged pipeline past the 2 s freshness window). A
+      // program error is surfaced; a missing status is never treated as success.
+      const deadline = Date.now() + 12_000;
+      for (;;) {
         const status = await connection
           .getSignatureStatuses([sig], { searchTransactionHistory: false })
           .catch(() => null);
         const v = status?.value?.[0];
-        if (!v || v.err || (v.confirmationStatus !== "confirmed" && v.confirmationStatus !== "finalized")) {
-          throw e;
-        }
-        console.error(`send: confirm ambiguous but ${sig} is ${v.confirmationStatus}`);
+        if (v?.err) throw new Error(`tx ${sig} failed: ${JSON.stringify(v.err)}`);
+        if (v && (v.confirmationStatus === "confirmed" || v.confirmationStatus === "finalized")) return sig;
+        if (Date.now() > deadline) throw new Error(`tx ${sig} not confirmed within 12s`);
+        await sleep(150);
       }
-      return sig;
     };
 
     // S2-18: capture the version we are updating FROM, so success can require a

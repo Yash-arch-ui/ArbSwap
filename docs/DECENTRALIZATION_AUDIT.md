@@ -279,7 +279,7 @@ separately authorised and paired with B.
 
 ---
 
-## 8. Target design — safe self-recovering anchor (contract change)
+## 8. Target design — self-recovering anchor (contract change)
 
 **Option D: Expired-quote re-anchoring (recommended).**
 

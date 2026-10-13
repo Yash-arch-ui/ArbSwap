@@ -81,7 +81,7 @@ export class RpcFailover {
     return this.conns[this.index];
   }
 
-  /** Redacted identifier of the active endpoint (safe to render/log). */
+  /** Redacted identifier of the active endpoint (for render/log). */
   get activeEndpoint(): string {
     return redactRpcUrl(this.urls[this.index]);
   }
@@ -114,3 +114,13 @@ export class RpcFailover {
 export function createRpcFailover(env: Record<string, string | undefined>): RpcFailover {
   return new RpcFailover({ endpoints: resolveFrontendRpc(env).endpoints });
 }
+
+/**
+ * S2-25: the single app-wide failover. Reads AND transaction construction use
+ * `APP_RPC_FAILOVER.connection`, so blockhash retrieval, send, and confirmation
+ * all track the currently active same-cluster endpoint. Wallet signing is handled
+ * by the wallet adapter (which does not need this connection).
+ */
+const APP_ENV =
+  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
+export const APP_RPC_FAILOVER = createRpcFailover(APP_ENV);

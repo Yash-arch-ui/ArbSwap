@@ -32,6 +32,9 @@ class QuoteParams:
     utilization_max: float = 0.5
     sigma_target: float = 0.0001
     confidence_max_ratio: float = 0.001
+    # S2-24: keeper depth floor at the confidence cap (confidence_floor_bps=1000
+    # => 0.1). The confidence throttle ramps to this floor at the cap, never 0.
+    confidence_floor: float = 0.1
     jump_cooldown_factor: float = 0.5
     grace_slots: float = 2.0
     expiry_slots: float = 10.0
@@ -180,7 +183,9 @@ def depth_multiplier(*, sigma_short: float, confidence: float, jump_flag: bool,
     if max_vol_short > 0 and sigma_short > max_vol_short:
         return 0.0
     sigma_factor = 1.0 if sigma_short == 0 else min(1.0, params.sigma_target / sigma_short)
-    confidence_factor = max(0.0, 1.0 - confidence / params.confidence_max_ratio)
+    confidence_factor = params.confidence_floor + max(
+        0.0, 1.0 - confidence / params.confidence_max_ratio
+    ) * (1.0 - params.confidence_floor)
     jump_factor = params.jump_cooldown_factor if jump_flag else 0.0
     rule = sigma_factor * confidence_factor * (1.0 - jump_factor)
     return min(1.0, max(0.0, rule), max(0.0, depth_budget), max(0.0, lvr_budget))

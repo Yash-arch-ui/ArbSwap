@@ -112,7 +112,7 @@ vault data — **yes**; (2) connect wallet + see balances/LP position — **yes*
 (3) small deposit lifecycle — **yes** (already funded; re-run at operator's
 discretion); (4) withdraw request/claim lifecycle — **partial** (request wired,
 claim not surfaced); (5) missing/expired quote disables swaps — **yes**;
-(6) valid-quote path — **blocked externally**; (7) keeper outage/stale → safe
+(6) valid-quote path — **blocked externally**; (7) keeper outage/stale → fail-closed
 expiry — **local proof only**; (8) historical replay analytics — **yes via
 artifacts/CLI, not in-app**; (9) fresh checkout build/tests — **yes** (cargo,
 pytest, app); (10) honest error/wrong-network/unavailable handling — **partial**
@@ -210,7 +210,7 @@ client.
    on the funded canonical vault. This is the only task that turns on the live
    swap demo.
 2. **Finish generic-user LP transaction integrity:** idempotently create base/
-   quote/share ATAs, compute integer-safe `min_shares`, add claim/epoch UI, and
+   quote/share ATAs, compute integer-exact `min_shares`, add claim/epoch UI, and
    add the cross-boundary tests. The already-funded operator deposit does not
    prove a fresh-wallet app deposit path.
 3. **Add labeled in-app replay mode and refresh stale submission docs/marketing

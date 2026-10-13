@@ -1069,15 +1069,12 @@ impl KeeperCore {
                 // rejected for an out-of-band full jump. If the intervals are
                 // disjoint, normal refresh is infeasible: skip (the on-chain
                 // expired-quote recovery path handles the re-anchor).
-                match select_anchor_sqrt(
+                next.anchor_sqrt_price = select_anchor_sqrt(
                     old,
                     next.oracle_price_q64,
                     bounds.max_anchor_step_bps,
                     bounds.max_anchor_dev_bps,
-                ) {
-                    Some(candidate) => next.anchor_sqrt_price = candidate,
-                    None => return None,
-                }
+                )?;
             }
             let bounds = PrevalidateBounds {
                 previous_anchor_sqrt_price: old,

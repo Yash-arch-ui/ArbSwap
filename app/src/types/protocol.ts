@@ -22,6 +22,19 @@ export interface QuoteLevel {
   askPrice: number;
 }
 
+/**
+ * Raw ladder segment exactly as committed on-chain, for integer-exact output
+ * math (`walk_ladder`). Kept as decimal strings so state stays serializable;
+ * converted to `bigint` only inside the pure swap-math helpers.
+ */
+export interface RawLevel {
+  offsetBps: number;
+  weightBps: number;
+  sqrtLo: string;
+  sqrtHi: string;
+  liquidity: string;
+}
+
 export interface QuoteState {
   /** True only when a committed quote account was actually read on-chain. */
   hasQuote: boolean;
@@ -48,6 +61,9 @@ export interface QuoteState {
   mediumVolBps: number; // sigma_m
   recentMoveBps: number;
   levels: QuoteLevel[];
+  /** Raw ask/bid ladder segments from the committed quote (integer math). */
+  askLevelsRaw: RawLevel[];
+  bidLevelsRaw: RawLevel[];
   /**
    * `Unavailable` = no quote account read at all (never zero-fill this as a
    * numeric price); `Expired` = a real quote exists but its slot window passed.

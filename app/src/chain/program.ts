@@ -14,10 +14,44 @@ import {
 import type { TransactionInstruction } from '@solana/web3.js';
 import idl from '../idl/arbswap.json';
 import { ARBSWAP_PROGRAM_ID, BASE_MINT, QUOTE_MINT } from './solana';
-import { ACTIVE_VAULT } from './config';
+import { ACTIVE_VAULT, EXPECTED_GENESIS_HASH } from './config';
 
 export const PROGRAM_ID = ARBSWAP_PROGRAM_ID;
 const SYSTEM_PROGRAM_ID = SystemProgram.programId;
+const BPF_LOADER_UPGRADEABLE = 'BPFLoaderUpgradeab1e11111111111111111111111';
+
+/**
+ * Verify the connected cluster is Devnet (genesis hash) before any on-chain
+ * value is presented as trusted. Read-only; never throws — returns the observed
+ * hash and whether it matched so the UI can fail honestly.
+ */
+export async function verifyCluster(
+  connection: Connection,
+): Promise<{ verified: boolean; genesisHash: string | null }> {
+  try {
+    const genesisHash = await connection.getGenesisHash();
+    return { verified: genesisHash === EXPECTED_GENESIS_HASH, genesisHash };
+  } catch {
+    return { verified: false, genesisHash: null };
+  }
+}
+
+/**
+ * Verify the deployed program account exists, is executable, and is owned by the
+ * upgradeable BPF loader. Prevents presenting data from a wrong/absent program.
+ */
+export async function verifyProgram(
+  connection: Connection,
+): Promise<{ verified: boolean; owner: string | null; executable: boolean }> {
+  try {
+    const info = await connection.getAccountInfo(ARBSWAP_PROGRAM_ID);
+    const owner = info?.owner.toBase58() ?? null;
+    const executable = info?.executable ?? false;
+    return { verified: executable && owner === BPF_LOADER_UPGRADEABLE, owner, executable };
+  } catch {
+    return { verified: false, owner: null, executable: false };
+  }
+}
 
 /** Read-only Anchor program (no wallet) for account reads. */
 function readOnlyProgram(connection: Connection): Program {
@@ -442,34 +476,54 @@ export function expectedDepositShares(args: {
 
 export type SwapSide = { buyBase: Record<string, never> } | { sellBase: Record<string, never> };
 
-/** Build + send a `swap`. `side` is `{ buyBase: {} }` or `{ sellBase: {} }`. */
-export async function swap(
+/**
+ * Resolve all accounts and return the `swap` method builder plus the idempotent
+ * ATA-creation pre-instructions. Exposed so tests can build the transaction for
+ * the *connected* wallet and assert its accounts without broadcasting.
+ *
+ * The program's `trader_base`/`trader_quote` are plain `TokenAccount`s (not
+ * `init_if_needed`), so a fresh wallet — e.g. buying WSOL for the first time —
+ * must have its ATAs created in the same transaction or the swap fails.
+ */
+export async function swapMethod(
   connection: Connection, wallet: unknown, side: SwapSide,
   amountIn: bigint, minOut: bigint, minVersion: bigint,
-): Promise<string> {
+) {
   const w = wallet as Wallet;
   const program = getProgram(connection, wallet);
   const { vault, config, quoteState } = deriveVaultAddresses();
   const owner = w.publicKey;
   const state = await fetchProtocolState(connection);
   if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
-  const traderBase = (await ensureAta(connection, BASE_MINT, owner)).ata;
-  const traderQuote = (await ensureAta(connection, QUOTE_MINT, owner)).ata;
+  const base = await ensureAta(connection, BASE_MINT, owner);
+  const quote = await ensureAta(connection, QUOTE_MINT, owner);
+  const preInstructions = [base.createIx, quote.createIx].filter(
+    (ix): ix is TransactionInstruction => ix !== null,
+  );
   // S2-19: the keeper reward PDA for the keeper attributed to the active quote.
   const attributedKeeper = state.quoteData?.keeper ?? PublicKey.default;
   const [keeperReward] = PublicKey.findProgramAddressSync(
     [Buffer.from('reward'), vault.toBuffer(), attributedKeeper.toBuffer()],
     PROGRAM_ID,
   );
-  return program.methods
+  const builder = program.methods
     .swap(side as never, new BN(amountIn.toString()), new BN(minOut.toString()), new BN(minVersion.toString()))
     .accounts({
       trader: owner, vault, config, quoteState,
       baseReserve: state.vaultData.baseReserve, quoteReserve: state.vaultData.quoteReserve,
-      traderBase, traderQuote, keeperReward, systemProgram: SYSTEM_PROGRAM_ID,
+      traderBase: base.ata, traderQuote: quote.ata, keeperReward, systemProgram: SYSTEM_PROGRAM_ID,
       tokenProgram: TOKEN_PROGRAM_ID,
-    })
-    .rpc();
+    });
+  return { builder, preInstructions };
+}
+
+/** Build + send a `swap`. `side` is `{ buyBase: {} }` or `{ sellBase: {} }`. */
+export async function swap(
+  connection: Connection, wallet: unknown, side: SwapSide,
+  amountIn: bigint, minOut: bigint, minVersion: bigint,
+): Promise<string> {
+  const { builder, preInstructions } = await swapMethod(connection, wallet, side, amountIn, minOut, minVersion);
+  return builder.preInstructions(preInstructions).rpc();
 }
 
 export async function crankEpoch(connection: Connection, wallet: unknown): Promise<string> {

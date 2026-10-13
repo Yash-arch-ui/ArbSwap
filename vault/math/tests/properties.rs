@@ -115,11 +115,11 @@ fn division_matches_the_restoring_reference_on_random_inputs() {
         let v_limbs = rng.range(1, d_limbs as u128 + 1) as usize;
         let mut dividend = [0u64; 4];
         let mut divisor = [0u64; 4];
-        for i in 0..d_limbs {
-            dividend[i] = rng.next();
+        for slot in dividend.iter_mut().take(d_limbs) {
+            *slot = rng.next();
         }
-        for i in 0..v_limbs {
-            divisor[i] = rng.next();
+        for slot in divisor.iter_mut().take(v_limbs) {
+            *slot = rng.next();
         }
         if divisor[v_limbs - 1] == 0 {
             divisor[v_limbs - 1] = 1;
@@ -140,10 +140,10 @@ fn division_matches_the_restoring_reference_for_u128_ranges() {
     // sweep that shape densely.
     let mut rng = Lcg(0xBEEF);
     for _ in 0..5_000 {
-        let a = rng.range(0, 1u128 << 120) as u128;
-        let b = rng.range(1, 1u128 << 64) as u128;
+        let a = rng.range(0, 1u128 << 120);
+        let b = rng.range(1, 1u128 << 64);
         let dividend = U256::mul_u128(a, b);
-        let divisor = U256::from_u128(rng.range(1, 1u128 << 100) as u128);
+        let divisor = U256::from_u128(rng.range(1, 1u128 << 100));
         assert_eq!(
             dividend.div_rem(divisor),
             div_rem_reference(dividend, divisor),

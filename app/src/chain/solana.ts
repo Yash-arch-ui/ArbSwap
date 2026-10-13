@@ -48,19 +48,21 @@ export const QUOTE_SYMBOL = ACTIVE_VAULT.quoteMint.equals(new PublicKey(USDC_MIN
 /**
  * Read the connected wallet's native SOL (for fees), and the active vault pair
  * balances. Human units, for display only; transaction amounts use integer
- * atoms (see `amounts.ts`). Missing accounts read as 0.
+ * atoms (see `amounts.ts`). Missing accounts read as 0. Raw atom balances are
+ * returned too, so guards (e.g. "do you actually hold enough WSOL?") can use
+ * exact integers rather than rounded display values.
  */
 export async function loadWalletBalances(
   connection: Connection,
   owner: PublicKey,
-): Promise<{ sol: number; base: number; quote: number }> {
+): Promise<{ sol: number; base: number; quote: number; baseAtoms: bigint; quoteAtoms: bigint }> {
   const LAMPORTS = 1_000_000_000;
   const sol = (await connection.getBalance(owner)) / LAMPORTS;
-  const read = async (mint: PublicKey): Promise<number> => {
+  const read = async (mint: PublicKey): Promise<{ ui: number; atoms: bigint }> => {
     const res = await connection.getParsedTokenAccountsByOwner(owner, { mint });
-    const amount = res.value[0]?.account.data.parsed.info.tokenAmount.uiAmount;
-    return amount ?? 0;
+    const info = res.value[0]?.account.data.parsed.info.tokenAmount;
+    return { ui: info?.uiAmount ?? 0, atoms: BigInt(info?.amount ?? '0') };
   };
   const [base, quote] = await Promise.all([read(BASE_MINT), read(QUOTE_MINT)]);
-  return { sol, base, quote };
+  return { sol, base: base.ui, quote: quote.ui, baseAtoms: base.atoms, quoteAtoms: quote.atoms };
 }

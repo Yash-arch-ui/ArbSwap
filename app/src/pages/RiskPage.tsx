@@ -61,7 +61,9 @@ export const RiskPage: React.FC = () => {
             <span className={`badge ${isTripped ? 'badge-critical' : 'badge-fresh'}`}>
               Vault: {isTripped ? 'PAUSED' : 'ACTIVE'}
             </span>
-            <span className="badge badge-neutral mono">Keeper: BONDED</span>
+            <span className="badge badge-neutral mono">
+              Keeper: {riskBreakers.keeperBondActive ? 'BONDED' : 'PERMISSIONLESS'}
+            </span>
           </div>
         </div>
 
@@ -204,14 +206,16 @@ export const RiskPage: React.FC = () => {
             <div className="pillar-header">
               <div className="pillar-title-wrap">
                 <Cpu size={16} color="var(--status-warning)" />
-                <h3>Bonded Keeper Accountability</h3>
+                <h3>Keeper Eligibility</h3>
               </div>
-              <span className="badge badge-fresh">Bonded</span>
+              <span className="badge badge-fresh">
+                {riskBreakers.keeperBondActive ? 'Bonded' : 'Permissionless'}
+              </span>
             </div>
 
             <div className="pillar-metrics">
               <div className="pillar-row">
-                <span>Active Cranker Address</span>
+                <span>Configured keeper (not the quote author)</span>
                 <span className="mono text-muted">{riskBreakers.keeperActiveAddress}</span>
               </div>
               <div className="pillar-row mt-2">

@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
 import { swap as swapOnChain } from '../chain/program';
 import { parseUnits, formatUnits } from '../chain/amounts';
-import { swapAmounts, type SwapSideName } from '../chain/swapMath';
+import { swapAmountsFromLadder, type SwapSideName, type LadderLevel } from '../chain/swapMath';
 import { swapUnavailableReason } from '../chain/gating';
+import { ACTIVE_VAULT, READ_ONLY_MODE } from '../chain/config';
+import { ReadOnlyBanner, READ_ONLY_NOTICE } from '../components/ReadOnlyMode';
 import './SwapPage.css';
 
 export const SwapPage: React.FC = () => {
-  const { quoteState, tokens, riskBreakers, refreshBalances, vaultInitialized, quoteAvailable, liveError } = useProtocol();
-  const { connection } = useConnection();
+  const { quoteState, tokens, riskBreakers, protocolParams, refreshBalances, refreshProtocol, walletAtoms, vaultInitialized, quoteAvailable, liveError } = useProtocol();
+  const connection = APP_RPC_FAILOVER.connection;
   const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
 
@@ -19,7 +22,8 @@ export const SwapPage: React.FC = () => {
   const [slippageBps] = useState<number>(10); // 0.10%
   const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
   const [isSwapping, setIsSwapping] = useState<boolean>(false);
-  const [swapNote, setSwapNote] = useState<string | null>(null);
+  // Note carries a severity so the UI never shows a success check on a failure.
+  const [swapNote, setSwapNote] = useState<{ text: string; ok: boolean } | null>(null);
 
   const outTokenSymbol = inTokenSymbol === 'SOL' ? 'USDC' : 'SOL';
   const inToken = tokens[inTokenSymbol];
@@ -30,16 +34,21 @@ export const SwapPage: React.FC = () => {
   const side: SwapSideName = isSellingSol ? 'sellBase' : 'buyBase';
   const feeBps = 1;
 
-  // Integer amount plan derived from the on-chain reservation sqrt price (no
-  // floating point in the transaction path). `expectedOutAtoms` is a
-  // reservation-price floor, NOT a full ladder simulation; the deployed program
-  // enforces `out >= min_out`. When there is no quote, `pResSqrt` is "0" and the
-  // estimate is 0 (and submission is disabled anyway).
-  const pResSqrtQ64 = (() => {
+  // Integer amount plan derived from the **committed on-chain ladder** (an exact
+  // mirror of `arb_math::walk_ladder`), so `expectedOut` and `minOut` match what
+  // the program will enforce. No floating point in the transaction path. When
+  // there is no quote the raw levels are empty and the plan is zero (and
+  // submission is disabled anyway).
+  const ladderLevels: LadderLevel[] = (() => {
+    const raw = isSellingSol ? quoteState.bidLevelsRaw : quoteState.askLevelsRaw;
     try {
-      return BigInt(quoteState.pResSqrt || '0');
+      return raw.map((l) => ({
+        sqrtLo: BigInt(l.sqrtLo),
+        sqrtHi: BigInt(l.sqrtHi),
+        liquidity: BigInt(l.liquidity),
+      }));
     } catch {
-      return 0n;
+      return [];
     }
   })();
   const amountInAtoms = (() => {
@@ -49,16 +58,38 @@ export const SwapPage: React.FC = () => {
       return 0n;
     }
   })();
-  const amounts = swapAmounts({ side, amountInAtoms, feeBps, slippageBps, pResSqrtQ64 });
+  const amounts = swapAmountsFromLadder({ side, amountInAtoms, feeBps, slippageBps, levels: ladderLevels });
   const expectedOutHuman = formatUnits(amounts.expectedOut, outToken.decimals, 6);
   const minOutHuman = formatUnits(amounts.minOut, outToken.decimals, 6);
 
-  // Fail closed: swaps require a fresh on-chain quote.
-  const swapBlockedReason = swapUnavailableReason({
-    vaultInitialized,
-    circuitBreakerTripped: riskBreakers.circuitBreakerTripped,
-    quoteAvailable,
-  });
+  // Fail closed: swaps require a fresh on-chain quote, the committed ladder must
+  // be able to absorb the whole input (otherwise the program reverts), and the
+  // connected wallet must actually hold enough of the input token. The base mint
+  // is WSOL, so selling SOL requires wrapped SOL: we say so explicitly rather
+  // than letting the transaction fail on-chain.
+  const capacityReason =
+    amountInAtoms > 0n && amounts.capacityExceeded
+      ? 'Swaps unavailable: the committed ladder cannot fill this size (on-chain capacity cap).'
+      : null;
+  const balanceReason = (() => {
+    if (!connected || amountInAtoms <= 0n) return null;
+    if (isSellingSol) {
+      if (walletAtoms && walletAtoms.base < amountInAtoms) {
+        return `Insufficient wrapped SOL: you hold ${formatUnits(walletAtoms.base, ACTIVE_VAULT.baseDecimals)} WSOL but are selling ${formatUnits(amountInAtoms, ACTIVE_VAULT.baseDecimals)}. Wrap native SOL to WSOL first.`;
+      }
+    } else if (walletAtoms && walletAtoms.quote < amountInAtoms) {
+      return `Insufficient USDC: you hold ${formatUnits(walletAtoms.quote, ACTIVE_VAULT.quoteDecimals)} USDC but are spending ${formatUnits(amountInAtoms, ACTIVE_VAULT.quoteDecimals)}.`;
+    }
+    return null;
+  })();
+  const swapBlockedReason =
+    balanceReason ??
+    capacityReason ??
+    swapUnavailableReason({
+      vaultInitialized,
+      circuitBreakerTripped: riskBreakers.circuitBreakerTripped,
+      quoteAvailable,
+    });
 
   const flip = () => {
     setInTokenSymbol(outTokenSymbol);
@@ -71,7 +102,7 @@ export const SwapPage: React.FC = () => {
       return;
     }
     if (swapBlockedReason) {
-      setSwapNote(swapBlockedReason);
+      setSwapNote({ text: swapBlockedReason, ok: false });
       return;
     }
     setIsSwapping(true);
@@ -87,12 +118,16 @@ export const SwapPage: React.FC = () => {
         amounts.minOut,
         BigInt(quoteState.version),
       );
-      setSwapNote(
-        `Swap confirmed ${signature.slice(0, 8)}… — minimum received enforced on-chain (${minOutHuman} ${outTokenSymbol}).`,
-      );
-      await refreshBalances();
+      // Only report success after the transaction confirmed (the builder awaits
+      // confirmation) and then refresh both the wallet balances and vault/quote
+      // state so the UI reflects the new on-chain reality.
+      setSwapNote({
+        text: `Swap confirmed ${signature.slice(0, 8)}… — minimum received enforced on-chain (${minOutHuman} ${outTokenSymbol}).`,
+        ok: true,
+      });
+      await Promise.all([refreshBalances(), refreshProtocol()]);
     } catch (error) {
-      setSwapNote(`Swap failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+      setSwapNote({ text: `Swap failed: ${(error as Error).message?.slice(0, 160) ?? 'unknown error'}`, ok: false });
     } finally {
       setIsSwapping(false);
     }
@@ -256,7 +291,7 @@ export const SwapPage: React.FC = () => {
                 }}
               />
               <div className="uni-token-pill">
-                <img src={inToken.logo} alt={inToken.symbol} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                {inToken.logo && <img src={inToken.logo} alt={inToken.symbol} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
                 <span>{inToken.symbol}</span>
               </div>
             </div>
@@ -292,7 +327,7 @@ export const SwapPage: React.FC = () => {
                 value={parsedInAmount > 0 ? expectedOutHuman : ''}
               />
               <div className="uni-token-pill">
-                <img src={outToken.logo} alt={outToken.symbol} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                {outToken.logo && <img src={outToken.logo} alt={outToken.symbol} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
                 <span>{outToken.symbol}</span>
               </div>
             </div>
@@ -329,7 +364,13 @@ export const SwapPage: React.FC = () => {
           )}
 
           {swapNote && (
-            <p className="swap-success-note">✓ {swapNote}</p>
+            <p
+              className="swap-success-note"
+              style={{ color: swapNote.ok ? undefined : 'var(--uni-warning)' }}
+              role={swapNote.ok ? 'status' : 'alert'}
+            >
+              {swapNote.ok ? '✓' : '⚠'} {swapNote.text}
+            </p>
           )}
 
           {/* Details toggle */}

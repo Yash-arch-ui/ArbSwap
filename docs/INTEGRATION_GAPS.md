@@ -100,3 +100,32 @@ The write-path checkboxes predate staged quotes/attribution and the migration.
 - No hosted ArbSwap backend/API. On-chain state is the source of truth; analytics
   and indexing stay optional/local. Frontend availability relies on Solana RPC
   (now multi-endpoint-capable) and Pyth, not on an ArbSwap-operated service.
+
+---
+
+## S2-25 resolution status
+
+- **3.1 analytics `onchain.json`** — **resolved (integrated, optional).** The SPA
+  now loads it via `app/src/data/onchainAnalytics.ts` + `OnchainAnalyticsPanel`
+  with explicit available/stale/missing/malformed states; live state stays on RPC.
+- **3.3 keeper-claim UI** — **resolved.** `fetchKeeperReward`/`claimKeeperReward`
+  + `KeeperRewards` panel (RiskPage).
+- **3.5 build-time RPC env** — **resolved.** `app/.env.example` added.
+- **3.7 two frontends** — **clarified.** `app/` is canonical; `frontend/` is an
+  empty scaffold (no `src/`); documented, not deleted.
+- **3.8 / §4 INTEGRATION.md reconciliation** — **done** (S2-24 banner + §8/§9 ABI).
+- **3.2 keeper telemetry** — unchanged: not on-chain; rendered as unavailable.
+- **3.6 hosted backend** — intentionally none.
+
+---
+
+## S2-26 status
+
+- **Browser E2E** — **blocked in this environment**: no Playwright/Puppeteer
+  package; cached Chromium fails to launch (`libnspr4.so` missing). Dev server +
+  build verified; rendered-DOM inspection outstanding (install Chromium deps or
+  `npm i -D playwright`).
+- **Builder/interface consistency** — **tested**:
+  `app/test/instruction-interface.test.ts` pins the deployed IDL account lists.
+- Doc drift, analytics provenance, and keeper-claim UI: addressed (see
+  `docs/S2_26_DEMO_READINESS.md`).

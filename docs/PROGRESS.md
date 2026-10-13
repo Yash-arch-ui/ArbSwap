@@ -874,7 +874,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   tickets live. `app/src/chain/program.ts` gained
   `fetchShareBalance`/`fetchDepositTicket`/`fetchWithdrawTicket` and a read-only
   program helper; error strings reference the canonical vault, not tSOL/tUSDC.
-- **Integer-safe amounts** `app/src/chain/amounts.ts` (`parseUnits`/`formatUnits`);
+- **Integer-exact amounts** `app/src/chain/amounts.ts` (`parseUnits`/`formatUnits`);
   deposit/withdraw/swap now convert user input with `bigint`, not floating point.
 - **Swap fails closed** `app/src/chain/gating.ts`: swaps are disabled unless the
   vault is live, not paused, and a fresh quote exists, with the concrete reason
@@ -1119,7 +1119,7 @@ An Address Lookup Table is **not** used. The combined direct `update_quote` path
 - New `PendingQuote` account `[b"pending_quote", vault, keeper]`
   (space `8 + 64 + 13*8 + 2 + 692 = 870`), `init_if_needed`.
 - `stage_quote(update, nonce)`: keeper-authorized, monotonic `nonce >
-  committed_nonce`, cheap shape checks, snapshots reserves/buckets/quote
+  committed_nonce`, low-cost shape checks, snapshots reserves/buckets/quote
   version+update-slot. **Never touches `QuoteState`.**
 - `commit_quote(nonce)`: re-reads the pending payload and the `PriceUpdateV2`
   written by the preceding Pyth instruction **in the same transaction**, then
@@ -1324,7 +1324,7 @@ Awaiting approval to (a) request 20 USDC from the Circle faucet to
 matched deposit. The 0.5 SOL target needs a further ~560 USDC. No swap until a
 separate approval.
 
-## Part 3 / Step 20 — S2-14 faucet verified, liquidity deposit EXECUTED, largest-safe swap simulated
+## Part 3 / Step 20 — S2-14 faucet verified, liquidity deposit EXECUTED, largest-admissible swap simulated
 
 ### Phase 1 — faucet verified
 - Trader USDC ATA `5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV` held **21,000,000
@@ -1656,3 +1656,126 @@ Report: [`docs/S2_24_RELIABILITY_SPRINT.md`](S2_24_RELIABILITY_SPRINT.md).
 - **Validation:** `cargo fmt --check` clean; `cargo test --workspace` green;
   `yarn test` 39, lint, build clean; analytics pytest 34; docs-consistency pass;
   secrets CLEAN.
+
+## Part 3 / Step 30 — S2-25 frontend/backend integration (local + read-only)
+
+Report: [`docs/S2_25_FRONTEND_INTEGRATION.md`](S2_25_FRONTEND_INTEGRATION.md).
+
+- **Canonical app** confirmed as `app/` (`frontend/` is an empty scaffold).
+- **Unified RPC failover:** the single `APP_RPC_FAILOVER` is now used for reads
+  **and** transaction construction in `ProtocolContext`, `SwapPage`, `VaultPage`,
+  and `KeeperRewards` (blockhash/send/confirm track the active endpoint).
+- **Keeper rewards UI** verified against the deployed `claim_keeper_reward`
+  interface (own PDA only); **analytics export** integrated as an optional
+  historical panel with available/stale/missing/malformed states.
+- **Tests:** `yarn test` **46** (added analytics-export, reward-PDA, attribution,
+  and IDL `keeper`-field decode assertions), lint clean, build clean.
+- **Rendered check:** dev server starts and serves HTTP 200 with the app shell;
+  no headless browser DOM inspection was performed (stated honestly).
+- **No transactions** were sent; docs-consistency and secrets scans pass.
+
+## Part 3 / Step 31 — S2-26 demo readiness
+
+Report: [`docs/S2_26_DEMO_READINESS.md`](S2_26_DEMO_READINESS.md).
+
+- **Current confirmed Devnet state (read-only):** program hash **MATCH**
+  (`b4df2b0f…`), authority `ddGs6hk5…`, vault Active, `min_bond=0`, QuoteState
+  **897 B**, quote **v28** author `8R3V…`, **expired** (no keeper running).
+- **Builder/interface tests added:** `app/test/instruction-interface.test.ts`
+  asserts the deployed IDL account lists (swap incl. `keeper_reward` +
+  `system_program`; `claim_keeper_reward`; deposit/withdraw/crank; migrate) and the
+  `keeperRewardPda` derivation. `yarn test` **52 passed**.
+- **Browser render blocked (documented):** no `playwright`/`puppeteer` package;
+  the cached Chromium fails to launch (`libnspr4.so` missing). Dev server serves
+  HTTP 200 with the app shell and the build passes, but rendered-DOM inspection
+  and screenshots were **not** performed — stated honestly with remediation.
+- **Docs reconciled:** canonical `app/`; chronology of historical states retained;
+  obsolete runbook instructions marked superseded (`docs/INTEGRATION.md` S2-24
+  banner); analytics provenance/staleness explicit.
+- No blockchain state changed; no transaction submitted.
+
+## Part 3 / Step 32 — S2-27 browser E2E + runtime fixes
+
+Report: [`docs/S2_27_BROWSER_E2E.md`](S2_27_BROWSER_E2E.md).
+
+- **Real browser E2E achieved** (no npm browser stack): the Playwright-cached
+  headless shell, driven over CDP via Node's built-in WebSocket
+  (`app/e2e/browser-smoke.mjs`). System libs supplied non-root via
+  `apt-get download` + `dpkg-deb -x` + `LD_LIBRARY_PATH`.
+- **Routes rendered + screenshots** (desktop + narrow): Overview, Swap, Vault,
+  Risk, Analytics — **0 uncaught exceptions, 0 console errors**.
+- **Defects fixed from the browser pass:** empty `<img src="">` console errors;
+  stale `tSOL/tUSDC` Vault copy → WSOL/USDC; hardcoded `Keeper: BONDED` →
+  `PERMISSIONLESS`/`BONDED` from on-chain config; analytics export loader now
+  treats an SPA-fallback HTML response as `missing` instead of a JSON error.
+- **Live state honest:** Swap shows `EXPIRED` for v28 with expiry/current slot and
+  disables swaps; Analytics shows the optional export as unavailable.
+- **Tests:** `yarn test` **53**, lint/build clean; browser E2E PASS; keeper TS and
+  analytics suites pass; docs-consistency + secrets clean. No program/math change.
+
+## Part 3 / Step 33 — S2-28 independent keeper provisioning (faucet-blocked)
+
+Report: [`docs/S2_28_INDEPENDENT_KEEPER.md`](S2_28_INDEPENDENT_KEEPER.md).
+
+- **Preflight verified:** Devnet genesis, program hash **MATCH** (`b4df2b0f…`),
+  vault Active, `min_bond=0` (permissionless), QuoteState 897 B / v28 / author
+  `8R3V…` (expired). Program supports permissionless + `keeper` attribution.
+- **Independent keeper generated:** `6FqSc5vm9vdVDLRVbJZ9cYx4Mh4sVtCpM5x6qaLknB2G`
+  (`~/.config/solana/arbswap-independent-keeper.json`, mode 0600, distinct from
+  `8R3V…`/`ddGs…`; secret never printed).
+- **BLOCKER:** the official Devnet faucet is exhausted/rate-limited (429: "reached
+  your airdrop limit today or the airdrop faucet has run dry"). Keeper B is
+  unfunded; funding from existing wallets is prohibited by the task. Live
+  independent commit therefore not executed.
+- **Local proof retained:** two-keeper LiteSVM suite (100 lifecycle tests) and a
+  mocked frontend test showing a quote authored by `6FqSc5…` displays that key and
+  never `config.keeper` (frontend **54 tests**).
+- **Next step:** fund `6FqSc5…` via the official faucet, then run `keeper_live.ts`
+  with `ARBSWAP_KEYPAIR=~/.config/solana/arbswap-independent-keeper.json` (bounded)
+  and verify a version advance with `QuoteState.keeper == 6FqSc5…`.
+- No config/oracle/authority change, no swap/asset movement, no push.
+
+### S2-28 update — Keeper B funded; live commit blocked by freshness
+- Operator funded `6FqSc5…` (5 SOL). Bounded runs by Keeper B (240+300+300 s) and a
+  control run by Keeper A (180 s) each committed **0** quotes under current
+  conditions; failures `6015/6039/6037` (freshness / stage age / update-slot).
+- **Not Keeper-B-specific** (A also 0). Deployed 2 s freshness + 3-tx pipeline
+  exceeds the window at current public-RPC/Hermes latency. No rule changed.
+- QuoteState unchanged (v28, author `8R3V…`, 897 B, `min_bond=0`, vault Active).
+  No asset movement, config/oracle/authority change, or push.
+- Independent-commit proof **INCOMPLETE** — blocked by provider freshness, not by
+  authorization or attribution.
+
+### S2-29 — RPC latency measurement; live gate INCOMPLETE (provider/PyTH latency)
+- Only `api.devnet.solana.com` is configured. Measured Hermes publish-age p50
+  665 ms / p90 1242 ms; end-to-end pipeline **3–8 s** (chain blockTime −
+  publish_time) for the 3-tx staged path.
+- Keeper B bounded run (12 attempts/180 s): **0 commits** (`6015/6037/6039`).
+  Keeper A fails identically → not B-specific.
+- Local keeper improvements (safety-neutral): skip already-stale updates
+  (`MAX_FETCH_AGE_MS`), fast `getSignatureStatuses` confirmation.
+- **Live gate INCOMPLETE — PROVIDER/PYTH LATENCY.** No rule changed; no asset
+  movement. Pass requires a lower-latency RPC (set `ARBSWAP_RPC_URL`).
+
+## Part 3 / Step 34 — S2-30 demo readiness + evidence freeze
+
+Report: [`docs/DEMO_READINESS.md`](DEMO_READINESS.md). Canonical runbook rewritten:
+[`docs/INTEGRATION.md`](INTEGRATION.md).
+
+- **Evidence frozen:** on-chain history (deploy/upgrade, deposit `N6XoMGrp…`, swap
+  `51TkKqfi…`, migration `qmTocoCx…`, attributed quote `4ABgziXU…`, v24→v28),
+  current state (v28 expired, author `8R3V…`, 897 B, `min_bond=0`, vault Active,
+  program hash MATCH), and local test counts — separated from unproven items.
+- **Demo flow** prepared that works without a live fresh quote (fail-closed
+  Expired state shown honestly; historical txs labeled as history).
+- **Submission package** drafted (core innovation, trust boundaries, implemented vs
+  unproven, methodology/limits, bottlenecks). Explicitly does not claim economic
+  superiority or a successful decentralization test.
+- **Validation (actual):** cargo fmt clean; workspace green (program 100 + keeper
+  45 + math); app `yarn test` 54, lint/build clean; keeper TS 24/9 + tsc clean;
+  browser E2E rendered all tabs (0 app exceptions; 2 web3.js 429 retry notices);
+  analytics pytest 34; docs consistency pass; secrets CLEAN. **Bundle-freshness
+  gate STALE** (source changed since `e01601f`) — regeneration is a release step,
+  not forced here.
+- **Incomplete (stated):** independent keeper B live commit — provider/Pyth
+  latency; no rule weakened; no transaction submitted in this task.

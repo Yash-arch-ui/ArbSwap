@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 import { fetchKeeperReward, claimKeeperReward } from '../chain/program';
 import { useProtocol } from '../context/ProtocolContext';
 
@@ -10,7 +11,7 @@ import { useProtocol } from '../context/ProtocolContext';
  * quote) shows "nothing to claim" and is never assigned another keeper's reward.
  */
 export const KeeperRewards: React.FC = () => {
-  const { connection } = useConnection();
+  const connection = APP_RPC_FAILOVER.connection;
   const { publicKey, connected, wallet } = useWallet();
   const { refreshBalances } = useProtocol();
   const [reward, setReward] = useState<{ base: bigint; quote: bigint } | null>(null);

@@ -36,7 +36,7 @@ describe('frontend RPC configuration', () => {
   });
 
   it('redacts credentials and query strings', () => {
-    expect(redactRpcUrl('https://user:pass@rpc.example/rpc?api-key=SECRET')).toBe(
+    expect(redactRpcUrl('https://user:pass@rpc.example/rpc?key=SECRET')).toBe(
       'https://rpc.example/rpc',
     );
   });

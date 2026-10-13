@@ -19,3 +19,9 @@ target/deploy/*.json
 # output is ignored.
 # Generated analytics output (dashboard, event dumps)
 simulation/analytics/out/
+
+# S2-27 browser E2E output (screenshots/traces)
+app/test-results/
+
+# S2-31 raw keeper run logs (never committed)
+logs/

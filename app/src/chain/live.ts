@@ -1,7 +1,7 @@
 import { BN } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import type { OnChainProtocolState, OnChainLevel } from './program';
-import type { QuoteState, QuoteLevel, VaultState, RiskBreakers } from '../types/protocol';
+import type { QuoteState, QuoteLevel, RawLevel, VaultState, RiskBreakers } from '../types/protocol';
 
 /**
  * Map decoded on-chain accounts into the shapes the UI renders. Every number
@@ -17,6 +17,14 @@ const DEC_SCALE = 10 ** (BASE_DECIMALS - QUOTE_DECIMALS); // 1000 for 9/6
 const LEVELS = 6;
 
 const num = (bn: BN | undefined | null): number => (bn ? Number(bn.toString()) : 0);
+
+const rawLevel = (l: OnChainLevel): RawLevel => ({
+  offsetBps: l.offsetBps,
+  weightBps: l.weightBps,
+  sqrtLo: l.sqrtLo.toString(),
+  sqrtHi: l.sqrtHi.toString(),
+  liquidity: l.liquidity.toString(),
+});
 
 /** Human USD price from a Q64.64 sqrt price (raw-atom price × 10^(base-quote)). */
 export function humanPriceFromSqrt(sqrt: BN): number {
@@ -107,6 +115,8 @@ export function toQuoteState(
     mediumVolBps: 0,
     recentMoveBps: 0,
     levels,
+    askLevelsRaw: (q?.askLevels ?? []).map(rawLevel),
+    bidLevelsRaw: (q?.bidLevels ?? []).map(rawLevel),
     status,
   };
 }
@@ -115,8 +125,10 @@ export function toVaultState(
   onchain: OnChainProtocolState,
   oraclePrice: number,
   userShares: number,
+  currentSlot = 0,
 ): VaultState {
   const v = onchain.vaultData;
+  const cfg = onchain.configData;
   const baseReserve = v ? num(v.baseReserveAmount) / 10 ** BASE_DECIMALS : 0;
   const quoteReserve = v ? num(v.quoteReserveAmount) / 10 ** QUOTE_DECIMALS : 0;
   const totalShares = v ? num(v.totalShares) / 10 ** SHARE_DECIMALS : 0;
@@ -126,6 +138,11 @@ export function toVaultState(
     !v || v.status === 0 ? 'Active' : v.status === 1 ? 'Paused' : 'WindDown';
   const bucket = (b?: BN, q?: BN): number =>
     (b ? num(b) / 10 ** BASE_DECIMALS : 0) * oraclePrice + (q ? num(q) / 10 ** QUOTE_DECIMALS : 0);
+  // Real on-chain epoch countdown: `epoch_start + epoch_slots - current_slot`.
+  const epochSlotsRemaining =
+    v && cfg && currentSlot > 0
+      ? Math.max(0, num(v.epochStart) + num(cfg.epochSlots) - currentSlot)
+      : 0;
   return {
     tvlUsd,
     baseReserve,
@@ -142,7 +159,7 @@ export function toVaultState(
     lvrAvoided7dUsd: 0,
     netHedgedApy: 0,
     epoch: v ? num(v.epoch) : 0,
-    epochSlotsRemaining: 0,
+    epochSlotsRemaining,
     status,
     insuranceBufferUsd: bucket(v?.insuranceBase, v?.insuranceQuote),
     keeperPoolUsd: bucket(v?.keeperBase, v?.keeperQuote),

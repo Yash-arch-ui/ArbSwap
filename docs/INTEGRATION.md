@@ -1,740 +1,272 @@
-# ArbSwap Backend ↔ `app` Integration Runbook
+# ArbSwap Backend ↔ Frontend Integration Runbook
 
-This is the implementation runbook for connecting the Rust/Anchor backend to the React app in this repository.
+**Current, canonical.** Supersedes all earlier revisions of this file. Grounded in
+the deployed Devnet program, the committed IDL, and the actual `app/` source as of
+S2-29. Historical incident details live in `docs/PROGRESS.md`,
+`docs/DECENTRALIZATION_AUDIT.md`, and `docs/DEVNET.md` — not here.
 
-It is written for a coding agent. Follow the steps in order. Do not invent addresses, account layouts, token mints, ABI fields, or test results.
+The active frontend is **`app/`**. `frontend/` is an empty scaffold (no `src/`);
+ignore it.
 
-> **S2-24 STATUS — READ `docs/INTEGRATION_GAPS.md` FIRST.** This runbook predates
-> S2-9…S2-24 and several sections are stale. Corrections that matter:
-> the canonical pair is **WSOL/USDC** (not tSOL/tUSDC); the keeper uses the
-> **staged** `stage_quote` + `commit_quote` path (the legacy `update_quote` loop
-> is no longer the normal workflow); `swap` now also requires the `keeper_reward`
-> and `system_program` accounts; `QuoteState` carries a `keeper` attribution
-> field; `claim_keeper_reward` is a real per-keeper claim; and RPC is
-> environment-configured with cluster-guarded fallbacks. §7–§9 below are
-> superseded by `docs/S2_20_IMPLEMENTATION.md`, `docs/S2_21A_MIGRATION.md`, and
-> `docs/S2_24_RELIABILITY_SPRINT.md`.
-
-## 0. Scope and architecture
-
-The active frontend is `app/`, not `frontend/`.
+## 0. Architecture (no hosted backend)
 
 ```text
-vault/program       Anchor program: custody, shares, swap, guards
-vault/math           fixed-point ladder and swap math
-vault/keeper         Pyth reader and update_quote transaction sender
-simulation           Python reference, simulator, analytics artifacts
-app/                 Vite + React wallet client
+vault/program     Anchor program: custody, shares, swap, quote guards, migration
+vault/math        fixed-point ladder + swap math (shared, frozen)
+vault/keeper      Rust quote engine + legacy `live` sender (the staged TS keeper is used)
+scripts/devnet    operator tooling: keeper, migration, preflight, RPC helpers
+simulation        Python reference/simulator + optional analytics/indexer
+app/              Vite + React wallet client (reads RPC directly)
 ```
 
-The app has no live HTTP backend. It connects through:
-
-1. Solana RPC for account reads and transactions.
-2. Anchor IDL at `app/src/idl/arbswap.json`.
-3. The deployed program at the configured program ID.
-4. Static replay files under `app/public/artifacts/` for analytics.
-
-The keeper is a separate process. It writes `QuoteState` to Solana; the app reads the resulting account.
+There is **no ArbSwap-operated HTTP backend**. The app reads Solana RPC + the
+committed IDL and optional static/historical files. Protocol correctness always
+comes from on-chain state; RPC is availability only.
 
 ## 1. Source of truth
 
-When files disagree, use this order:
+1. Deployed program + Rust source: `vault/program/src/lib.rs`.
+2. Generated IDL: `target/idl/arbswap.json` (committed copy: `app/src/idl/arbswap.json`).
+3. Frontend chain client: `app/src/chain/`.
+4. This runbook + `docs/S2_*` records.
+5. Historical docs / mock UI.
 
-1. Deployed program and current Rust source: `vault/program/src/lib.rs`.
-2. Generated IDL: `target/idl/arbswap.json`.
-3. Committed frontend IDL: `app/src/idl/arbswap.json`.
-4. Frontend chain client: `app/src/chain/`.
-5. Documentation and mock UI.
+After any ABI change: regenerate the IDL and copy it to the app. Never hand-edit it.
 
-After any ABI change, regenerate the IDL and copy the matching IDL to the app. Never hand-edit the IDL.
-
-## 2. Current devnet constants
-
-These constants are currently defined in `Anchor.toml`, `vault/program/src/lib.rs`, `app/src/chain/solana.ts`, and the IDL:
+## 2. Current deployment (Devnet)
 
 | Item | Value |
 |---|---|
-| RPC | `https://api.devnet.solana.com` |
-| Program ID | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
-| Base mint | `So11111111111111111111111111111111111111112` (`WSOL`, 9 decimals) |
-| Quote mint | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (Circle devnet `USDC`, 6 decimals) |
-| Canonical vault | `8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt` |
-| Canonical config | `ErVDFAHWSK5SjKqvaNJoqv91r4vNH7VmqteURqdEo2aT` |
-| Canonical quote state | `5MsGbdHv3ouXrHT9f7JVQ6b7eVETTiVCzYSGw5DTYAgG` |
+| Cluster | Devnet (genesis `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG`) |
+| Program | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
+| ProgramData | `4156VC8Vzc8wQDqtLe9rdRHtRj9UpRysp2uBTNGW93Mh` |
+| Upgrade authority | `ddGs6hk5E4oPzSnwFfX4pD4DDhDTLTwRddv1VQym7bH` (single key) |
+| Base mint | `So11111111111111111111111111111111111111112` (WSOL, 9 dp) |
+| Quote mint | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (Circle devnet USDC, 6 dp) |
+| Vault | `8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt` |
+| Config | `ErVDFAHWSK5SjKqvaNJoqv91r4vNH7VmqteURqdEo2aT` |
+| QuoteState | `5MsGbdHv3ouXrHT9f7JVQ6b7eVETTiVCzYSGw5DTYAgG` (897 B current layout) |
 | Pyth feed ID | `ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d` |
 | Token program | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` |
-| App directory | `app/` |
+| Deployed ELF | sha256 `b4df2b0f…f7096` (MATCHES local artifact) |
 
-The canonical public-demo vault is **WSOL/USDC** (funded on Devnet). The legacy
-custom **tSOL/tUSDC** vault (`52cNnsip…`, config `HhBCf2Xo…`) is retained for
-reference only and is **not** used by the app. `app/src/chain/config.ts` is the
-single source of truth; the app asserts the derived PDAs match it at startup.
+The older tSOL/tUSDC vault (`52cNnsip…`, config `HhBCf2Xo…`) is **reference only**
+and is not used by the app. `app/src/chain/config.ts` is the app's single source of
+truth and asserts the derived PDAs match at startup.
 
-> **Blocker:** the configured `PYTH_API_KEY` authenticates but is **not entitled**
-> to the crypto-spot SOL/USD feed (`403 Not entitled … crypto/spot`), so no quote
-> is on-chain (`QuoteState.version = 0`) and the app keeps swaps disabled. The
-> deployed 2-second freshness rule is unchanged. Verify entitlement without
-> printing the key:
-> `curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $PYTH_API_KEY" "https://hermes.pyth.network/v2/updates/price/latest?ids[]=ef0d8b6f…b56d"`.
->
-> **Live vs replay:** live = on-chain vault/quote/reserve/shares/tickets;
-> replay/model = `app/public/artifacts/*`; unavailable = keeper telemetry and
-> per-day LVR. Never label a model number as live.
+**Live state is not guaranteed fresh.** At the last S2-29 read: QuoteState v28,
+author `8R3VDePS…`, expired; vault Active; `min_bond = 0`. Always reread.
 
-### Important deployment fact
+## 3. Cluster + RPC configuration (env)
 
-The repository contains `scripts/devnet/init_vault.devnet.json`, but that file is a configuration, not proof that a vault exists. The four vault-specific accounts are generated during initialization and are not committed as secrets.
+The app and keeper read RPC config from the environment (no secrets in the browser):
 
-Therefore:
+| Var | Purpose |
+|---|---|
+| `ARBSWAP_CLUSTER` / `VITE_ARBSWAP_CLUSTER` | `devnet` (default) \| `mainnet-beta` |
+| `ARBSWAP_RPC_URL` / `VITE_SOLANA_RPC_URL` | primary endpoint |
+| `ARBSWAP_RPC_FALLBACKS` / `VITE_SOLANA_RPC_FALLBACKS` | comma-separated fallbacks |
+| `PYTH_API_KEY` | Hermes access token (keeper only; `.ENV`, gitignored) |
+| `ARBSWAP_KEYPAIR` | keeper signer path (default `~/.config/solana/id.json`) |
 
-- Never hard-code a vault address before checking RPC.
-- Derive the vault PDA from the two configured mints.
-- Read the reserve, share mint, and share lock addresses from the on-chain `Vault` account.
-- If the vault PDA has no account, stop and initialize the vault through the operator flow below.
+- Node tooling: `scripts/devnet/rpc.ts` (`RpcPool`: cluster-guarded, redaction,
+  error classification, bounded jittered backoff, ordered failover, genesis check).
+- Browser: `app/src/chain/rpcConfig.ts` + `app/src/chain/rpcFailover.ts`
+  (`APP_RPC_FAILOVER`); app reads **and** transaction construction use it.
+- **Limitation:** the wallet adapter's `ConnectionProvider` still points at the
+  primary endpoint for its internal calls; there is no supported API to swap its
+  `Connection` dynamically without risking signer/extension compatibility. The app
+  never mixes clusters (cross-cluster public URLs are rejected at config load).
+- `app/.env.example` documents the browser variables (placeholders only).
 
-## 3. Prerequisites and baseline checks
+## 4. Program accounts / PDAs
 
-From the repository root:
+```text
+program_config = [b"program"]
+vault          = [b"vault", base_mint, quote_mint]
+config         = [b"config", vault]
+quote_state    = [b"quote", vault]            (897-byte account)
+bond_vault     = [b"bond", vault]
+keeper_bond    = [b"keeper", vault, keeper]
+pending_quote  = [b"pending_quote", vault, keeper]
+keeper_reward  = [b"reward", vault, keeper]   (per-keeper reward)
+deposit_ticket = [b"dep", vault, user]
+withdraw_ticket= [b"wd", vault, user]
+pending_config = [b"pending", vault]
+pending_claim  = [b"claim", vault]
+```
+
+## 5. Quote lifecycle and the keeper
+
+**The normal path is staged** (`scripts/devnet/keeper_live.ts`), not the legacy
+direct `update_quote` loop:
+
+1. Fetch a fresh Pyth update from Hermes (official receiver SDK for the VAA/push).
+2. Compute the quote payload with the Rust engine (`arbswap-keeper quote-json`).
+3. `stage_quote` (Tx A) — writes the `pending_quote` PDA for that keeper.
+4. Pyth receiver VAA post (Tx V) — Wormhole verify.
+5. Pyth push oracle **+ `commit_quote`** in one transaction (Tx B): the oracle write
+   and the quote commit are atomic. `commit_quote` re-runs the full oracle/mint/
+   anchor/ladder/inventory/capacity guard set.
+6. Reread `QuoteState`; success requires a **confirmed** tx and a strictly greater
+   version (never `version > 0`, never a missing `getTransaction`).
+
+Operator tooling:
+- `scripts/devnet/keeper_live.ts` — the keeper (`DRY_RUN=1` builds/size-checks only).
+- `scripts/devnet/keeper_loop.sh` — bounded, `flock`-guarded runner (no unbounded loop).
+- `scripts/devnet/keeper_commit.ts` — `SUBMITTED/CONFIRMED/FAILED/UNOBSERVED/COMMITTED_AND_VERIFIED`.
+- `scripts/devnet/keeper_inspect.ts` — read-only live quote/eligibility.
+
+Deployed safety rules (unchanged, must not be loosened): 2 s Pyth freshness,
+10 bps confidence cap, 25-slot stage age, anchor step/dev bounds, expiry, ladder/
+inventory/capacity/flow.
+
+## 6. Authorization and attribution
+
+- `config.min_bond == 0` ⇒ **permissionless**: any valid signer may
+  `update_quote`/`stage_quote`/`commit_quote`. `min_bond > 0` ⇒ any keeper meeting
+  the on-chain bond rule.
+- Keeper eligibility is **immutable** (`min_bond`/`keeper` are not in `ParamsUpdate`).
+- `QuoteState.keeper` records the author of the committed quote. `swap` credits the
+  keeper share to that keeper's `KeeperReward` PDA; `claim_keeper_reward` pays only
+  the signer's own PDA, capped by the vault's aggregate keeper buckets.
+- A migrated/legacy quote has `keeper = Pubkey::default()` and **cannot** be swapped
+  (`UnattributedQuote`).
+
+## 7. Instruction interfaces (exact accounts, from the committed IDL)
+
+```text
+update_quote:  keeper, vault, config, quote_state, price_update, keeper_bond,
+               base_reserve, quote_reserve, base_mint, quote_mint
+stage_quote:   keeper, vault, config, quote_state, pending_quote,
+               base_reserve, quote_reserve, keeper_bond, system_program
+commit_quote:  keeper, vault, config, quote_state, pending_quote, price_update,
+               base_reserve, quote_reserve, keeper_bond, base_mint, quote_mint
+swap:          trader, vault, config, quote_state, base_reserve, quote_reserve,
+               trader_base, trader_quote, keeper_reward, system_program, token_program
+deposit:       user, vault, config, base_reserve, quote_reserve, share_mint,
+               share_lock, user_base, user_quote, user_shares, deposit_ticket,
+               token_program, system_program
+request_withdraw: user, vault, share_lock, deposit_ticket, user_shares,
+               withdraw_ticket, token_program, system_program
+claim_withdraw: user, vault, base_reserve, quote_reserve, share_mint, share_lock,
+               withdraw_ticket, user_base, user_quote, token_program
+crank_epoch:   vault, config
+claim_keeper_reward: keeper, vault, keeper_reward, base_reserve, quote_reserve,
+               keeper_base, keeper_quote, token_program
+migrate_quote_state: payer, vault, quote_state, system_program   (operator-only)
+```
+
+Admin/ops (not user-facing): `initialize_program`, `initialize_vault`,
+`set_params`, `apply_params`, `propose_admin`, `accept_admin`, `cancel_admin`,
+`propose_fee_claim`, `execute_fee_claim`, `bond_keeper`, `unbond_keeper`,
+`slash_keeper`, `trip_breaker`, `reset_breaker`, `wind_down`.
+
+Args: `QuoteUpdate` carries no `oracle_price` (derived on-chain); `LevelUpdate` is
+`{sqrt_lo, sqrt_hi, liquidity}` only.
+
+## 8. Frontend integration
+
+- **Chain layer** (`app/src/chain/`): `program.ts` (IDL client, PDA derivation,
+  builders), `config.ts` (deployment constants + env RPC), `live.ts`
+  (on-chain → UI decode incl. `QuoteState.keeper`), `solana.ts` (wallet balances),
+  `rpcConfig.ts`/`rpcFailover.ts`, `swapMath.ts`/`amounts.ts` (integer math),
+  `gating.ts` (fail-closed swap gate).
+- **State** (`app/src/context/ProtocolContext.tsx`): polls live state every 4 s via
+  the failover pool; exposes quote/vault/risk/tickets/balances/status; empty state
+  is zero or unavailable, never mock.
+- **Pages**: Overview, Swap, Vault (deposit / request-withdraw / claim), Risk
+  (+ keeper rewards), Analytics (+ optional historical panel).
+- **Gating**: swaps require vault Active, a fresh attributed quote, and correct
+  `min_out`/version/expiry. USDC 6 dp, WSOL 9 dp. Missing price is never `$0.00`.
+- **Transaction lifecycle**: constructed → signature requested → submitted →
+  confirmed → reread. No optimistic balance changes; no auto-submit on render.
+- **Wallet**: connect/disconnect via wallet adapter; balances are the **connected**
+  wallet's ATAs; the app never uses the admin/keeper wallet by assumption.
+- **Keeper rewards**: `fetchKeeperReward`/`claimKeeperReward` +
+  `components/KeeperRewards.tsx` (Risk page) show only the connected wallet's own
+  `KeeperReward` and handle disconnected / no-account / zero / RPC-error states.
+
+## 9. Analytics
+
+- **Static bundle** `app/public/artifacts/*` → `app/src/data/backend.ts` →
+  AnalyticsPage (labeled model/replay, not live).
+- **Optional historical export** `/analytics/onchain.json` (written by
+  `simulation/analytics/export.py`) → `app/src/data/onchainAnalytics.ts` +
+  `components/OnchainAnalyticsPanel.tsx`, with available / stale (>1 h) / missing /
+  malformed states. Currently absent in this deployment → shown unavailable.
+- Live balances/quotes/reserves are **never** sourced from analytics. No hosted
+  analytics backend; the indexer is optional local tooling.
+
+## 10. Migration and release preflight
+
+- `migrate_quote_state` upgrades a legacy 865-byte QuoteState to 897 bytes, appends
+  `keeper = default`, preserves all fields; permissionless payer. See
+  `docs/S2_21A_MIGRATION.md`; driver `scripts/devnet/migrate_quote_state.ts`
+  (dry-run default, `SUBMIT=1` to submit).
+- `scripts/devnet/release_preflight.ts` (read-only) validates cluster, program id/
+  authority, QuoteState owner/disc/size/PDA, rent, payer, artifact + IDL.
+- `scripts/devnet/release_manifest.ts` writes `docs/release_manifest.json`.
+
+## 11. Commands
 
 ```bash
-cargo fmt --all -- --check
-cargo test --workspace
-anchor build
-python3 -m pytest simulation -q
+# program + math
+cargo fmt --all --check && cargo test --workspace
+
+# frontend
+cd app && yarn install && yarn test && yarn lint && yarn build && yarn dev
+
+# keeper (operator)
+cd scripts/devnet && set -a; . ../../.ENV; set +a
+NODE_OPTIONS=--no-network-family-autoselection npx tsx keeper_inspect.ts   # read-only
+DRY_RUN=1 npx tsx keeper_live.ts                                           # dry-run
+npx tsx keeper_loop.sh                                                      # bounded runner
+
+# migration / release
+npx tsx migrate_quote_state.ts            # dry-run
+npx tsx release_preflight.ts              # read-only preflight
+
+# analytics
+.venv/bin/python -m pytest simulation/analytics/tests -q
 ```
 
-From the app:
-
-```bash
-cd app
-yarn install
-yarn test
-yarn build
-```
-
-Return to the repository root before running Rust commands:
-
-```bash
-cd ..
-```
-
-Check the current program ID:
-
-```bash
-solana program show \
-  2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm \
-  --url https://api.devnet.solana.com
-```
-
-Check the IDL address:
-
-```bash
-node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('app/src/idl/arbswap.json','utf8')); console.log(x.address)"
-```
-
-Expected output:
-
-```text
-2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm
-```
-
-If the deployed bytes are available locally, verify them:
-
-```bash
-python3 scripts/devnet_program_hash.py \
-  --program-id 2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm \
-  --rpc https://api.devnet.solana.com \
-  --so target/deploy/arbswap.so
-```
-
-Expected output: `MATCH`.
-
-## 4. Derive the program accounts
-
-The canonical PDA seeds are implemented in `app/src/chain/program.ts` and `vault/keeper/src/init_vault.rs`.
-
-```text
-program_config = PDA([b"program"])
-vault          = PDA([b"vault", base_mint, quote_mint])
-config         = PDA([b"config", vault])
-quote_state    = PDA([b"quote", vault])
-bond_vault     = PDA([b"bond", vault])
-deposit_ticket = PDA([b"dep", vault, user])
-withdraw_ticket= PDA([b"wd", vault, user])
-keeper_bond    = PDA([b"keeper", vault, keeper])
-```
-
-The app already derives the first five in `deriveVaultAddresses()`. Keep all derivation in one chain module. Do not duplicate seed strings inside page components.
-
-To inspect the configured vault from the app/client, call:
-
-```ts
-const state = await fetchProtocolState(connection, BASE_MINT, QUOTE_MINT);
-```
-
-Interpret the result exactly:
-
-```text
-state.exists == false       vault PDA does not exist; initialize or stop
-state.vaultData exists      Vault account decoded; read reserve/share accounts
-state.quoteData absent      no quote has been written yet; swaps disabled
-quote expiry <= currentSlot quote expired; swaps disabled
-```
-
-## 5. Initialize the vault, only if absent
-
-### 5.1 Key rules
-
-- Never commit keypairs.
-- Never use a mainnet keypair.
-- Use a dedicated devnet keypair outside the repository.
-- The initializer config currently points to `$HOME/.config/solana/id.json`; change that path to the approved devnet operator key before sending.
-- `initialize_program` is one-time and has already been executed for the current program ID. Do not run it again if the `program_config` PDA exists.
-
-### 5.2 Inspect the configuration
-
-```bash
-node -e "const fs=require('fs'); console.log(JSON.parse(fs.readFileSync('scripts/devnet/init_vault.devnet.json','utf8')))"
-```
-
-The configuration contains:
-
-- tSOL/tUSDC mints
-- admin, keeper, and treasury public keys
-- Pyth feed ID
-- fee split
-- warm-up and epoch duration
-- spread, inventory, capacity, oracle, and flow limits
-- six ladder offsets and weights
-
-Do not modify parameters for a live deployment without recording the decision in `docs/ASSUMPTIONS.md` and obtaining operator approval.
-
-### 5.3 Dry-run the initializer
-
-```bash
-cargo run -q -p arbswap-keeper -- \
-  init-vault scripts/devnet/init_vault.devnet.json
-```
-
-The dry run prints the actual addresses for:
-
-```text
-vault
-config
-quote_state
-program_config
-base_reserve
-quote_reserve
-share_mint
-share_lock
-```
-
-Save this output outside source code or in an approved deployment record. The four generated signer keypairs must remain available to the operator for the initialization transaction.
-
-### 5.4 Send only after approval
-
-```bash
-cargo run -q -p arbswap-keeper -- \
-  init-vault scripts/devnet/init_vault.devnet.json --send
-```
-
-After confirmation:
-
-1. Run `fetchProtocolState()` or inspect the vault PDA with RPC.
-2. Confirm `baseMint` and `quoteMint` match the configured pair.
-3. Confirm reserve, share mint, and share lock accounts exist.
-4. Confirm the app can decode `Vault`, `Config`, and `QuoteState`.
-
-If the initializer has not been sent, the app must show `Vault not initialized`; do not fill the screen with sample TVL or prices.
-
-## 6. Seed liquidity
-
-The vault requires both tokens. Check wallet balances first:
-
-```bash
-solana balance --url devnet
-spl-token accounts --url devnet
-```
-
-The deposit instruction is:
-
-```text
-deposit(base_amount: u64, quote_amount: u64, min_shares: u64)
-```
-
-Amounts are raw atoms:
-
-```text
-1 tSOL  = 1_000_000_000 atoms
-1 tUSDC = 1_000_000 atoms
-```
-
-The deposit must be proportional in both tokens. The program creates a warm-up ticket; shares are not immediately active for withdrawal.
-
-The app builder is `deposit()` in `app/src/chain/program.ts`. It must:
-
-1. Fetch `Vault`.
-2. Derive the user's associated token accounts.
-3. Derive `[b"dep", vault, user]`.
-4. Use the reserve/share accounts from `Vault`.
-5. Submit the instruction.
-6. Wait for confirmation.
-7. Fetch the deposit ticket and share balance.
-
-Do not report a locally calculated share estimate as the confirmed result.
-
-## 7. Start the keeper and write a quote
-
-### 7.1 Build the keeper
-
-```bash
-cargo build -p arbswap-keeper
-```
-
-### 7.2 Required live arguments
-
-The actual parser is in `vault/keeper/src/main.rs`. The command is positional and must be passed in this exact order:
-
-```text
-cargo run -q -p arbswap-keeper -- live \
-  <rpc_url> \
-  <program_id> \
-  <vault> \
-  <config> \
-  <quote_state> \
-  <base_reserve> \
-  <quote_reserve> \
-  <price_feed_account> \
-  <keeper_bond_pda> \
-  <keeper_keypair_path> \
-  <feed_id_hex> \
-  <max_staleness_seconds> \
-  <max_conf_bps> \
-  <priority_micro_lamports_per_cu> \
-  <run_seconds> \
-  <max_vol_bps> \
-  <lvr_budget_bps>
-```
-
-Use these configured values unless the operator has approved another policy:
-
-```text
-rpc_url       https://api.devnet.solana.com
-program_id    2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm
-feed_id_hex   ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d
-max_stale     2
-max_conf_bps  10
-```
-
-`<price_feed_account>` and `<keeper_bond_pda>` are addresses, not feed IDs. Get the price-update account from the configured Pyth setup and derive the keeper bond using `[b"keeper", vault, keeper]`. If either account is unavailable, stop and resolve the deployment configuration; do not substitute the feed ID as an account address.
-
-The keeper reads token decimals from the on-chain mint accounts. This is required because tSOL has 9 decimals and tUSDC has 6.
-
-### 7.3 Keeper behavior
-
-The keeper:
-
-1. Reads the Pyth price-update account.
-2. Rejects stale or wide-confidence observations.
-3. Reads vault reserves and configuration.
-4. Computes the ladder using shared keeper/math logic.
-5. Applies the decimal normalization once.
-6. Prevalidates on-chain bounds.
-7. Submits `update_quote`.
-8. Repeats every 400 ms.
-
-If it stops, the existing quote must expire. The frontend must disable swaps after expiry.
-
-## 8. Exact `update_quote` ABI
-
-The `update_quote` instruction has:
-
-```text
-accounts:
-  keeper
-  vault
-  config
-  quote_state
-  price_update
-  keeper_bond
-  base_reserve
-  quote_reserve
-
-args:
-  update: QuoteUpdate
-```
-
-`QuoteUpdate` is defined in the IDL and Rust source as:
-
-```text
-update_slot: u64
-oracle_publish_time: i64
-oracle_conf_bps: u32
-anchor_sqrt_price: u128
-p_res_sqrt: u128
-half_spread_bps: u32
-ask_extra_bps: u32
-bid_extra_bps: u32
-depth_mult_bps: u32
-offsets_bps: [u32; 6]
-weights_bps: [u32; 6]
-ask_levels: [LevelUpdate; 6]
-bid_levels: [LevelUpdate; 6]
-```
-
-> `oracle_price` was removed in S2-9 (the program derives the normalized price
-> from the verified Pyth account + mint decimals). The normal keeper workflow is
-> **staged** (`stage_quote` then `commit_quote` with the Pyth push in the same
-> transaction), not a direct `update_quote` loop.
-
-`LevelUpdate` is:
-
-```text
-sqrt_lo: u128
-sqrt_hi: u128
-liquidity: u128
-```
-
-> `inv_lo`/`inv_hi` were removed in S2-9; the ask-side capacity is computed
-> on-chain.
-
-All fixed-point fields are integer values. Do not recreate this payload in the React app. The keeper is the quote writer.
-
-## 9. Exact frontend transaction ABI
-
-The frontend builders must match `app/src/idl/arbswap.json` exactly.
-
-### `deposit`
-
-```text
-args: base_amount: u64, quote_amount: u64, min_shares: u64
-accounts:
-  user, vault, config, base_reserve, quote_reserve, share_mint,
-  share_lock, user_base, user_quote, user_shares, deposit_ticket,
-  token_program, system_program
-```
-
-### `swap`
-
-```text
-args: side: SwapSide, amount_in: u64, min_out: u64, min_version: u64
-accounts:
-  trader, vault, config, quote_state, base_reserve, quote_reserve,
-  trader_base, trader_quote, keeper_reward, system_program, token_program
-```
-
-`keeper_reward` is the PDA `[b"reward", vault, quote_state.keeper]` (the author of
-the active quote); it is created on first use. `SwapSide` values are:
-
-```text
-{ buyBase: {} }
-{ sellBase: {} }
-```
-
-### `claim_keeper_reward` (S2-24)
-
-```text
-args: none
-accounts:
-  keeper, vault, keeper_reward, base_reserve, quote_reserve,
-  keeper_base, keeper_quote, token_program
-```
-
-`keeper_reward` is the signer's own PDA `[b"reward", vault, keeper]`; the program
-pays only the signer's accrual, capped by the vault's aggregate keeper buckets.
-
-### `request_withdraw`
-
-```text
-args: shares: u64
-accounts:
-  user, vault, share_lock, deposit_ticket, user_shares,
-  withdraw_ticket, token_program, system_program
-```
-
-### `claim_withdraw`
-
-```text
-args: none
-accounts:
-  user, vault, base_reserve, quote_reserve, share_mint, share_lock,
-  withdraw_ticket, user_base, user_quote, token_program
-```
-
-### `crank_epoch`
-
-```text
-args: none
-accounts: vault, config
-```
-
-### Breakers
-
-```text
-trip_breaker:  vault, config, quote_state
-reset_breaker: admin, vault
-```
-
-`trip_breaker` and `reset_breaker` are real blockchain instructions. The current React functions that only mutate local state are not integration.
-
-## 10. Frontend implementation tasks
-
-### 10.1 `app/src/chain/solana.ts`
-
-Keep the RPC, program ID, mints, decimals, and feed ID here. Do not duplicate them in pages.
-
-Keep native SOL separate from tSOL:
-
-```text
-native SOL = transaction fee balance
-tSOL       = vault base token balance
-```
-
-### 10.2 `app/src/chain/program.ts`
-
-Keep all PDA derivation and Anchor transaction builders here.
-
-Add these reads before wiring the pages:
-
-- `fetchWithdrawTicket(connection, user)`
-- `fetchDepositTicket(connection, user)`
-- `fetchShareBalance(connection, user)`
-- `fetchKeeperBond(connection, keeper)` when the risk view needs it
-
-Every write must return the confirmed signature.
-
-### 10.3 `app/src/context/ProtocolContext.tsx`
-
-The provider must expose:
-
-```text
-vaultInitialized
-quoteAvailable
-quoteState
-vaultState
-riskBreakers
-wallet balances
-share balance
-deposit ticket
-withdrawal ticket
-loading
-lastUpdatedSlot
-liveError
-refreshProtocol()
-refreshBalances()
-```
-
-Do not initialize live state with realistic fake TVL, prices, APY, or tickets. Empty state must be zero or `n/a` and visibly identified as unavailable.
-
-### 10.4 `SwapPage.tsx`
-
-The current page has two integration defects:
-
-1. It derives `expectedOut` and `minOut` from a floating-point reservation-price approximation.
-2. It sends `minVersion = 0`.
-
-Fix it as follows:
-
-1. Read current `QuoteState`.
-2. Reject expired/paused quotes.
-3. Parse input as a string.
-4. Convert to integer atoms using 9 or 6 decimals.
-5. Use the backend-compatible integer quote path or a conservative user-confirmed `min_out`.
-6. Pass the current quote version as `min_version`.
-7. Confirm the transaction.
-8. Refresh balances, quote, vault, and transaction status.
-
-If the app cannot calculate the exact quote safely, it must show an estimate and ask the user for a slippage floor. It must not claim exact execution from a client-side approximation.
-
-### 10.5 `VaultPage.tsx`
-
-The current page imports `MOCK_USER_TICKETS` and creates a random local ticket. Remove both.
-
-After deposit or withdrawal request, fetch the actual account:
-
-```text
-deposit ticket  = PDA(["dep", vault, wallet])
-withdraw ticket = PDA(["wd", vault, wallet])
-```
-
-Show account-derived epoch, activation, claimability, shares, and outputs. A locally calculated estimate must be labeled `estimate`.
-
-### 10.6 `RiskPage.tsx`
-
-Use only:
-
-- `Vault.status`
-- `Config` bounds
-- quote slot/expiry
-- oracle timestamp/confidence stored in `QuoteState`
-- configured keeper/bond state
-
-The following are not currently stored in `QuoteState` and must not be shown as live values:
-
-- short/medium volatility
-- current inventory skew
-- keeper update counts
-- priority fees
-- current jump flag
-
-Either wire a telemetry source or render `unavailable`.
-
-### 10.7 `AnalyticsPage.tsx`
-
-The current page still imports `MOCK_LVR_DATA` and `MOCK_QUOTE_VS_FILL`. Remove those imports from the live page.
-
-Load artifacts from `/artifacts/` and show:
-
-- `manifest.commit`
-- `manifest.schema_version`
-- `manifest.flow_type`
-- window/date range
-- `model output` or `replay` label
-- losing regime and limitations
-
-If an artifact is missing, render `n/a`; never silently use mock data.
-
-## 11. Transaction lifecycle required by every page
-
-Implement this state machine for every write:
-
-```text
-idle
-  -> wallet signature pending
-  -> confirmation pending
-  -> confirmed
-  -> refresh accounts
-```
-
-Failure path:
-
-```text
-pending -> failed -> preserve last confirmed state + show error
-```
-
-Do not optimistically change token balances or vault totals.
-
-Show the signature and a devnet explorer link after confirmation:
-
-```text
-https://solscan.io/tx/<SIGNATURE>?cluster=devnet
-```
-
-## 12. Analytics artifact integration
-
-The app currently serves static files from `app/public/artifacts/`.
-
-Required files:
-
-```text
-manifest.json
-headline.json
-held_out.json
-routed_world.json
-envelope.json
-thesis.json
-cu.json
-mutation.json
-test_counts.json
-e8_proxy.json
-```
-
-Rules:
-
-- `manifest.json` is the provenance entry point.
-- Replay values are not live vault values.
-- E8 is a proxy unless the artifact explicitly says otherwise.
-- Do not show APY or profitability projections as current product results.
-- Do not show `0.00 bps`, `99.9%`, `0.24 bps`, or `~620 CU` unless the displayed value is read from a named artifact.
-
-## 13. Local verification
-
-Run from the repository root:
-
-```bash
-cargo fmt --all -- --check
-cargo test --workspace
-anchor build
-python3 -m pytest simulation -q
-```
-
-Run from `app/`:
-
-```bash
-```
-
-Run the app only after the backend state is ready. The UI can build without a vault, but a live swap cannot succeed without:
-
-```text
-existing vault
-non-zero reserves
-fresh QuoteState
-funded wallet
-fresh keeper/oracle input
-```
-
-## 14. End-to-end smoke test
-
-### Read path
-
-- [ ] App connects to devnet.
-- [ ] Wallet address renders.
-- [ ] Native SOL and tSOL/tUSDC balances load from RPC.
-- [ ] Vault existence is checked by PDA.
-- [ ] Vault/config/quote accounts decode.
-- [ ] Quote version, ladder, expiry, and status render from on-chain data.
-
-### Write path
-
-- [ ] Deposit uses both token ATAs and the fetched reserve/share accounts.
-- [ ] Deposit confirmation refreshes the ticket and share balance.
-- [ ] Swap uses integer atoms and current quote version.
-- [ ] Swap is disabled when quote expired or vault paused.
-- [ ] Swap confirmation refreshes balances.
-- [ ] Withdrawal request creates/reads the real ticket.
-- [ ] Claim uses the real ticket and refreshes balances.
-- [ ] Crank is available only when epoch conditions are met.
-
-### Keeper path
-
-- [ ] Keeper reads the correct price-update account.
-- [ ] Keeper feed ID matches the configured feed ID.
-- [ ] Keeper reads the actual vault/config/quote/reserve addresses.
-- [ ] Keeper uses 9/6 decimal normalization.
-- [ ] Keeper posts `update_quote`.
-- [ ] App observes the new quote version.
-- [ ] Stopping keeper causes expiry, not a fabricated frontend quote.
-
-### Evidence path
-
-- [ ] App displays the confirmed transaction signature.
-- [ ] Analytics loads artifacts from `/artifacts/`.
-- [ ] Artifact provenance is visible.
-- [ ] Replay/model values are labeled.
-- [ ] Missing values render `n/a`.
-- [ ] Claims match `docs/CLAIMS.md`.
-
-## 15. Stop conditions
-
-Stop and ask the operator instead of guessing if:
-
-- The vault PDA is absent and no initialization approval exists.
-- The configured admin key is unavailable or does not match `program_config.admin`.
-- The price-update account is unknown.
-- The keeper keypair is missing.
-- The deployed IDL address differs from the program ID.
-- The program hash does not match the intended build.
-- Token decimals differ from 9/6.
-- The app wants to use mainnet tokens or real funds.
-- A UI value has no on-chain or artifact source.
-
-## 16. Security and demo limitations
-
-- This is a devnet test-token integration.
-- No private keys belong in Git.
-- The deployed program is upgradeable and requires stronger authority management before real funds.
-- The system is not independently audited.
-- Replay/backtest output is not proof of live profitability or live execution quality.
-- A keeper outage should cause quote expiry and disabled swaps.
-
-For the product rationale and math specification, read `MasterPlan.md`, `BuilderPlan.md`, and `docs/BUILD_PLAN.md`. For deployment history, read `docs/DEVNET.md`. For claim boundaries, read `docs/CLAIMS.md`.
+Browser E2E (headless Chromium over CDP): `app/e2e/browser-smoke.mjs` — see
+`docs/S2_27_BROWSER_E2E.md`.
+
+## 12. Chronology (why earlier revisions differ)
+
+tSOL/tUSDC demo → canonical WSOL/USDC; Pyth entitlement blocker → unblocked;
+packet-size blocker on direct `update_quote` → staged quotes; keeper allowlist →
+permissionless + immutable eligibility; `QuoteState` gained `keeper` (865 → 897,
+migrated on Devnet); program upgraded to the current artifact. Do not treat any
+single historical state as current.
+
+## 13. Remaining work (integration status)
+
+**Blocking the core live proof**
+1. **Independent-keeper live commit** — blocked by provider/Pyth latency: the 3-tx
+   staged pipeline takes 3–8 s vs the deployed 2 s freshness window (S2-29). Keeper
+   B is provisioned/funded (`6FqSc5…`); needs a lower-latency RPC
+   (`ARBSWAP_RPC_URL`) or co-located Hermes. **No code blocker.**
+
+**Backend / governance**
+2. Move the single-key upgrade authority (`ddGs6hk5…`) to a multisig.
+3. Define objective on-chain slashing criteria (currently admin-discretionary).
+4. Re-propose any in-flight `PendingConfig` after an upgrade (transient account).
+
+**Frontend**
+5. Wallet-adapter `ConnectionProvider` endpoint consistency (documented limitation).
+6. Browser E2E for **connected-wallet** flows (deposit/withdraw/claim/keeper-claim)
+   with a mocked wallet — only disconnected states are rendered-tested today.
+7. Keeper telemetry (volatility/inventory/jump) has no on-chain source → keep
+   rendering `unavailable` (verify no mock remains).
+8. Archive/ignore the empty `frontend/` scaffold.
+
+**Release / demo**
+9. Produce (or intentionally omit) the `/analytics/onchain.json` export in the
+   deployment; the UI already handles absence.
+
+Count: **1 blocking live-proof task (provider), 3 backend/governance, 4 frontend,
+1 release** — ~9 distinct items. Only #1 gates the decentralization proof; the
+rest are governance hardening, UX/E2E depth, or optional analytics.

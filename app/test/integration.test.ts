@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseUnits, formatUnits } from '../src/chain/amounts';
 import { swapUnavailableReason, claimWithdrawState } from '../src/chain/gating';
 import { feeAtoms, expectedOutAtoms, minOutWithSlippage, swapAmounts } from '../src/chain/swapMath';
-import { deriveVaultAddresses, expectedDepositShares } from '../src/chain/program';
+import { deriveVaultAddresses, expectedDepositShares, keeperRewardPda } from '../src/chain/program';
 import { CANONICAL_VAULT, ACTIVE_VAULT } from '../src/chain/config';
 import { toQuoteState } from '../src/chain/live';
 import { BN } from '@coral-xyz/anchor';
@@ -29,7 +29,7 @@ describe('canonical vault wiring', () => {
   });
 });
 
-describe('integer-safe amounts (9/6 decimals)', () => {
+describe('integer-exact amounts (9/6 decimals)', () => {
   it('parses and formats without floating point', () => {
     expect(parseUnits('1', 9)).toBe(1_000_000_000n);
     expect(parseUnits('0.174120234', 9)).toBe(174_120_234n);
@@ -223,5 +223,52 @@ describe('quote availability never falls back to a numeric zero', () => {
   it('swap gate stays closed while the quote is unavailable or expired', () => {
     const unavailable = toQuoteState({ ...base }, 1000);
     expect(swapUnavailableReason({ vaultInitialized: true, circuitBreakerTripped: false, quoteAvailable: unavailable.hasQuote && unavailable.status !== 'Expired' })).toMatch(/no fresh Pyth quote/);
+  });
+});
+
+describe('keeper reward attribution (S2-24/S2-25)', () => {
+  const VAULT = new PublicKey('8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt');
+  const KEEPER = new PublicKey('8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH');
+  const PROGRAM = new PublicKey('2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm');
+
+  it('derives the per-keeper reward PDA as [b"reward", vault, keeper]', () => {
+    const pda = keeperRewardPda(VAULT, KEEPER);
+    const [expected] = PublicKey.findProgramAddressSync(
+      [Buffer.from('reward'), VAULT.toBuffer(), KEEPER.toBuffer()],
+      PROGRAM,
+    );
+    expect(pda.toBase58()).toBe(expected.toBase58());
+  });
+
+  it('exposes the quote author only when genuinely attributed', () => {
+    const pk = PublicKey.default;
+    const base = { exists: true, vault: pk, config: pk, quoteState: pk };
+    const quoteData = {
+      version: new BN(19), updateSlot: new BN(100), expirySlot: new BN(110),
+      halfSpreadBps: 11, askExtraBps: 0, bidExtraBps: 0, depthMultBps: 7000,
+      oraclePrice: new BN(0), anchorSqrtPrice: new BN('6036613448307627517'),
+      pResSqrt: new BN('6036613448307627517'), oraclePublishTime: new BN(1),
+      oracleConfBps: 4, keeper: KEEPER, askLevels: [], bidLevels: [],
+    };
+    expect(toQuoteState({ ...base, quoteData }, 105).quoteKeeper).toBe(KEEPER.toBase58());
+    // Unattributed (legacy/migrated sentinel) must never surface a configured keeper.
+    expect(toQuoteState({ ...base, quoteData: { ...quoteData, keeper: pk } }, 105).quoteKeeper).toBeNull();
+  });
+});
+
+describe('S2-28 independent keeper attribution (mocked)', () => {
+  // The provisioned independent keeper B (public key only; unfunded faucet attempt).
+  const KEEPER_B = new PublicKey('6FqSc5vm9vdVDLRVbJZ9cYx4Mh4sVtCpM5x6qaLknB2G');
+  it('displays a quote authored by Keeper B (never config.keeper)', () => {
+    const pk = PublicKey.default;
+    const base = { exists: true, vault: pk, config: pk, quoteState: pk };
+    const quoteData = {
+      version: new BN(30), updateSlot: new BN(200), expirySlot: new BN(210),
+      halfSpreadBps: 11, askExtraBps: 0, bidExtraBps: 0, depthMultBps: 7000,
+      oraclePrice: new BN(0), anchorSqrtPrice: new BN('6036613448307627517'),
+      pResSqrt: new BN('6036613448307627517'), oraclePublishTime: new BN(1),
+      oracleConfBps: 4, keeper: KEEPER_B, askLevels: [], bidLevels: [],
+    };
+    expect(toQuoteState({ ...base, quoteData }, 205).quoteKeeper).toBe(KEEPER_B.toBase58());
   });
 });

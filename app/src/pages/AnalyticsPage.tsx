@@ -1,5 +1,6 @@
 import React from 'react';
 import { useBackend, meanVenueMetric } from '../data/backend';
+import { OnchainAnalyticsPanel } from '../components/OnchainAnalyticsPanel';
 
 export const AnalyticsPage: React.FC = () => {
   const backend = useBackend();
@@ -11,6 +12,7 @@ export const AnalyticsPage: React.FC = () => {
   return (
     <div className="analytics-page-wrapper">
       <div className="container analytics-container">
+        <OnchainAnalyticsPanel />
         
         {/* Header Block */}
         <div className="analytics-header">

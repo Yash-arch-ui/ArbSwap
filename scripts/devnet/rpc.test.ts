@@ -29,6 +29,9 @@ check("unknown cluster throws", threw);
 const dflt = resolveRpcConfig({});
 check("default devnet endpoint", dflt.endpoints[0] === "https://api.devnet.solana.com");
 
+const pref = resolveRpcConfig({ ARBSWAP_RPC_URL: "https://a.example/rpc", RPC_URL: "https://b.example/rpc" });
+check("ARBSWAP_RPC_URL preferred over RPC_URL", pref.endpoints[0] === "https://a.example/rpc");
+
 const withFb = resolveRpcConfig({
   ARBSWAP_RPC_URL: "https://my-devnet.example/rpc?key=SECRET",
   ARBSWAP_RPC_FALLBACKS: "https://fb1.example/rpc, https://fb2.example/rpc",
@@ -46,7 +49,7 @@ check("cross-cluster fallback rejected", threw);
 // --- redaction ---
 check(
   "redactUrl strips credentials/query",
-  redactUrl("https://user:pass@rpc.example/rpc?api-key=SECRET") === "https://rpc.example/rpc",
+  redactUrl("https://user:pass@rpc.example/rpc?key=SECRET") === "https://rpc.example/rpc",
 );
 check("redactUrl tolerates garbage", redactUrl("not a url") === "<invalid-url>");
 

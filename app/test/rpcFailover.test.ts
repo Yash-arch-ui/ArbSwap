@@ -58,7 +58,7 @@ describe('browser RPC failover', () => {
 
   it('redacts the active endpoint', () => {
     const pool = new RpcFailover({
-      endpoints: ['https://user:pass@rpc.example/rpc?api-key=SECRET'],
+      endpoints: ['https://user:pass@rpc.example/rpc?key=SECRET'],
       makeConnection: mk,
     });
     expect(pool.activeEndpoint).toBe('https://rpc.example/rpc');

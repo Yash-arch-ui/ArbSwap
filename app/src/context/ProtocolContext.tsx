@@ -15,13 +15,13 @@ import {
   fetchShareBalance,
   fetchDepositTicket,
   fetchWithdrawTicket,
+  verifyCluster,
+  verifyProgram,
 } from '../chain/program';
 import { toQuoteState, toVaultState, toRiskBreakers } from '../chain/live';
-import { createRpcFailover } from '../chain/rpcFailover';
+import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 
-const RPC_FAILOVER = createRpcFailover(
-  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {},
-);
+const RPC_FAILOVER = APP_RPC_FAILOVER;
 
 const BASE_SYMBOL = ACTIVE_VAULT.baseMint.equals(BASE_MINT) ? 'WSOL' : 'BASE';
 const QUOTE_SYMBOL = ACTIVE_VAULT.quoteMint.equals(QUOTE_MINT) ? 'USDC' : 'QUOTE';
@@ -37,6 +37,8 @@ const EMPTY_QUOTE_STATE: QuoteState = {
   levels: Array.from({ length: 6 }, (_, i) => ({
     level: i + 1, offsetBps: 0, weightBps: 0, capacityUsd: 0, bidPrice: 0, askPrice: 0,
   })),
+  askLevelsRaw: [],
+  bidLevelsRaw: [],
   status: 'Unavailable',
 };
 
@@ -66,6 +68,21 @@ const INITIAL_TOKENS: { SOL: Token; USDC: Token } = {
   },
 };
 
+export interface ProtocolParams {
+  feeBps: number;
+  insuranceBps: number;
+  keeperBps: number;
+  protocolBps: number;
+  warmupSlots: number;
+  epochSlots: number;
+  graceSlots: number;
+  expirySlots: number;
+  maxQuoteSize: string;
+  maxWindowFlowBps: number;
+  maxStalenessSeconds: number;
+  maxConfBps: number;
+}
+
 const EMPTY_STATUS: ProtocolStatus = {
   rpc: 'unknown',
   programRead: 'missing',
@@ -82,22 +99,31 @@ interface ProtocolContextType {
   quoteState: QuoteState;
   vaultState: VaultState;
   riskBreakers: RiskBreakers;
+  /** Live on-chain protocol parameters (Config), or null until read. */
+  protocolParams: ProtocolParams | null;
   tokens: { SOL: Token; USDC: Token };
   status: ProtocolStatus;
   walletConnected: boolean;
   walletAddress: string | null;
   balancesLoading: boolean;
+  /** Exact atom balances of the connected wallet's base/quote ATAs (null until read). */
+  walletAtoms: { base: bigint; quote: bigint } | null;
   vaultInitialized: boolean;
   quoteAvailable: boolean;
   quoteFresh: boolean;
   shareBalanceAtoms: bigint | null;
-  /** Raw atom amounts for integer-safe deposit/share math (null until read). */
+  /** Raw atom amounts for integer-exact deposit/share math (null until read). */
   vaultAtoms: { totalShares: bigint; baseNet: bigint; quoteNet: bigint; minLiquidity: bigint } | null;
   depositTicket: DepositTicketView | null;
   withdrawTicket: WithdrawTicketView | null;
   currentSlot: number;
   lastUpdatedAt: number | null;
   liveError: string | null;
+  /** Devnet genesis + deployed program verified before on-chain data is trusted. */
+  genesisVerified: boolean;
+  programVerified: boolean;
+  /** Latest observed chain block time (unix seconds) or null. */
+  blockTime: number | null;
   activeVaultLabel: string;
   refreshBalances: () => Promise<void>;
   refreshProtocol: () => Promise<void>;
@@ -113,9 +139,11 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [quoteState, setQuoteState] = useState<QuoteState>(EMPTY_QUOTE_STATE);
   const [vaultState, setVaultState] = useState<VaultState>(EMPTY_VAULT_STATE);
   const [riskBreakers, setRiskBreakers] = useState<RiskBreakers>(EMPTY_RISK);
+  const [protocolParams, setProtocolParams] = useState<ProtocolParams | null>(null);
   const [tokens, setTokens] = useState(INITIAL_TOKENS);
   const [status, setStatus] = useState<ProtocolStatus>(EMPTY_STATUS);
   const [balancesLoading, setBalancesLoading] = useState(false);
+  const [walletAtoms, setWalletAtoms] = useState<{ base: bigint; quote: bigint } | null>(null);
   const [vaultInitialized, setVaultInitialized] = useState(false);
   const [quoteAvailable, setQuoteAvailable] = useState(false);
   const [quoteFresh, setQuoteFresh] = useState(false);
@@ -126,22 +154,30 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [currentSlot, setCurrentSlot] = useState(0);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [genesisVerified, setGenesisVerified] = useState(false);
+  const [programVerified, setProgramVerified] = useState(false);
+  const [blockTime, setBlockTime] = useState<number | null>(null);
   const shareMintRef = useRef<string | null>(null);
+  // Guards against a slow, stale refresh overwriting newer state (e.g. after a
+  // wallet account change): only the latest refresh is allowed to commit.
+  const refreshSeqRef = useRef(0);
 
   const refreshBalances = useCallback(async () => {
     if (!publicKey) {
       setTokens(INITIAL_TOKENS);
       setShareBalanceAtoms(null);
+      setWalletAtoms(null);
       return;
     }
     setBalancesLoading(true);
     try {
-      const { base, quote } = await RPC_FAILOVER.run((c) => loadWalletBalances(c, publicKey));
+      const { base, quote, baseAtoms, quoteAtoms } = await RPC_FAILOVER.run((c) => loadWalletBalances(c, publicKey));
       const shares = await RPC_FAILOVER.run((c) => fetchShareBalance(c, publicKey)).catch(() => null);
       setTokens((prev) => ({
         SOL: { ...prev.SOL, balance: Number(base.toFixed(4)) },
         USDC: { ...prev.USDC, balance: Number(quote.toFixed(2)) },
       }));
+      setWalletAtoms({ base: baseAtoms, quote: quoteAtoms });
       setShareBalanceAtoms(shares);
     } catch {
       // RPC hiccup: keep the last known balances.
@@ -151,12 +187,19 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [connection, publicKey]);
 
   const refreshProtocol = useCallback(async () => {
+    const seq = ++refreshSeqRef.current;
     try {
-      const [state, slot] = await Promise.all([
+      const [state, slot, cluster, program] = await Promise.all([
         RPC_FAILOVER.run((c) => fetchProtocolState(c, ACTIVE_VAULT.baseMint, ACTIVE_VAULT.quoteMint)),
         RPC_FAILOVER.run((c) => c.getSlot()).catch(() => 0),
+        RPC_FAILOVER.run((c) => verifyCluster(c)).catch(() => ({ verified: false, genesisHash: null })),
+        RPC_FAILOVER.run((c) => verifyProgram(c)).catch(() => ({ verified: false, owner: null, executable: false })),
       ]);
+      // Discard this result if a newer refresh already started (e.g. account change).
+      if (seq !== refreshSeqRef.current) return;
       const now = Math.floor(Date.now() / 1000);
+      setGenesisVerified(cluster.verified);
+      setProgramVerified(program.verified);
       setVaultInitialized(state.exists);
       setCurrentSlot(slot);
       setLastUpdatedAt(now);
@@ -174,6 +217,25 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       risk.activeBreakerReason = risk.circuitBreakerTripped ? 'Vault status is not Active' : null;
       risk.keeperActiveAddress = state.configData ? state.configData.keeper.toBase58() : '';
       setRiskBreakers(risk);
+      if (state.configData) {
+        const c = state.configData;
+        setProtocolParams({
+          feeBps: c.feeBps,
+          insuranceBps: c.insuranceBps,
+          keeperBps: c.keeperBps,
+          protocolBps: c.protocolBps,
+          warmupSlots: Number(c.warmupSlots.toString()),
+          epochSlots: Number(c.epochSlots.toString()),
+          graceSlots: Number(c.graceSlots.toString()),
+          expirySlots: Number(c.expirySlots.toString()),
+          maxQuoteSize: c.maxQuoteSize.toString(),
+          maxWindowFlowBps: c.maxWindowFlowBps,
+          maxStalenessSeconds: Number(c.maxStalenessSeconds.toString()),
+          maxConfBps: c.maxConfBps,
+        });
+      } else {
+        setProtocolParams(null);
+      }
       setTokens((prev) => ({
         SOL: { ...prev.SOL, priceUsd: quote.oraclePrice || prev.SOL.priceUsd },
         USDC: { ...prev.USDC, priceUsd: 1 },
@@ -197,6 +259,14 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           };
         }
       }
+      // Newer refresh started (wallet changed) — drop this stale wallet snapshot.
+      if (seq !== refreshSeqRef.current) return;
+      // Best-effort real chain block time for the current slot.
+      const bt = slot > 0
+        ? await RPC_FAILOVER.run((c) => c.getBlockTime(slot)).catch(() => null)
+        : null;
+      if (seq !== refreshSeqRef.current) return;
+      setBlockTime(bt);
       setShareBalanceAtoms(shares);
       setDepositTicket(dep);
       setWithdrawTicket(wd);
@@ -214,7 +284,7 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       } else {
         setVaultAtoms(null);
       }
-      setVaultState(toVaultState(state, quote.oraclePrice, shares === null ? 0 : Number(shares.toString()) / 10 ** ACTIVE_VAULT.shareDecimals));
+      setVaultState(toVaultState(state, quote.oraclePrice, shares === null ? 0 : Number(shares.toString()) / 10 ** ACTIVE_VAULT.shareDecimals, slot));
 
       setStatus({
         rpc: 'ok',
@@ -270,11 +340,13 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         quoteState,
         vaultState,
         riskBreakers,
+        protocolParams,
         tokens,
         status,
         walletConnected: connected,
         walletAddress: publicKey ? publicKey.toBase58() : null,
         balancesLoading,
+        walletAtoms,
         vaultInitialized,
         quoteAvailable,
         quoteFresh,
@@ -285,6 +357,9 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         currentSlot,
         lastUpdatedAt,
         liveError,
+        genesisVerified,
+        programVerified,
+        blockTime,
         activeVaultLabel: ACTIVE_VAULT.label,
         refreshBalances,
         refreshProtocol,
