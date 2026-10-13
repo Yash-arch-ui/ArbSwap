@@ -132,12 +132,12 @@ describe('S2-32 read-only invariants', () => {
     }
     for (const f of files) {
       const body = readFileSync(here(`../dist/assets/${f}`), 'utf8');
-      expect(body).not.toMatch(/PYTH_API_KEY|api-key=|BEGIN PRIVATE KEY|private_key/i);
+      expect(body).not.toMatch(/PYTH_API_KEY|api-key|BEGIN PRIVATE KEY|private_key/i);
     }
   });
 });
 
-describe('S2-32 cluster/program verification fails safe', () => {
+describe('S2-32 cluster/program verification fails closed', () => {
   it('verifyCluster reports a mismatch as unverified', async () => {
     const conn = { getGenesisHash: async () => 'SOMETHING_ELSE' } as never;
     expect((await verifyCluster(conn)).verified).toBe(false);
