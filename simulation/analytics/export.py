@@ -1,8 +1,11 @@
-"""Assemble the dashboard data bundle from the index + live chain reads.
+"""Assemble a standalone historical/read-only on-chain analytics bundle.
 
-Writes ``app/public/analytics/onchain.json`` which the SPA fetches at
-``/analytics/onchain.json``. The bundle keeps **live** on-chain values and
-**historical** indexed values in separate sections and never mixes them.
+Writes ``app/public/analytics/onchain.json`` as a **standalone export** (live
+on-chain snapshot + historical indexed sections, never mixed). NOTE (S2-24): the
+current SPA does **not** fetch ``/analytics/onchain.json`` — it reads only the
+static ``/artifacts/*`` bundle and live on-chain state. This export is optional
+tooling, not a frontend dependency; wiring it into the UI is tracked in
+``docs/INTEGRATION_GAPS.md``. Do not present these values as live in the app.
 """
 
 from __future__ import annotations

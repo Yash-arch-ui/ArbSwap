@@ -153,3 +153,13 @@ cargo test --workspace
 - Frontend multi-endpoint failover is config/guard only (browser path uses the
   primary); the Node tooling has the full pool.
 - Single-key upgrade authority and discretionary slashing remain.
+
+---
+
+## S2-23 executed on Devnet (verified)
+
+- **Upgrade:** sig `5ub1Su7Z…`, finalized; deployed ELF sha256 `b4df2b0f…` **MATCH**.
+- **Migration:** sig `qmTocoCx…`; QuoteState 865 → **897**, keeper sentinel `1111…`, version/expiry preserved.
+- **Fresh quote:** push+commit `4ABgziXU…`; QuoteState **v19**, author `8R3V…` (correct), conf 9 bps.
+- **Keeper robustness fixes (local, uncommitted):** inspect a signature before treating a confirm timeout as failure; fetch a fresh blockhash for the push tx.
+- **Second keeper live:** blocked by market confidence at the deployed cap + intermittent Devnet RPC connect timeouts; semantics proven in LiteSVM.

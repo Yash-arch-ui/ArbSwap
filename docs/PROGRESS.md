@@ -1604,3 +1604,55 @@ Report: [`docs/S2_22_RELEASE_READINESS.md`](S2_22_RELEASE_READINESS.md).
   oracle 3, security 3, breaker 2, fixtures 1; keeper 44; math +4); analytics
   pytest 34; `yarn test` 34, lint, build clean; TS `tsc` clean; docs-consistency
   pass; secrets CLEAN.
+
+## Part 3 / Step 28 — S2-23 Devnet release + migration + live quote (executed)
+
+Authorized Devnet writes executed. **No swaps/deposits/withdrawals/transfers.**
+
+### Upgrade
+- Preflight `ok:true` (artifact sha256 `b4df2b0f…`, authority `ddGs6hk5…`, QuoteState legacy 865 B).
+- `solana program deploy target/deploy/arbswap.so --program-id 2mwp… --upgrade-authority ~/.config/solana/arbswap-devnet.json --fee-payer ~/.config/solana/id.json`
+- Signature `5ub1Su7ZfZ8iLLxTkC6rda3LdCs5ZAkeGsin8sJgdajDzstmr1tahGvyNPiBHivdhxGYNYYFQYMZKLhzfy99sZAo` — **Finalized**; log `Upgraded program 2mwp…`.
+- `devnet_program_hash.py` → **MATCH** (on-chain ELF 769984 B sha256 `b4df2b0f93735c7532871769ec713e92179f6375252a5bad7d8fea9c989f7096`).
+
+### Migration (865 → 897)
+- `scripts/devnet/migrate_quote_state.ts` (new; dry-run then `SUBMIT=1`).
+- Signature `qmTocoCx36EpQL6qTdTE4GAWhuW8vztXJouGuCyah76PEcC66sLdhsdpFP7pPCeTYem8Akfx8nhduefTSpV5qrh`, err null.
+- Reread: length **897**, owner = program, discriminator `beffae2c13d7259c`, keeper `11111111111111111111111111111111` (unattributed sentinel), version 18 and expiry 510407830 preserved.
+
+### Fresh attributed quote
+- Keeper `scripts/devnet/keeper_live.ts` (permissionless, `min_bond==0`), payer/keeper `8R3V…`.
+- stage `3dZkPG6CoNqzgGW2uMTFmghD6NWogaVKr4VKmJfhoPa46khgF77mhnhVXToMUYYkCc1pQ2G5zqghxA5BF3d2nc1C`,
+  vaa `3a7yVnkKNutv849oU3BYRAq2NUcC6FNN1sE2wgR7wgWRT1owYxkjxiW63mtTYgwz6A84iHpeUqXPhD8riHAVzp3n`,
+  push+commit `4ABgziXU253Wnh6vUnTY1ijEBwyi4mn9GfGYs5g4KbU8P1wcLqyRRTD3SnsuBfXy5Svmjzt3jBDWfdGVpDVPwiVX`
+  (slot 510613354, err null).
+- Independently reread: **version 18 → 19**, update_slot 510613343, expiry 510613364, oracle_conf_bps 9, **keeper = `8R3V…`** (attribution correct), `unattributed: false`.
+
+### Second independent keeper (blocked)
+- A distinct funded signer (`ddGs6hk5…`, the upgrade authority) was used as keeper B. It staged/attempted but did **not** land a commit in three bounded windows (up to 360 s).
+- Measured blockers: Pyth confidence oscillated at the deployed 10-bps cap, and the keeper engine self-throttles to zero depth at the cap, so only ~5/360 s of attempts were eligible; the public Devnet RPC intermittently returned `ConnectTimeoutError`; the 2 s freshness + 25-slot stage-age window is tight for the 3-tx staged pipeline. No protocol parameter was changed.
+- Two-keeper semantics remain proven in LiteSVM (staging isolation, cross-commit rejection, attribution isolation, independent recovery).
+
+## Part 3 / Step 29 — S2-24 reliability sprint
+
+Report: [`docs/S2_24_RELIABILITY_SPRINT.md`](S2_24_RELIABILITY_SPRINT.md).
+
+- **Confidence-boundary fix (keeper engine):** the depth throttle hit exactly 0 at
+  `conf == max_conf_bps` (10), which the deployed program accepts. Added
+  `confidence_floor_bps` (default 10%) so the boundary yields a conservative
+  positive depth. Deterministic test added (keeper tests 45).
+- **Pipeline fixes (`keeper_live.ts`):** fresh blockhash for the push tx; inspect
+  the signature before treating an ambiguous confirm as failure.
+- **Live effect:** bounded 180 s run advanced QuoteState **v24 → v28** with 16
+  verified commits by `8R3V…` (vs 0–1 in earlier 240–360 s runs). No swaps sent.
+- **Browser RPC failover:** `app/src/chain/rpcFailover.ts` (+5 tests) wired into
+  `ProtocolContext` reads; Node `rpc.ts` re-verified (23 tests).
+- **Frontend keeper-claim workflow:** `fetchKeeperReward`/`claimKeeperReward` +
+  `KeeperRewards` panel on RiskPage; `app/.env.example`; analytics export docstring
+  corrected; `INTEGRATION.md` reconciled (S2-24 banner + §8/§9 ABI).
+- **Independent keeper:** none available (only the configured keeper `8R3V…` and
+  the upgrade authority `ddGs…` are funded; program keypair has 0 SOL). Exact
+  prerequisite documented; two-keeper semantics remain LiteSVM-proven.
+- **Validation:** `cargo fmt --check` clean; `cargo test --workspace` green;
+  `yarn test` 39, lint, build clean; analytics pytest 34; docs-consistency pass;
+  secrets CLEAN.

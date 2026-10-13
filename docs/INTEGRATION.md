@@ -4,6 +4,17 @@ This is the implementation runbook for connecting the Rust/Anchor backend to the
 
 It is written for a coding agent. Follow the steps in order. Do not invent addresses, account layouts, token mints, ABI fields, or test results.
 
+> **S2-24 STATUS — READ `docs/INTEGRATION_GAPS.md` FIRST.** This runbook predates
+> S2-9…S2-24 and several sections are stale. Corrections that matter:
+> the canonical pair is **WSOL/USDC** (not tSOL/tUSDC); the keeper uses the
+> **staged** `stage_quote` + `commit_quote` path (the legacy `update_quote` loop
+> is no longer the normal workflow); `swap` now also requires the `keeper_reward`
+> and `system_program` accounts; `QuoteState` carries a `keeper` attribution
+> field; `claim_keeper_reward` is a real per-keeper claim; and RPC is
+> environment-configured with cluster-guarded fallbacks. §7–§9 below are
+> superseded by `docs/S2_20_IMPLEMENTATION.md`, `docs/S2_21A_MIGRATION.md`, and
+> `docs/S2_24_RELIABILITY_SPRINT.md`.
+
 ## 0. Scope and architecture
 
 The active frontend is `app/`, not `frontend/`.
@@ -358,7 +369,6 @@ args:
 ```text
 update_slot: u64
 oracle_publish_time: i64
-oracle_price: u128
 oracle_conf_bps: u32
 anchor_sqrt_price: u128
 p_res_sqrt: u128
@@ -372,15 +382,21 @@ ask_levels: [LevelUpdate; 6]
 bid_levels: [LevelUpdate; 6]
 ```
 
+> `oracle_price` was removed in S2-9 (the program derives the normalized price
+> from the verified Pyth account + mint decimals). The normal keeper workflow is
+> **staged** (`stage_quote` then `commit_quote` with the Pyth push in the same
+> transaction), not a direct `update_quote` loop.
+
 `LevelUpdate` is:
 
 ```text
 sqrt_lo: u128
 sqrt_hi: u128
 liquidity: u128
-inv_lo: u128
-inv_hi: u128
 ```
+
+> `inv_lo`/`inv_hi` were removed in S2-9; the ask-side capacity is computed
+> on-chain.
 
 All fixed-point fields are integer values. Do not recreate this payload in the React app. The keeper is the quote writer.
 
@@ -404,15 +420,28 @@ accounts:
 args: side: SwapSide, amount_in: u64, min_out: u64, min_version: u64
 accounts:
   trader, vault, config, quote_state, base_reserve, quote_reserve,
-  trader_base, trader_quote, token_program
+  trader_base, trader_quote, keeper_reward, system_program, token_program
 ```
 
-`SwapSide` values are:
+`keeper_reward` is the PDA `[b"reward", vault, quote_state.keeper]` (the author of
+the active quote); it is created on first use. `SwapSide` values are:
 
 ```text
 { buyBase: {} }
 { sellBase: {} }
 ```
+
+### `claim_keeper_reward` (S2-24)
+
+```text
+args: none
+accounts:
+  keeper, vault, keeper_reward, base_reserve, quote_reserve,
+  keeper_base, keeper_quote, token_program
+```
+
+`keeper_reward` is the signer's own PDA `[b"reward", vault, keeper]`; the program
+pays only the signer's accrual, capped by the vault's aggregate keeper buckets.
 
 ### `request_withdraw`
 
