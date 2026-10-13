@@ -88,7 +88,7 @@ async function main() {
     rpcRetryNotices: rpcRetryNotices.length,
     hasKeeperRewardsPanel: /Keeper rewards/.test(states["04-risk"] ?? ""),
     swapExpiredHonest: /Quote expired|Swaps stay disabled|EXPIRED|Quote unavailable|Read-only/i.test(states["02-swap"] ?? ""),
-    analyticsHonest: /analytics (export|unavailable)|historical only/i.test(states["05-analytics"] ?? ""),
+    analyticsHonest: /INDEXED HISTORY|RESEARCH artifacts|analytics (export|unavailable)|historical only/i.test(states["05-analytics"] ?? ""),
     // S2-32 read-only integration checks.
     readOnlyBanner: /Read-only integration mode/i.test(
       `${states["02-swap"] ?? ""}${states["03-vault"] ?? ""}${states["04-risk"] ?? ""}${states["05-analytics"] ?? ""}`,
@@ -96,6 +96,15 @@ async function main() {
     swapReadOnly: /Read-only mode/i.test(states["02-swap"] ?? ""),
     modelLabelled: /model/i.test(states["01-overview"] ?? ""),
     noFabricatedMarkout: !/\+0\.38 bps/.test(states["01-overview"] ?? ""),
+    // S2-33: indexed history panel renders with explicit provenance.
+    analyticsHistory:
+      /INDEXED HISTORY/.test(states["05-analytics"] ?? "") &&
+      /Historical swaps \(indexed\)/.test(states["05-analytics"] ?? ""),
+    // Expired state is labelled from the export's server-computed freshness flag
+    // (robust to public-RPC rate limiting) and/or the live pages when reachable.
+    expiredQuoteLabelled: /EXPIRED|Quote expired|last-known/i.test(
+      `${states["01-overview"] ?? ""}${states["02-swap"] ?? ""}${states["05-analytics"] ?? ""}`,
+    ),
   };
   console.log(JSON.stringify(summary, null, 2));
   ws.close();
@@ -104,7 +113,9 @@ async function main() {
     consoleErrors.length === 0 &&
     summary.readOnlyBanner &&
     summary.swapReadOnly &&
-    summary.noFabricatedMarkout;
+    summary.noFabricatedMarkout &&
+    summary.analyticsHistory &&
+    summary.expiredQuoteLabelled;
   process.exit(ok ? 0 : 1);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

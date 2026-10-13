@@ -4,12 +4,79 @@
 // from this file. The export is optional; missing/stale data is shown as
 // unavailable with a reason, never fabricated.
 
+export interface IndexedEvent {
+  signature: string;
+  slot: number;
+  block_time: number | null;
+  event_type: string;
+  /** Event-specific Borsh payload (e.g. side/amount_in/amount_out/fee/version). */
+  payload: Record<string, unknown> & {
+    side?: string;
+    amount_in?: number;
+    amount_out?: number;
+    fee?: number;
+    version?: number;
+    shares?: number;
+    base_amount?: number;
+    quote_amount?: number;
+    nonce?: number;
+  };
+}
+
+export interface IndexCoverage {
+  first_slot: number | null;
+  last_slot: number | null;
+  first_block_time: number | null;
+  last_block_time: number | null;
+  transactions: number;
+  events: number;
+  first_indexed_at: string | null;
+  last_indexed_at: string | null;
+}
+
+export interface HistorySection {
+  source: string;
+  coverage: IndexCoverage;
+  swaps: IndexedEvent[];
+  deposits: IndexedEvent[];
+  withdrawals: IndexedEvent[];
+  quote_commits: IndexedEvent[];
+  quote_commits_truncated: number;
+  quote_attribution_note: string;
+}
+
 export interface OnchainAnalytics {
   generated_at: string;
   network?: string;
   canonical?: Record<string, string>;
-  index_status?: { schema_version?: number; last_slot?: number; [k: string]: unknown };
+  index_status?: {
+    schema_version?: number;
+    last_slot?: number;
+    last_indexed_at?: string | null;
+    coverage?: IndexCoverage;
+    counts?: Record<string, number>;
+    ingest_errors?: Array<Record<string, unknown>>;
+    [k: string]: unknown;
+  };
+  freshness?: {
+    generated_at?: string;
+    current_slot?: number | null;
+    quote_version?: number | null;
+    quote_expiry_slot?: number | null;
+    quote_expired?: boolean | null;
+    source?: string;
+  };
   protocol_live?: Record<string, unknown>;
+  trading?: {
+    trade_count?: number;
+    failed_transactions?: number;
+    success_rate?: number | null;
+    buy_base?: Record<string, unknown>;
+    sell_base?: Record<string, unknown>;
+    source?: string;
+    status?: string;
+  };
+  history?: HistorySection;
   lp?: Record<string, unknown>;
   [k: string]: unknown;
 }

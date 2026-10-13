@@ -81,10 +81,14 @@ def build_bundle(
     reserves: dict | None = None,
     reconcile: dict | None = None,
     generated_at: str | None = None,
+    current_slot: int | None = None,
 ) -> dict:
     last_sig, last_slot = db.cursor(canonical.program_id)
     event_rows = db.events(order="slot DESC, event_index DESC")
     swap_rows = db.swaps()
+    deposit_rows = db.deposits()
+    withdrawal_rows = db.withdrawals()
+    quote_rows = db.quote_commits()
     ingest_errors = [
         {
             "signature": row["signature"], "slot": row["slot"],
@@ -92,11 +96,18 @@ def build_bundle(
         }
         for row in db.ingest_error_rows()
     ]
+    coverage = db.coverage()
     swaps = [_event_payload(row) for row in swap_rows]
     activity = [_event_payload(row) for row in event_rows[:50]]
 
     quote_state = (snapshot or {}).get("quote_state")
     vault = (snapshot or {}).get("vault")
+    expiry_slot = (quote_state or {}).get("expiry_slot")
+    quote_expired = (
+        None
+        if current_slot is None or expiry_slot is None
+        else (int(current_slot) >= int(expiry_slot) or int(quote_state.get("version", 0)) == 0)
+    )
     return {
         "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
         "network": "devnet",
@@ -105,8 +116,18 @@ def build_bundle(
             "schema_version": db.schema_version(),
             "last_signature": last_sig,
             "last_slot": last_slot,
+            "last_indexed_at": coverage["last_indexed_at"],
+            "coverage": coverage,
             "counts": db.counts(),
             "ingest_errors": ingest_errors,
+        },
+        "freshness": {
+            "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
+            "current_slot": current_slot,
+            "quote_version": None if not quote_state else quote_state.get("version"),
+            "quote_expiry_slot": expiry_slot,
+            "quote_expired": quote_expired,
+            "source": "live RPC reads at export time",
         },
         "protocol_live": {
             "source": "live RPC reads",
@@ -114,8 +135,20 @@ def build_bundle(
             "quote_state": quote_state,
             "config": (snapshot or {}).get("config"),
             "reserves": reserves,
-            "quote_expired": None if not quote_state else (
-                None  # needs the current slot; supplied by the client against its own clock
+            "quote_expired": quote_expired,
+        },
+        "history": {
+            "source": "indexed confirmed transactions (program events)",
+            "coverage": coverage,
+            "swaps": swaps,
+            "deposits": [_event_payload(row) for row in deposit_rows],
+            "withdrawals": [_event_payload(row) for row in withdrawal_rows],
+            "quote_commits": [_event_payload(row) for row in quote_rows[:100]],
+            "quote_commits_truncated": max(0, len(quote_rows) - 100),
+            "quote_attribution_note": (
+                "QuoteStaged/QuoteCommitted events carry version + nonce but not the keeper; "
+                "keeper attribution is only observable from the live QuoteState account, not "
+                "retroactively from events."
             ),
         },
         "trading": om.trader_metrics(db),
@@ -126,8 +159,10 @@ def build_bundle(
         "activity": activity,
         "reconciliation": reconcile or {"status": "PENDING", "reason": "not run in this export"},
         "limitations": [
+            "Coverage is bounded by what the configured RPC provider retains; earlier history is a gap, not zero activity.",
             "No historical Pyth/SOL observations are indexed: markouts and quote-age are PENDING.",
             "min_out is an instruction argument, not an event field: shown as N/A.",
+            "Quote attribution (keeper) is not reconstructable from events; only the live QuoteState keeper is shown.",
             "Fee buckets are liabilities, not LP profit; inventory changes are not PnL.",
             "Block times are absent on very old transactions; those rows carry null block_time.",
         ],

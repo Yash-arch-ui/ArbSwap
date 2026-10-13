@@ -163,7 +163,8 @@ export const SwapPage: React.FC = () => {
       {liveError && (
         <div className="uni-card" style={{ marginBottom: 12, borderColor: 'var(--uni-warning)' }} role="alert">
           <strong>Chain read error:</strong> {liveError}. Last known values are
-          retained; the app retries every 4&nbsp;s.
+          retained; the app retries every 4&nbsp;s.{' '}
+          <button type="button" onClick={() => { void refreshProtocol(); }}>Retry now</button>
         </div>
       )}
 
@@ -180,24 +181,40 @@ export const SwapPage: React.FC = () => {
         {/* ---- Left: Depth Ladder ---- */}
         <div className="depth-ladder-panel">
           <div className="depth-ladder-header">
-            <span className="mono depth-ladder-title">6-LEVEL ACTIVE BOOK</span>
+            <span className="mono depth-ladder-title">
+              {quoteState.hasQuote && quoteState.status !== 'Fresh'
+                ? `6-LEVEL LAST-KNOWN BOOK (${quoteState.status.toUpperCase()})`
+                : '6-LEVEL ACTIVE BOOK'}
+            </span>
             <span className="mono depth-ladder-subtitle">
               SOL/USDC · {quoteState.hasQuote
-                ? `Half-spread: ${quoteState.halfSpreadBps.toFixed(2)} bps`
+                ? `Half-spread: ${quoteState.halfSpreadBps.toFixed(2)} bps${quoteState.status !== 'Fresh' ? ' (last-known)' : ''}`
                 : 'Half-spread: unavailable'}
             </span>
           </div>
 
           {!quoteState.hasQuote ? (
-            <div className="depth-unavailable" role="status" aria-live="polite">
-              <strong>Quote unavailable</strong>
-              <p className="mono">
-                No committed on-chain quote was read for this vault, so no
-                price, spread, or depth is shown. The keeper must publish a fresh
-                staged quote (Pyth push + <code>commit_quote</code>) before this
-                book can display real values.
-              </p>
-            </div>
+            liveError ? (
+              <div className="depth-unavailable" role="alert" aria-live="polite">
+                <strong>Could not read on-chain state</strong>
+                <p className="mono">
+                  The Devnet RPC read failed ({liveError}), so no price, spread, or
+                  depth can be shown. This is an endpoint/availability error — not an
+                  absent quote.{' '}
+                  <button type="button" onClick={() => { void refreshProtocol(); }}>Retry now</button>
+                </p>
+              </div>
+            ) : (
+              <div className="depth-unavailable" role="status" aria-live="polite">
+                <strong>Quote unavailable</strong>
+                <p className="mono">
+                  No committed on-chain quote was read for this vault, so no
+                  price, spread, or depth is shown. The keeper must publish a fresh
+                  staged quote (Pyth push + <code>commit_quote</code>) before this
+                  book can display real values.
+                </p>
+              </div>
+            )
           ) : (
             <>
               <div className="depth-cols">
@@ -223,7 +240,9 @@ export const SwapPage: React.FC = () => {
 
               {/* Mid anchor */}
               <div className="depth-mid-row">
-                <span className="mono depth-mid-label">Pyth Mid</span>
+                <span className="mono depth-mid-label">
+                  {quoteState.status === 'Fresh' ? 'Pyth Mid' : 'Quoted mid (last-known)'}
+                </span>
                 <span className="mono depth-mid-price">${quoteState.oraclePrice.toFixed(2)}</span>
                 <span className="mono depth-mid-spread">±{quoteState.halfSpreadBps.toFixed(1)} bps</span>
               </div>
@@ -401,7 +420,7 @@ export const SwapPage: React.FC = () => {
 
               {detailsOpen && (
                 <dl className="uni-details-body uni-card" style={{ marginTop: 6, padding: '14px 16px' }}>
-                  <div><dt>Pyth Oracle Reference</dt><dd>${quoteState.oraclePrice.toFixed(2)}</dd></div>
+                  <div><dt>Quoted oracle reference {quoteState.status !== 'Fresh' ? '(last-known, expired)' : ''}</dt><dd>${quoteState.oraclePrice.toFixed(2)}</dd></div>
                   <div><dt>Reservation Price (P_res)</dt><dd>${quoteState.reservationPrice.toFixed(2)}</dd></div>
                   <div><dt>Dynamic Half-Spread</dt><dd>{quoteState.halfSpreadBps.toFixed(2)} bps</dd></div>
                   <div>

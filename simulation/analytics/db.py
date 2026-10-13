@@ -97,6 +97,8 @@ class Database:
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
+        if self.path != ":memory:":
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
@@ -192,15 +194,22 @@ class Database:
                 if highest is None or record.slot >= highest[0]:
                     highest = (record.slot, record.signature)
             if highest is not None:
-                conn.execute(
-                    """INSERT INTO indexer_cursor(program_id, last_signature, last_slot, updated_at)
-                       VALUES (?, ?, ?, ?)
-                       ON CONFLICT(program_id) DO UPDATE SET
-                         last_signature=excluded.last_signature,
-                         last_slot=excluded.last_slot,
-                         updated_at=excluded.updated_at""",
-                    (program_id, highest[1], highest[0], _now()),
-                )
+                # Advance the cursor monotonically; never move it backwards, so a
+                # resumed/overlapping run cannot rewind indexing progress.
+                prior = conn.execute(
+                    "SELECT last_slot FROM indexer_cursor WHERE program_id = ?",
+                    (program_id,),
+                ).fetchone()
+                if prior is None or prior["last_slot"] is None or highest[0] >= prior["last_slot"]:
+                    conn.execute(
+                        """INSERT INTO indexer_cursor(program_id, last_signature, last_slot, updated_at)
+                           VALUES (?, ?, ?, ?)
+                           ON CONFLICT(program_id) DO UPDATE SET
+                             last_signature=excluded.last_signature,
+                             last_slot=excluded.last_slot,
+                             updated_at=excluded.updated_at""",
+                        (program_id, highest[1], highest[0], _now()),
+                    )
         return {"transactions_inserted": inserted_tx, "events_inserted": inserted_ev, "cursor": highest}
 
     def record_error(
@@ -262,6 +271,41 @@ class Database:
 
     def withdrawals(self) -> list[sqlite3.Row]:
         return self.events(event_type="WithdrawClaimed")
+
+    def quote_commits(self) -> list[sqlite3.Row]:
+        """Quote lifecycle events (staged + committed), newest first."""
+        return [
+            row
+            for row in self.events(order="slot DESC, event_index DESC")
+            if row["event_type"] in ("QuoteCommitted", "QuoteStaged", "QuoteUpdated")
+        ]
+
+    def coverage(self) -> dict:
+        """Indexed range and timestamps (honest coverage, not a claim of completeness).
+
+        ``first_slot``/``last_slot`` bound the events actually persisted. Anything
+        outside that window was not supplied by the RPC provider and must be
+        reported as a gap, never filled.
+        """
+        row = self.conn.execute(
+            "SELECT MIN(slot) AS first_slot, MAX(slot) AS last_slot, "
+            "MIN(block_time) AS first_block_time, MAX(block_time) AS last_block_time, "
+            "COUNT(*) AS transactions FROM transactions"
+        ).fetchone()
+        events = self.conn.execute(
+            "SELECT COUNT(*) AS events, MIN(indexed_at) AS first_indexed_at, "
+            "MAX(indexed_at) AS last_indexed_at FROM tx_events"
+        ).fetchone()
+        return {
+            "first_slot": row["first_slot"],
+            "last_slot": row["last_slot"],
+            "first_block_time": row["first_block_time"],
+            "last_block_time": row["last_block_time"],
+            "transactions": row["transactions"] or 0,
+            "events": events["events"] or 0,
+            "first_indexed_at": events["first_indexed_at"],
+            "last_indexed_at": events["last_indexed_at"],
+        }
 
     def counts(self) -> dict:
         def count(table: str) -> int:

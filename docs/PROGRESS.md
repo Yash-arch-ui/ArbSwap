@@ -1814,3 +1814,33 @@ Reports: [`docs/S2_32_READ_ONLY_FRONTEND_INTEGRATION.md`](S2_32_READ_ONLY_FRONTE
   clean; secrets CLEAN.
 - **Not done (external):** serving `/analytics/onchain.json` or an API; live
   independent-keeper freshness (S2-31 latency, provider-bound).
+
+## Part 3 / Step 37 — S2-33 read-only analytics pipeline + historical on-chain data
+
+Report: [`docs/S2_33_ANALYTICS_PIPELINE.md`](S2_33_ANALYTICS_PIPELINE.md).
+
+- **Reused the canonical indexer** (`simulation/analytics`: `chain`/`events`/
+  `onchain`/`db`/`indexer`/`export`) — no second database. Fixed the **cursor-resume
+  bug** (`backfill` paged *older* than the cursor and could regress it; now it pages
+  newest-first and stops at the cursor; the cursor advances monotonically).
+- **Pipeline additions:** `db.coverage()` + `db.quote_commits()`; `build_bundle`
+  gains `index_status.coverage`/`last_indexed_at`, a server-computed `freshness`
+  block (`current_slot`/`quote_version`/`quote_expiry_slot`/`quote_expired`), and a
+  `history` block (swaps/deposits/withdrawals/quote_commits + attribution note);
+  new `sync` CLI command; `--rpc` defaults to the configured `ARBSWAP_RPC_URL`
+  (never printed); `Database` creates its parent dir.
+- **Reference run (read-only RPC):** produced `app/public/analytics/onchain.json`
+  from **339 confirmed txs → 231 events**, coverage slots **509565633–510709748**,
+  1 swap, 2 deposits, 100 quote commits (+125 truncated), 125 failed txs,
+  reconciliation **MATCHED**, live snapshot **v28 expired** (expiry 510667289).
+- **Frontend:** `OnchainAnalyticsPanel` renders INDEXED HISTORY vs LIVE SNAPSHOT vs
+  RESEARCH provenance, coverage/last-indexed, a historical swaps table, deposits,
+  quote commits, and honest gaps. Expired-quote labelling fixed on Swap/Overview
+  (last-known book/mid/oracle; TVL valued at last-known quote). Freshness is
+  `slot < expiry_slot` and cannot be made fresh by polling.
+- **Tests:** `pytest simulation` **227 passed / 2 skipped** (+7 S2-33, incl. a
+  no-signing-path package scan); app `yarn test` **80 passed**; lint/build clean;
+  browser E2E exit 0 (0 exceptions; `analyticsHistory`/`expiredQuoteLabelled`
+  true); `cargo fmt` clean; docs-consistency pass; secrets CLEAN.
+- **No blockchain transaction, signing, program or config change.** Markouts remain
+  `pending` (no historical Pyth observations indexed).

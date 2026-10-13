@@ -1,0 +1,2285 @@
+{
+  "activity": [
+    {
+      "block_time": 1791914698,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914697655,
+        "oracle_publish_time": 1791914697,
+        "slot": 510709733,
+        "update_slot": 510709727
+      },
+      "signature": "3HiTLNkiCsMQK7UjcGoTJFT7HgwNCACBXx9GwWAM3q4vJzCfDzLQu7KaBtJh1vq2e7ZFAyUcSpcBdss2kLzWTvX1",
+      "slot": 510709733
+    },
+    {
+      "block_time": 1791914681,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914680461,
+        "oracle_publish_time": 1791914680,
+        "slot": 510709663,
+        "update_slot": 510709655
+      },
+      "signature": "WVvn87UbFtPHvGqQzKre8FqEnV2mJMHhmudB4uDuFix7A6fep2rZSzMis44gFWZDSqnmVgwcHPDsp2eWciP3YU3",
+      "slot": 510709663
+    },
+    {
+      "block_time": 1791914663,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914660998,
+        "oracle_publish_time": 1791914660,
+        "slot": 510709584,
+        "update_slot": 510709574
+      },
+      "signature": "3Y51x9UkbCy5Ye1MPdcviFHqq1ZwTPCreGixZJGpbAXTwU6tPkW7iVJVF7MhNGVewBAq8h1mYPkFku3fhT7tCZLN",
+      "slot": 510709584
+    },
+    {
+      "block_time": 1791914650,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914646556,
+        "oracle_publish_time": 1791914646,
+        "slot": 510709532,
+        "update_slot": 510709518
+      },
+      "signature": "2TGamxUC1KgKc5Nx1r2TAG8VRq1t6HropZ3vBQyQ2AYgYdpYNi4W2bSGL7CZQMGEdABFj9ET3rXkWsqvTLHaY21y",
+      "slot": 510709532
+    },
+    {
+      "block_time": 1791914641,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914639681,
+        "oracle_publish_time": 1791914639,
+        "slot": 510709496,
+        "update_slot": 510709489
+      },
+      "signature": "4gwoip5WD5Lx15zRUNUzkXTZedxwbYF6ffY83criERPxR9wG94ENWd41ceShCgu7eEkAFHkNBzccxpifcUtBpfaR",
+      "slot": 510709496
+    },
+    {
+      "block_time": 1791914494,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914493701,
+        "oracle_publish_time": 1791914493,
+        "slot": 510708890,
+        "update_slot": 510708884
+      },
+      "signature": "48Yw1GEwH97QGY91BcLBmMSmsSCXX4YfrN5xHGJkGTSrxPpnJM8h957g4yYRL2LurVY6w87uX56wY1dpNHDyE5Ni",
+      "slot": 510708890
+    },
+    {
+      "block_time": 1791914476,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914474555,
+        "oracle_publish_time": 1791914474,
+        "slot": 510708812,
+        "update_slot": 510708804
+      },
+      "signature": "4WsEpKFaAyUAXr1CkGbUyzpMP7tjb6DK6zggWaF5mvH3zHuMNX4zP3td3KeQTb5azLsGzu4SrZQbA9wbaTXjCMAJ",
+      "slot": 510708812
+    },
+    {
+      "block_time": 1791914463,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914462810,
+        "oracle_publish_time": 1791914462,
+        "slot": 510708761,
+        "update_slot": 510708754
+      },
+      "signature": "4unEHsoBnt5ZAWUbFgnP8HQy5HNgKbFMh6yjYD3MoYqaYMGczeaWVfhnwdpFnUcVqo3TJQWNj6zXbjbm1WmeCWrN",
+      "slot": 510708761
+    },
+    {
+      "block_time": 1791914451,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914448842,
+        "oracle_publish_time": 1791914448,
+        "slot": 510708710,
+        "update_slot": 510708697
+      },
+      "signature": "3DkSRzqwGdLbJcfE3V98EJ4Huz9yKdfA3CGYfsNYaXsxhzvXHCaF9WygW2NFg77XzrjL7uYYoRXGb3np6oEpxUoo",
+      "slot": 510708710
+    },
+    {
+      "block_time": 1791914442,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791914441771,
+        "oracle_publish_time": 1791914441,
+        "slot": 510708673,
+        "update_slot": 510708667
+      },
+      "signature": "65ok5GokXUv2GLnBeqAFwYmVMVzs87MpkWUoGwK1TWryDCvTBWnRLHkgDEhobTJHJtZX5fotnfJG6gVmXMzFagXH",
+      "slot": 510708673
+    },
+    {
+      "block_time": 1791913633,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913631939,
+        "oracle_publish_time": 1791913630,
+        "slot": 510705276,
+        "update_slot": 510705270
+      },
+      "signature": "2gMMRkRfWTeqMSgzhh5hSyD22TE9QtwBdHC64vzJ7tPBVfHHHb3VeXTpUp4RfnrRiMsq9TRHWGg6uZ8FhrwXxpTF",
+      "slot": 510705276
+    },
+    {
+      "block_time": 1791913619,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913616982,
+        "oracle_publish_time": 1791913613,
+        "slot": 510705219,
+        "update_slot": 510705208
+      },
+      "signature": "2NHyRTxQr4XrjqkHEAT87wHuY7nCtRP5RAzLsEwBwsyXfBoqJBrmfES7DWKoGPqyvHwtMpnHVaqmBdpyX5AvQ7jX",
+      "slot": 510705219
+    },
+    {
+      "block_time": 1791913602,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913600035,
+        "oracle_publish_time": 1791913598,
+        "slot": 510705146,
+        "update_slot": 510705136
+      },
+      "signature": "3ezxwuTaK6nHKiY8XdfTyP5rhS1XzD4NRGSrRSq1MDz5C4AeeuPW7Pi76oQ3rusBrXZRBPk2daBzxEbWWhbnRCvj",
+      "slot": 510705146
+    },
+    {
+      "block_time": 1791913581,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913579846,
+        "oracle_publish_time": 1791913578,
+        "slot": 510705056,
+        "update_slot": 510705050
+      },
+      "signature": "5B71bRDchE9HoVw3rWjNpq57WvK7PvdboSz9ypMLx3bgMKQfKdNpsYvjabfMgrF8sFfhQr7wbC9dj51HNXwdshMG",
+      "slot": 510705056
+    },
+    {
+      "block_time": 1791913560,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913558381,
+        "oracle_publish_time": 1791913555,
+        "slot": 510704968,
+        "update_slot": 510704960
+      },
+      "signature": "5WzC3KtFozUUEE6BWPEUuGGWgeLGw7fmewuQqPjKCzV4FK2gP2uqnHXHcAxTqxuZ4g8f2c5aZ88UwrAPr9tHyUcs",
+      "slot": 510704968
+    },
+    {
+      "block_time": 1791913538,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913535934,
+        "oracle_publish_time": 1791913535,
+        "slot": 510704876,
+        "update_slot": 510704866
+      },
+      "signature": "4MvZ8JF1LS6RQbm88GvQfgKTq3txnYSnXnMaX9kV7XMfLP7GrqZJtjBWHgxEA3TBXB1d74Kvkdsrpn9KnVBfehVZ",
+      "slot": 510704876
+    },
+    {
+      "block_time": 1791913524,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913523051,
+        "oracle_publish_time": 1791913522,
+        "slot": 510704816,
+        "update_slot": 510704811
+      },
+      "signature": "2TSsHFqa1iU3TeLxhpX1ve9rcv1W844iRRFqiEGPRmWswptjcrHzHPYR3yJ9mweGidsz7VPb7Uk75YvhGYkCuZxY",
+      "slot": 510704816
+    },
+    {
+      "block_time": 1791913511,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913509780,
+        "oracle_publish_time": 1791913508,
+        "slot": 510704763,
+        "update_slot": 510704756
+      },
+      "signature": "5CSHX8EaocWgjCWx7EB6Jo8XZJ3gncH4BwqfrVHLVMKB7qenuua6Jqpnj2vpmcvMRxxKcqTq3itk3b35PZTyJw1D",
+      "slot": 510704763
+    },
+    {
+      "block_time": 1791913498,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913497022,
+        "oracle_publish_time": 1791913496,
+        "slot": 510704709,
+        "update_slot": 510704701
+      },
+      "signature": "2XE92SJsfEYjyeuxWvyPFDfAH89bv5viqizL79m2dCJesWHZdAyFkAoJDHXvZf1V8BsxSyK1naUkbRNq8cAuyRtu",
+      "slot": 510704709
+    },
+    {
+      "block_time": 1791913404,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913402711,
+        "oracle_publish_time": 1791913401,
+        "slot": 510704312,
+        "update_slot": 510704305
+      },
+      "signature": "61Nx8bkz1WPYXP1kzhxeRcbMv3oWb3W8TVT6Fhu8uo7i4PxeGL3nKMuMGRPmMKLB6CyAFzyU6fcxjJjH2YXzYFtX",
+      "slot": 510704312
+    },
+    {
+      "block_time": 1791913379,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913378003,
+        "oracle_publish_time": 1791913375,
+        "slot": 510704212,
+        "update_slot": 510704204
+      },
+      "signature": "2n8H8T1kW8v5pcwzoXNc2iN2XREzoK8a2veervcVa2TpahyfTMK29yWgrwFXPMXXmpfQTGA6x4rcej8Xm75fgz7j",
+      "slot": 510704212
+    },
+    {
+      "block_time": 1791913357,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913356478,
+        "oracle_publish_time": 1791913354,
+        "slot": 510704118,
+        "update_slot": 510704111
+      },
+      "signature": "3guJ1VswY1n886kYikTJ8Pe2S8SH9HqePiJjSv7e5URe16twPdBkwdQxxnQ2Wc2Pit3RnioNHZES5LV2cFmBz2Sy",
+      "slot": 510704118
+    },
+    {
+      "block_time": 1791913337,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913336464,
+        "oracle_publish_time": 1791913335,
+        "slot": 510704032,
+        "update_slot": 510704027
+      },
+      "signature": "3UJZQ8hKi1kgiKBQyzJtuuGNKjt1okjCeE7c1GNR2NostMrTumSbx5HRhx172bDkaQs9f7dDuzWmWnsjnaeVec8d",
+      "slot": 510704032
+    },
+    {
+      "block_time": 1791913321,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913320228,
+        "oracle_publish_time": 1791913319,
+        "slot": 510703967,
+        "update_slot": 510703960
+      },
+      "signature": "3Hak7nkG66iw7VHAZfgdms8ydRYDrmLCLxLu7H6XmEaV4eVZPBQ2TwwSLXSkMT9HJS56BQT7NHmz4wL1WczzRVgR",
+      "slot": 510703967
+    },
+    {
+      "block_time": 1791913290,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913288984,
+        "oracle_publish_time": 1791913287,
+        "slot": 510703840,
+        "update_slot": 510703832
+      },
+      "signature": "3gQyp9veByZ1KyRBA8YCasaY6eFVZ3cMC8zn5Y8R2dBWg9KopdeXr9jMEemtjivRnFGhkDUL5MPDyCDX1JFHXt1q",
+      "slot": 510703840
+    },
+    {
+      "block_time": 1791913274,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913272919,
+        "oracle_publish_time": 1791913272,
+        "slot": 510703772,
+        "update_slot": 510703765
+      },
+      "signature": "4WuRzXzZoSyGJR2DYUivHzeDXvNniWyB73RgD4AR7Cz7SAr2projMtNH7SJ16SC3qAwhobnGurGDoU8g1pDhcHj8",
+      "slot": 510703772
+    },
+    {
+      "block_time": 1791913255,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913253930,
+        "oracle_publish_time": 1791913253,
+        "slot": 510703694,
+        "update_slot": 510703685
+      },
+      "signature": "2qqvZp27mLwB9XSvXUCd4eUHVwJvv1iqHAaLrytPQVfc3aykMsbA8F9UP8anZathSVRek9ywJYPovzqzccwWq84F",
+      "slot": 510703694
+    },
+    {
+      "block_time": 1791913240,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913239488,
+        "oracle_publish_time": 1791913237,
+        "slot": 510703632,
+        "update_slot": 510703627
+      },
+      "signature": "3oVg8eawvPi93fVMdv6xWKgkQKZvbTig7zCYcRiy48CzUEUNojirCBqbjEsJHmL7yYk6FNg9qvntJNeJ3uVgAdtN",
+      "slot": 510703632
+    },
+    {
+      "block_time": 1791913220,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913218798,
+        "oracle_publish_time": 1791913216,
+        "slot": 510703549,
+        "update_slot": 510703539
+      },
+      "signature": "4vXotW6ix7grGf1jdBveEpveoyoAY7Yj5wWpTh7tUu9FQ8HeseFT5aUpZKV1ji6nHzGonSkbmiVHGwNAzJbG1aQz",
+      "slot": 510703549
+    },
+    {
+      "block_time": 1791913204,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913202121,
+        "oracle_publish_time": 1791913201,
+        "slot": 510703481,
+        "update_slot": 510703471
+      },
+      "signature": "4KGRGKmZnmrW2Bsj7Y5KPy3EMQzczFHXwWPkfVVdxHmEJeUxBeG47c4UTTDW2TEivWypphwJL3ZkfzYxextrLS2c",
+      "slot": 510703481
+    },
+    {
+      "block_time": 1791913193,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913192191,
+        "oracle_publish_time": 1791913191,
+        "slot": 510703439,
+        "update_slot": 510703431
+      },
+      "signature": "4FvZJoFuvMy5GPffSEM8MstxwmDJ6N8mtcqDV8Fu8pWVpAVnavKRWW7KGWcGDnch7qV5GMcN1MR6MREjvABP7Shc",
+      "slot": 510703439
+    },
+    {
+      "block_time": 1791913184,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913182758,
+        "oracle_publish_time": 1791913182,
+        "slot": 510703401,
+        "update_slot": 510703392
+      },
+      "signature": "2DPg2R9uF7GPmjkdqS9i8GE2QPGWHotWN7Dd552BDdS7rX5Ksoz8G1MqaiDshJKQXT32nRpxkRW1rJoRDAvnPoNm",
+      "slot": 510703401
+    },
+    {
+      "block_time": 1791913171,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913169416,
+        "oracle_publish_time": 1791913168,
+        "slot": 510703344,
+        "update_slot": 510703332
+      },
+      "signature": "4vv1G4phm3owaVzb9JLVCeUYXjcgT9E5eBhLCPrfThYMzANRBLqUAcVhEvamY51YsebuAesuzWH48yPshduJY5vA",
+      "slot": 510703344
+    },
+    {
+      "block_time": 1791913067,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791913066287,
+        "oracle_publish_time": 1791913064,
+        "slot": 510702910,
+        "update_slot": 510702903
+      },
+      "signature": "4DK1fTfBy4MTzdmTYC4gMZ9wuzHVJN5vXb8Rs8jYuwe8v6GVz3jdZQaaXWN92rGai9t2dEFKxV5vbpib4o6ZPy86",
+      "slot": 510702910
+    },
+    {
+      "block_time": 1791912976,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912975018,
+        "oracle_publish_time": 1791912974,
+        "slot": 510702537,
+        "update_slot": 510702529
+      },
+      "signature": "62vVKWuAvEa9Xtw4CoW2ieUAL471PNTFUezkfE8zm4mNqcvko1sxQKAWZsFwDNyHbxkWbB76e2aVcxuRnpSWRazE",
+      "slot": 510702537
+    },
+    {
+      "block_time": 1791912920,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912919159,
+        "oracle_publish_time": 1791912918,
+        "slot": 510702303,
+        "update_slot": 510702297
+      },
+      "signature": "ehujCXCQTRKCB3v8nQqJNo4yzVmSCYeERrGDnBnsCxntfARFFSH5EYUGbz2Pjc7KkzHrNXEQzwf5wutQK3m5NVN",
+      "slot": 510702303
+    },
+    {
+      "block_time": 1791912900,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912897482,
+        "oracle_publish_time": 1791912896,
+        "slot": 510702219,
+        "update_slot": 510702207
+      },
+      "signature": "tMU2qd2nkfAyhHDU8BtawaZipPpgXXYgh2NEfMxixty823AzF3qQjuLn2DQ9r7BWRn5qZRYMiXkiydzZAoukr1o",
+      "slot": 510702219
+    },
+    {
+      "block_time": 1791912877,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912875696,
+        "oracle_publish_time": 1791912873,
+        "slot": 510702126,
+        "update_slot": 510702116
+      },
+      "signature": "2sLBBPiSkuTJaGyiiqpzmLe4WbeGmijPJKzP31D4bR6fuMevc7e6Vk2JhVqjBrwtLvCTwugVaG4CyPHizxNDLJj5",
+      "slot": 510702126
+    },
+    {
+      "block_time": 1791912855,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912853926,
+        "oracle_publish_time": 1791912850,
+        "slot": 510702035,
+        "update_slot": 510702024
+      },
+      "signature": "3KEzxnzUkxc2vTFX2Qqfp8SKWbob9boksMiphDVnbRQ57MS2Av87UYydZ3BF8caG3Xs1GFqs4zmqJ5hE7Fie7dCK",
+      "slot": 510702035
+    },
+    {
+      "block_time": 1791912836,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912835610,
+        "oracle_publish_time": 1791912832,
+        "slot": 510701956,
+        "update_slot": 510701950
+      },
+      "signature": "4xXPSStqQtAbmDL9UHCCQq8FahRDcPw5rp8yoG13FkozJ1MLtWQo5ocxsRuKgv9o7Mjo31vfTKoaqCofDEPrEkgG",
+      "slot": 510701956
+    },
+    {
+      "block_time": 1791912821,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912820529,
+        "oracle_publish_time": 1791912819,
+        "slot": 510701893,
+        "update_slot": 510701886
+      },
+      "signature": "hsPZJNKrEgyKqsPDsBj2gjoXVcsmLVRzTwD8XeHiDD1p6uvjD9YPYRedLQUUKAgNZ26ZAXGvgoGjR3SMYNzrNqX",
+      "slot": 510701893
+    },
+    {
+      "block_time": 1791912813,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912811693,
+        "oracle_publish_time": 1791912810,
+        "slot": 510701858,
+        "update_slot": 510701850
+      },
+      "signature": "2V5H8Fj6YAY3udxVghNAzxYuVF5eSUewrRdg7xyEFmX3ZiBC2RUhg9wpmsHJQGEwqYk1sdpmr5Fc559a7RtgnyN9",
+      "slot": 510701858
+    },
+    {
+      "block_time": 1791912798,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912797133,
+        "oracle_publish_time": 1791912795,
+        "slot": 510701796,
+        "update_slot": 510701788
+      },
+      "signature": "3gjZXvvtww2BE5pFyVKs2QLKXzcXzXijWh68oMDUZKmBNE53Z3eVgWsfMB9HZspVuJzgMyj4TXkTBuUyqmGVxqxM",
+      "slot": 510701796
+    },
+    {
+      "block_time": 1791912787,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912785616,
+        "oracle_publish_time": 1791912783,
+        "slot": 510701749,
+        "update_slot": 510701739
+      },
+      "signature": "fEg9vL5GcYyh2QYDkuL757o7y6ME4hXFASvtBJDqEfXsZyq5H4jprLFyERrEKTbzrxvnC2uacY87gFsAuKHZpRu",
+      "slot": 510701749
+    },
+    {
+      "block_time": 1791912748,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912746905,
+        "oracle_publish_time": 1791912745,
+        "slot": 510701586,
+        "update_slot": 510701580
+      },
+      "signature": "rrzPZHDgosHH98BdahS5vNSog1bjo3t573XRn9zzvCm6G8wP6EhX4RHTgFUyHYhYkukin5Yu5D3Z2BJgdN42Fr5",
+      "slot": 510701586
+    },
+    {
+      "block_time": 1791912718,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912717014,
+        "oracle_publish_time": 1791912712,
+        "slot": 510701463,
+        "update_slot": 510701455
+      },
+      "signature": "5nDpUJSidWjoCQZ6gMsXvTnnWkBFNXoDDZd2zuiiSW8U3Y69LXemT6zkF6ruTzKgL8PA99iPEPiaRm8QqeUTVZBZ",
+      "slot": 510701463
+    },
+    {
+      "block_time": 1791912697,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912692738,
+        "oracle_publish_time": 1791912690,
+        "slot": 510701374,
+        "update_slot": 510701355
+      },
+      "signature": "S6jhgGvvEKhy7af26qLeYTyEB5ZcpG9bA5zqajB4E4d9F1xr1KqWKwPMuk49VDx1aC7GAVWqYMAT9SgtDhxYDM6",
+      "slot": 510701374
+    },
+    {
+      "block_time": 1791912675,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912671199,
+        "oracle_publish_time": 1791912669,
+        "slot": 510701282,
+        "update_slot": 510701264
+      },
+      "signature": "5EVqPJXHe4Euv4iq7ChRS6x5s2HciETEFFWnZKVLFpBK47UXgp1pird74g57dLaaXSh9hNZoxriNWvjuM6KvxXeB",
+      "slot": 510701282
+    },
+    {
+      "block_time": 1791912654,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912652995,
+        "oracle_publish_time": 1791912651,
+        "slot": 510701196,
+        "update_slot": 510701187
+      },
+      "signature": "3Dmo7DrPkYzGtSdq4sPbBiPLctSQUP4HgKkyAE38XwEiNPfzjLsZewUwH2ABGaPAJZgUkt7CLZSp5Uc8Xq2usaWf",
+      "slot": 510701196
+    },
+    {
+      "block_time": 1791912634,
+      "event_type": "QuoteStaged",
+      "payload": {
+        "name": "QuoteStaged",
+        "nonce": 1791912631525,
+        "oracle_publish_time": 1791912628,
+        "slot": 510701112,
+        "update_slot": 510701098
+      },
+      "signature": "4WkSmF7tCTuTHXrrJDHwN1sqSGVPKBm1XifqY94iVQEJ3j6dQM7jskJLhPvTbMMhHArBrhi1cfPMJvyvw9jNJMcP",
+      "slot": 510701112
+    }
+  ],
+  "canonical": {
+    "base_mint": "So11111111111111111111111111111111111111112",
+    "base_reserve": "8vfr2KmMmXYUTjRg5cAiSYD6EhN1d8pjJnmFC95E2vfm",
+    "config": "ErVDFAHWSK5SjKqvaNJoqv91r4vNH7VmqteURqdEo2aT",
+    "program_id": "2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm",
+    "quote_mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+    "quote_reserve": "G8q1WMKT8fnGQh85kCB8Aihf6F7tctXJDKbA6gn1jPeS",
+    "quote_state": "5MsGbdHv3ouXrHT9f7JVQ6b7eVETTiVCzYSGw5DTYAgG",
+    "s215_swap": "51TkKqfi9bt8QqpKKxJZnN2nyFv1HAMnSGW2mjctDYDEpuDi4Roch43RJapj3poz8H8DqYCfmE8QFSrbxVHx9TUC",
+    "trader": "8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH",
+    "trader_base": "5MpRjKvzgW5C7x8sbam4KgA5KGkGyTKNCXarbqZceCnJ",
+    "trader_quote": "5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV",
+    "vault": "8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt"
+  },
+  "execution": {
+    "source": "indexed SwapEvent",
+    "status": "historical",
+    "swaps": [
+      {
+        "amount_in_atoms": 1750000,
+        "amount_out_atoms": 16290295,
+        "block_time": 1791842540,
+        "fee_atoms": 175,
+        "min_out_atoms": null,
+        "min_out_reason": "min_out is a swap instruction argument, not emitted in the event.",
+        "quote_age_reason": "would require joining the swap to the QuoteStaged oracle_publish_time; not yet implemented.",
+        "quote_age_seconds": null,
+        "quote_version": 18,
+        "side": "buy",
+        "signature": "51TkKqfi9bt8QqpKKxJZnN2nyFv1HAMnSGW2mjctDYDEpuDi4Roch43RJapj3poz8H8DqYCfmE8QFSrbxVHx9TUC",
+        "slot": 510407827
+      }
+    ]
+  },
+  "freshness": {
+    "current_slot": 510734221,
+    "generated_at": "2026-10-13T19:42:19.931057+00:00",
+    "quote_expired": true,
+    "quote_expiry_slot": 510667289,
+    "quote_version": 28,
+    "source": "live RPC reads at export time"
+  },
+  "generated_at": "2026-10-13T19:42:19.930137+00:00",
+  "history": {
+    "coverage": {
+      "events": 231,
+      "first_block_time": 1791641257,
+      "first_indexed_at": "2026-10-13T19:36:35.179166+00:00",
+      "first_slot": 509565633,
+      "last_block_time": 1791914702,
+      "last_indexed_at": "2026-10-13T19:42:13.612731+00:00",
+      "last_slot": 510709748,
+      "transactions": 339
+    },
+    "deposits": [
+      {
+        "block_time": 1791821561,
+        "event_type": "DepositEvent",
+        "payload": {
+          "base_amount": 174120234,
+          "name": "DepositEvent",
+          "quote_amount": 19000000,
+          "shares": 57516688,
+          "slot": 510320063
+        },
+        "signature": "3BEeTcuqfoMT8SfR3kHMh1vEFpNy1yKFS3sk1mJBrgBQoYhx948ogVcU7JawELaxLwgWWgXgPiksBq343vUaCkYC",
+        "slot": 510320063
+      },
+      {
+        "block_time": 1791841998,
+        "event_type": "DepositEvent",
+        "payload": {
+          "base_amount": 155791787,
+          "name": "DepositEvent",
+          "quote_amount": 17000000,
+          "shares": 51463194,
+          "slot": 510405556
+        },
+        "signature": "N6XoMGrpp84wCQvCvqsLV89wnwhmQjvLNRcc4nwwimXHAuniLCupZaJzCPoSfPst83c4Rk9ErXUnkUsQ7PX3voq",
+        "slot": 510405556
+      }
+    ],
+    "quote_attribution_note": "QuoteStaged/QuoteCommitted events carry version + nonce but not the keeper; keeper attribution is only observable from the live QuoteState account, not retroactively from events.",
+    "quote_commits": [
+      {
+        "block_time": 1791914698,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914697655,
+          "oracle_publish_time": 1791914697,
+          "slot": 510709733,
+          "update_slot": 510709727
+        },
+        "signature": "3HiTLNkiCsMQK7UjcGoTJFT7HgwNCACBXx9GwWAM3q4vJzCfDzLQu7KaBtJh1vq2e7ZFAyUcSpcBdss2kLzWTvX1",
+        "slot": 510709733
+      },
+      {
+        "block_time": 1791914681,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914680461,
+          "oracle_publish_time": 1791914680,
+          "slot": 510709663,
+          "update_slot": 510709655
+        },
+        "signature": "WVvn87UbFtPHvGqQzKre8FqEnV2mJMHhmudB4uDuFix7A6fep2rZSzMis44gFWZDSqnmVgwcHPDsp2eWciP3YU3",
+        "slot": 510709663
+      },
+      {
+        "block_time": 1791914663,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914660998,
+          "oracle_publish_time": 1791914660,
+          "slot": 510709584,
+          "update_slot": 510709574
+        },
+        "signature": "3Y51x9UkbCy5Ye1MPdcviFHqq1ZwTPCreGixZJGpbAXTwU6tPkW7iVJVF7MhNGVewBAq8h1mYPkFku3fhT7tCZLN",
+        "slot": 510709584
+      },
+      {
+        "block_time": 1791914650,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914646556,
+          "oracle_publish_time": 1791914646,
+          "slot": 510709532,
+          "update_slot": 510709518
+        },
+        "signature": "2TGamxUC1KgKc5Nx1r2TAG8VRq1t6HropZ3vBQyQ2AYgYdpYNi4W2bSGL7CZQMGEdABFj9ET3rXkWsqvTLHaY21y",
+        "slot": 510709532
+      },
+      {
+        "block_time": 1791914641,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914639681,
+          "oracle_publish_time": 1791914639,
+          "slot": 510709496,
+          "update_slot": 510709489
+        },
+        "signature": "4gwoip5WD5Lx15zRUNUzkXTZedxwbYF6ffY83criERPxR9wG94ENWd41ceShCgu7eEkAFHkNBzccxpifcUtBpfaR",
+        "slot": 510709496
+      },
+      {
+        "block_time": 1791914494,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914493701,
+          "oracle_publish_time": 1791914493,
+          "slot": 510708890,
+          "update_slot": 510708884
+        },
+        "signature": "48Yw1GEwH97QGY91BcLBmMSmsSCXX4YfrN5xHGJkGTSrxPpnJM8h957g4yYRL2LurVY6w87uX56wY1dpNHDyE5Ni",
+        "slot": 510708890
+      },
+      {
+        "block_time": 1791914476,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914474555,
+          "oracle_publish_time": 1791914474,
+          "slot": 510708812,
+          "update_slot": 510708804
+        },
+        "signature": "4WsEpKFaAyUAXr1CkGbUyzpMP7tjb6DK6zggWaF5mvH3zHuMNX4zP3td3KeQTb5azLsGzu4SrZQbA9wbaTXjCMAJ",
+        "slot": 510708812
+      },
+      {
+        "block_time": 1791914463,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914462810,
+          "oracle_publish_time": 1791914462,
+          "slot": 510708761,
+          "update_slot": 510708754
+        },
+        "signature": "4unEHsoBnt5ZAWUbFgnP8HQy5HNgKbFMh6yjYD3MoYqaYMGczeaWVfhnwdpFnUcVqo3TJQWNj6zXbjbm1WmeCWrN",
+        "slot": 510708761
+      },
+      {
+        "block_time": 1791914451,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914448842,
+          "oracle_publish_time": 1791914448,
+          "slot": 510708710,
+          "update_slot": 510708697
+        },
+        "signature": "3DkSRzqwGdLbJcfE3V98EJ4Huz9yKdfA3CGYfsNYaXsxhzvXHCaF9WygW2NFg77XzrjL7uYYoRXGb3np6oEpxUoo",
+        "slot": 510708710
+      },
+      {
+        "block_time": 1791914442,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791914441771,
+          "oracle_publish_time": 1791914441,
+          "slot": 510708673,
+          "update_slot": 510708667
+        },
+        "signature": "65ok5GokXUv2GLnBeqAFwYmVMVzs87MpkWUoGwK1TWryDCvTBWnRLHkgDEhobTJHJtZX5fotnfJG6gVmXMzFagXH",
+        "slot": 510708673
+      },
+      {
+        "block_time": 1791913633,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913631939,
+          "oracle_publish_time": 1791913630,
+          "slot": 510705276,
+          "update_slot": 510705270
+        },
+        "signature": "2gMMRkRfWTeqMSgzhh5hSyD22TE9QtwBdHC64vzJ7tPBVfHHHb3VeXTpUp4RfnrRiMsq9TRHWGg6uZ8FhrwXxpTF",
+        "slot": 510705276
+      },
+      {
+        "block_time": 1791913619,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913616982,
+          "oracle_publish_time": 1791913613,
+          "slot": 510705219,
+          "update_slot": 510705208
+        },
+        "signature": "2NHyRTxQr4XrjqkHEAT87wHuY7nCtRP5RAzLsEwBwsyXfBoqJBrmfES7DWKoGPqyvHwtMpnHVaqmBdpyX5AvQ7jX",
+        "slot": 510705219
+      },
+      {
+        "block_time": 1791913602,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913600035,
+          "oracle_publish_time": 1791913598,
+          "slot": 510705146,
+          "update_slot": 510705136
+        },
+        "signature": "3ezxwuTaK6nHKiY8XdfTyP5rhS1XzD4NRGSrRSq1MDz5C4AeeuPW7Pi76oQ3rusBrXZRBPk2daBzxEbWWhbnRCvj",
+        "slot": 510705146
+      },
+      {
+        "block_time": 1791913581,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913579846,
+          "oracle_publish_time": 1791913578,
+          "slot": 510705056,
+          "update_slot": 510705050
+        },
+        "signature": "5B71bRDchE9HoVw3rWjNpq57WvK7PvdboSz9ypMLx3bgMKQfKdNpsYvjabfMgrF8sFfhQr7wbC9dj51HNXwdshMG",
+        "slot": 510705056
+      },
+      {
+        "block_time": 1791913560,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913558381,
+          "oracle_publish_time": 1791913555,
+          "slot": 510704968,
+          "update_slot": 510704960
+        },
+        "signature": "5WzC3KtFozUUEE6BWPEUuGGWgeLGw7fmewuQqPjKCzV4FK2gP2uqnHXHcAxTqxuZ4g8f2c5aZ88UwrAPr9tHyUcs",
+        "slot": 510704968
+      },
+      {
+        "block_time": 1791913538,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913535934,
+          "oracle_publish_time": 1791913535,
+          "slot": 510704876,
+          "update_slot": 510704866
+        },
+        "signature": "4MvZ8JF1LS6RQbm88GvQfgKTq3txnYSnXnMaX9kV7XMfLP7GrqZJtjBWHgxEA3TBXB1d74Kvkdsrpn9KnVBfehVZ",
+        "slot": 510704876
+      },
+      {
+        "block_time": 1791913524,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913523051,
+          "oracle_publish_time": 1791913522,
+          "slot": 510704816,
+          "update_slot": 510704811
+        },
+        "signature": "2TSsHFqa1iU3TeLxhpX1ve9rcv1W844iRRFqiEGPRmWswptjcrHzHPYR3yJ9mweGidsz7VPb7Uk75YvhGYkCuZxY",
+        "slot": 510704816
+      },
+      {
+        "block_time": 1791913511,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913509780,
+          "oracle_publish_time": 1791913508,
+          "slot": 510704763,
+          "update_slot": 510704756
+        },
+        "signature": "5CSHX8EaocWgjCWx7EB6Jo8XZJ3gncH4BwqfrVHLVMKB7qenuua6Jqpnj2vpmcvMRxxKcqTq3itk3b35PZTyJw1D",
+        "slot": 510704763
+      },
+      {
+        "block_time": 1791913498,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913497022,
+          "oracle_publish_time": 1791913496,
+          "slot": 510704709,
+          "update_slot": 510704701
+        },
+        "signature": "2XE92SJsfEYjyeuxWvyPFDfAH89bv5viqizL79m2dCJesWHZdAyFkAoJDHXvZf1V8BsxSyK1naUkbRNq8cAuyRtu",
+        "slot": 510704709
+      },
+      {
+        "block_time": 1791913404,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913402711,
+          "oracle_publish_time": 1791913401,
+          "slot": 510704312,
+          "update_slot": 510704305
+        },
+        "signature": "61Nx8bkz1WPYXP1kzhxeRcbMv3oWb3W8TVT6Fhu8uo7i4PxeGL3nKMuMGRPmMKLB6CyAFzyU6fcxjJjH2YXzYFtX",
+        "slot": 510704312
+      },
+      {
+        "block_time": 1791913379,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913378003,
+          "oracle_publish_time": 1791913375,
+          "slot": 510704212,
+          "update_slot": 510704204
+        },
+        "signature": "2n8H8T1kW8v5pcwzoXNc2iN2XREzoK8a2veervcVa2TpahyfTMK29yWgrwFXPMXXmpfQTGA6x4rcej8Xm75fgz7j",
+        "slot": 510704212
+      },
+      {
+        "block_time": 1791913357,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913356478,
+          "oracle_publish_time": 1791913354,
+          "slot": 510704118,
+          "update_slot": 510704111
+        },
+        "signature": "3guJ1VswY1n886kYikTJ8Pe2S8SH9HqePiJjSv7e5URe16twPdBkwdQxxnQ2Wc2Pit3RnioNHZES5LV2cFmBz2Sy",
+        "slot": 510704118
+      },
+      {
+        "block_time": 1791913337,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913336464,
+          "oracle_publish_time": 1791913335,
+          "slot": 510704032,
+          "update_slot": 510704027
+        },
+        "signature": "3UJZQ8hKi1kgiKBQyzJtuuGNKjt1okjCeE7c1GNR2NostMrTumSbx5HRhx172bDkaQs9f7dDuzWmWnsjnaeVec8d",
+        "slot": 510704032
+      },
+      {
+        "block_time": 1791913321,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913320228,
+          "oracle_publish_time": 1791913319,
+          "slot": 510703967,
+          "update_slot": 510703960
+        },
+        "signature": "3Hak7nkG66iw7VHAZfgdms8ydRYDrmLCLxLu7H6XmEaV4eVZPBQ2TwwSLXSkMT9HJS56BQT7NHmz4wL1WczzRVgR",
+        "slot": 510703967
+      },
+      {
+        "block_time": 1791913290,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913288984,
+          "oracle_publish_time": 1791913287,
+          "slot": 510703840,
+          "update_slot": 510703832
+        },
+        "signature": "3gQyp9veByZ1KyRBA8YCasaY6eFVZ3cMC8zn5Y8R2dBWg9KopdeXr9jMEemtjivRnFGhkDUL5MPDyCDX1JFHXt1q",
+        "slot": 510703840
+      },
+      {
+        "block_time": 1791913274,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913272919,
+          "oracle_publish_time": 1791913272,
+          "slot": 510703772,
+          "update_slot": 510703765
+        },
+        "signature": "4WuRzXzZoSyGJR2DYUivHzeDXvNniWyB73RgD4AR7Cz7SAr2projMtNH7SJ16SC3qAwhobnGurGDoU8g1pDhcHj8",
+        "slot": 510703772
+      },
+      {
+        "block_time": 1791913255,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913253930,
+          "oracle_publish_time": 1791913253,
+          "slot": 510703694,
+          "update_slot": 510703685
+        },
+        "signature": "2qqvZp27mLwB9XSvXUCd4eUHVwJvv1iqHAaLrytPQVfc3aykMsbA8F9UP8anZathSVRek9ywJYPovzqzccwWq84F",
+        "slot": 510703694
+      },
+      {
+        "block_time": 1791913240,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913239488,
+          "oracle_publish_time": 1791913237,
+          "slot": 510703632,
+          "update_slot": 510703627
+        },
+        "signature": "3oVg8eawvPi93fVMdv6xWKgkQKZvbTig7zCYcRiy48CzUEUNojirCBqbjEsJHmL7yYk6FNg9qvntJNeJ3uVgAdtN",
+        "slot": 510703632
+      },
+      {
+        "block_time": 1791913220,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913218798,
+          "oracle_publish_time": 1791913216,
+          "slot": 510703549,
+          "update_slot": 510703539
+        },
+        "signature": "4vXotW6ix7grGf1jdBveEpveoyoAY7Yj5wWpTh7tUu9FQ8HeseFT5aUpZKV1ji6nHzGonSkbmiVHGwNAzJbG1aQz",
+        "slot": 510703549
+      },
+      {
+        "block_time": 1791913204,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913202121,
+          "oracle_publish_time": 1791913201,
+          "slot": 510703481,
+          "update_slot": 510703471
+        },
+        "signature": "4KGRGKmZnmrW2Bsj7Y5KPy3EMQzczFHXwWPkfVVdxHmEJeUxBeG47c4UTTDW2TEivWypphwJL3ZkfzYxextrLS2c",
+        "slot": 510703481
+      },
+      {
+        "block_time": 1791913193,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913192191,
+          "oracle_publish_time": 1791913191,
+          "slot": 510703439,
+          "update_slot": 510703431
+        },
+        "signature": "4FvZJoFuvMy5GPffSEM8MstxwmDJ6N8mtcqDV8Fu8pWVpAVnavKRWW7KGWcGDnch7qV5GMcN1MR6MREjvABP7Shc",
+        "slot": 510703439
+      },
+      {
+        "block_time": 1791913184,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913182758,
+          "oracle_publish_time": 1791913182,
+          "slot": 510703401,
+          "update_slot": 510703392
+        },
+        "signature": "2DPg2R9uF7GPmjkdqS9i8GE2QPGWHotWN7Dd552BDdS7rX5Ksoz8G1MqaiDshJKQXT32nRpxkRW1rJoRDAvnPoNm",
+        "slot": 510703401
+      },
+      {
+        "block_time": 1791913171,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913169416,
+          "oracle_publish_time": 1791913168,
+          "slot": 510703344,
+          "update_slot": 510703332
+        },
+        "signature": "4vv1G4phm3owaVzb9JLVCeUYXjcgT9E5eBhLCPrfThYMzANRBLqUAcVhEvamY51YsebuAesuzWH48yPshduJY5vA",
+        "slot": 510703344
+      },
+      {
+        "block_time": 1791913067,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791913066287,
+          "oracle_publish_time": 1791913064,
+          "slot": 510702910,
+          "update_slot": 510702903
+        },
+        "signature": "4DK1fTfBy4MTzdmTYC4gMZ9wuzHVJN5vXb8Rs8jYuwe8v6GVz3jdZQaaXWN92rGai9t2dEFKxV5vbpib4o6ZPy86",
+        "slot": 510702910
+      },
+      {
+        "block_time": 1791912976,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912975018,
+          "oracle_publish_time": 1791912974,
+          "slot": 510702537,
+          "update_slot": 510702529
+        },
+        "signature": "62vVKWuAvEa9Xtw4CoW2ieUAL471PNTFUezkfE8zm4mNqcvko1sxQKAWZsFwDNyHbxkWbB76e2aVcxuRnpSWRazE",
+        "slot": 510702537
+      },
+      {
+        "block_time": 1791912920,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912919159,
+          "oracle_publish_time": 1791912918,
+          "slot": 510702303,
+          "update_slot": 510702297
+        },
+        "signature": "ehujCXCQTRKCB3v8nQqJNo4yzVmSCYeERrGDnBnsCxntfARFFSH5EYUGbz2Pjc7KkzHrNXEQzwf5wutQK3m5NVN",
+        "slot": 510702303
+      },
+      {
+        "block_time": 1791912900,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912897482,
+          "oracle_publish_time": 1791912896,
+          "slot": 510702219,
+          "update_slot": 510702207
+        },
+        "signature": "tMU2qd2nkfAyhHDU8BtawaZipPpgXXYgh2NEfMxixty823AzF3qQjuLn2DQ9r7BWRn5qZRYMiXkiydzZAoukr1o",
+        "slot": 510702219
+      },
+      {
+        "block_time": 1791912877,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912875696,
+          "oracle_publish_time": 1791912873,
+          "slot": 510702126,
+          "update_slot": 510702116
+        },
+        "signature": "2sLBBPiSkuTJaGyiiqpzmLe4WbeGmijPJKzP31D4bR6fuMevc7e6Vk2JhVqjBrwtLvCTwugVaG4CyPHizxNDLJj5",
+        "slot": 510702126
+      },
+      {
+        "block_time": 1791912855,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912853926,
+          "oracle_publish_time": 1791912850,
+          "slot": 510702035,
+          "update_slot": 510702024
+        },
+        "signature": "3KEzxnzUkxc2vTFX2Qqfp8SKWbob9boksMiphDVnbRQ57MS2Av87UYydZ3BF8caG3Xs1GFqs4zmqJ5hE7Fie7dCK",
+        "slot": 510702035
+      },
+      {
+        "block_time": 1791912836,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912835610,
+          "oracle_publish_time": 1791912832,
+          "slot": 510701956,
+          "update_slot": 510701950
+        },
+        "signature": "4xXPSStqQtAbmDL9UHCCQq8FahRDcPw5rp8yoG13FkozJ1MLtWQo5ocxsRuKgv9o7Mjo31vfTKoaqCofDEPrEkgG",
+        "slot": 510701956
+      },
+      {
+        "block_time": 1791912821,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912820529,
+          "oracle_publish_time": 1791912819,
+          "slot": 510701893,
+          "update_slot": 510701886
+        },
+        "signature": "hsPZJNKrEgyKqsPDsBj2gjoXVcsmLVRzTwD8XeHiDD1p6uvjD9YPYRedLQUUKAgNZ26ZAXGvgoGjR3SMYNzrNqX",
+        "slot": 510701893
+      },
+      {
+        "block_time": 1791912813,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912811693,
+          "oracle_publish_time": 1791912810,
+          "slot": 510701858,
+          "update_slot": 510701850
+        },
+        "signature": "2V5H8Fj6YAY3udxVghNAzxYuVF5eSUewrRdg7xyEFmX3ZiBC2RUhg9wpmsHJQGEwqYk1sdpmr5Fc559a7RtgnyN9",
+        "slot": 510701858
+      },
+      {
+        "block_time": 1791912798,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912797133,
+          "oracle_publish_time": 1791912795,
+          "slot": 510701796,
+          "update_slot": 510701788
+        },
+        "signature": "3gjZXvvtww2BE5pFyVKs2QLKXzcXzXijWh68oMDUZKmBNE53Z3eVgWsfMB9HZspVuJzgMyj4TXkTBuUyqmGVxqxM",
+        "slot": 510701796
+      },
+      {
+        "block_time": 1791912787,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912785616,
+          "oracle_publish_time": 1791912783,
+          "slot": 510701749,
+          "update_slot": 510701739
+        },
+        "signature": "fEg9vL5GcYyh2QYDkuL757o7y6ME4hXFASvtBJDqEfXsZyq5H4jprLFyERrEKTbzrxvnC2uacY87gFsAuKHZpRu",
+        "slot": 510701749
+      },
+      {
+        "block_time": 1791912748,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912746905,
+          "oracle_publish_time": 1791912745,
+          "slot": 510701586,
+          "update_slot": 510701580
+        },
+        "signature": "rrzPZHDgosHH98BdahS5vNSog1bjo3t573XRn9zzvCm6G8wP6EhX4RHTgFUyHYhYkukin5Yu5D3Z2BJgdN42Fr5",
+        "slot": 510701586
+      },
+      {
+        "block_time": 1791912718,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912717014,
+          "oracle_publish_time": 1791912712,
+          "slot": 510701463,
+          "update_slot": 510701455
+        },
+        "signature": "5nDpUJSidWjoCQZ6gMsXvTnnWkBFNXoDDZd2zuiiSW8U3Y69LXemT6zkF6ruTzKgL8PA99iPEPiaRm8QqeUTVZBZ",
+        "slot": 510701463
+      },
+      {
+        "block_time": 1791912697,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912692738,
+          "oracle_publish_time": 1791912690,
+          "slot": 510701374,
+          "update_slot": 510701355
+        },
+        "signature": "S6jhgGvvEKhy7af26qLeYTyEB5ZcpG9bA5zqajB4E4d9F1xr1KqWKwPMuk49VDx1aC7GAVWqYMAT9SgtDhxYDM6",
+        "slot": 510701374
+      },
+      {
+        "block_time": 1791912675,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912671199,
+          "oracle_publish_time": 1791912669,
+          "slot": 510701282,
+          "update_slot": 510701264
+        },
+        "signature": "5EVqPJXHe4Euv4iq7ChRS6x5s2HciETEFFWnZKVLFpBK47UXgp1pird74g57dLaaXSh9hNZoxriNWvjuM6KvxXeB",
+        "slot": 510701282
+      },
+      {
+        "block_time": 1791912654,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912652995,
+          "oracle_publish_time": 1791912651,
+          "slot": 510701196,
+          "update_slot": 510701187
+        },
+        "signature": "3Dmo7DrPkYzGtSdq4sPbBiPLctSQUP4HgKkyAE38XwEiNPfzjLsZewUwH2ABGaPAJZgUkt7CLZSp5Uc8Xq2usaWf",
+        "slot": 510701196
+      },
+      {
+        "block_time": 1791912634,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912631525,
+          "oracle_publish_time": 1791912628,
+          "slot": 510701112,
+          "update_slot": 510701098
+        },
+        "signature": "4WkSmF7tCTuTHXrrJDHwN1sqSGVPKBm1XifqY94iVQEJ3j6dQM7jskJLhPvTbMMhHArBrhi1cfPMJvyvw9jNJMcP",
+        "slot": 510701112
+      },
+      {
+        "block_time": 1791912613,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912612330,
+          "oracle_publish_time": 1791912609,
+          "slot": 510701024,
+          "update_slot": 510701019
+        },
+        "signature": "zg8tuEe4iiEuwXvStpYKWqVZNiEuUagtBu4Ps6ZnkZL1YHpCbf7ZW5XUWuMDh1PvjVNygnVNarHbwSdKq2QKbV5",
+        "slot": 510701024
+      },
+      {
+        "block_time": 1791912596,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912594642,
+          "oracle_publish_time": 1791912593,
+          "slot": 510700953,
+          "update_slot": 510700944
+        },
+        "signature": "5EhjSSzMamiuh4fdSeofMnmsQ7sQYSRuYC5vxnUeEZqBFkvFMRMyTmXfL6dPjFQwH8XTy2RLGbqWbpaqqUZRv3ra",
+        "slot": 510700953
+      },
+      {
+        "block_time": 1791912578,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912576997,
+          "oracle_publish_time": 1791912574,
+          "slot": 510700877,
+          "update_slot": 510700871
+        },
+        "signature": "5u95fcn9DJdrX4DZRt9xbxAMjXPAHg1Z8R1LsEksV8uuUGMNf32o5hcYjsnqSrZKZ53nma3XKVVxWF3YunxSGFss",
+        "slot": 510700877
+      },
+      {
+        "block_time": 1791912562,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912560104,
+          "oracle_publish_time": 1791912559,
+          "slot": 510700810,
+          "update_slot": 510700799
+        },
+        "signature": "2XQdNQfatDLK4yFZ358gskkqRPExqx7i819zwsUKiUY3rsiYitJb65guaqHJ6CNmUtjk2Qcn9A4qzmJkd3tgGZdr",
+        "slot": 510700810
+      },
+      {
+        "block_time": 1791912542,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912541376,
+          "oracle_publish_time": 1791912541,
+          "slot": 510700729,
+          "update_slot": 510700722
+        },
+        "signature": "2krMtqB8gSybK7i5WfpnXj8qRrJ66neER31S5nHWzcT7UjLPxgU2gJXcyLbYoochaKKtK5brSEoTVPZBpWqRauiB",
+        "slot": 510700729
+      },
+      {
+        "block_time": 1791912530,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912527935,
+          "oracle_publish_time": 1791912527,
+          "slot": 510700675,
+          "update_slot": 510700664
+        },
+        "signature": "41ogbiypD533RzSwPjsH9RzgKSLpLzGcyi7AHBG1x7yQrXaTpXGDpVQDw3gTEdkNE5pzmUHVimXn9rzJbxRpXQeD",
+        "slot": 510700675
+      },
+      {
+        "block_time": 1791912522,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791912519654,
+          "oracle_publish_time": 1791912519,
+          "slot": 510700644,
+          "update_slot": 510700629
+        },
+        "signature": "5xz6sKKGwzGkd8LaS3bEHKQUjTPE4FuS4pPRTpzVoATEnboHcwUjuotkpQzoRtiAiqxNsNseMQQYt36sz9ikkxyP",
+        "slot": 510700644
+      },
+      {
+        "block_time": 1791904576,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904575970,
+          "oracle_publish_time": 1791904575,
+          "slot": 510667367,
+          "update_slot": 510667362
+        },
+        "signature": "5LRjZ1VuQSePwSGcJyDVY7ZqU1czgc2aNBqbeWCCJ8qzqS1BR63YA6fGDGFuAYWcDQztdqwSzmtBDdp6mKXjo2Sc",
+        "slot": 510667367
+      },
+      {
+        "block_time": 1791904564,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904563825,
+          "oracle_publish_time": 1791904562,
+          "slot": 510667317,
+          "update_slot": 510667312
+        },
+        "signature": "iE3xn2x7wakc67HDp5X6cbTUysytdm6AXkhQTABN4XgnJ6xFs7RywFSWKmef2Tc6NyyvHez73vEv8Jo52agQuHs",
+        "slot": 510667317
+      },
+      {
+        "block_time": 1791904555,
+        "event_type": "QuoteCommitted",
+        "payload": {
+          "name": "QuoteCommitted",
+          "nonce": 1791904554200,
+          "slot": 510667279,
+          "version": 28
+        },
+        "signature": "2H2k8MuhjpTh9jWpEJMAFifRCaanWnMEPHd575fLPdSvmDBJkXsFdZFvvqPJJxRqJWN3uC2y7KeqARzFZqAKzDxv",
+        "slot": 510667279
+      },
+      {
+        "block_time": 1791904555,
+        "event_type": "QuoteUpdated",
+        "payload": {
+          "anchor_sqrt_price": 6048197546310742586,
+          "depth_mult_bps": 7300,
+          "name": "QuoteUpdated",
+          "slot": 510667279,
+          "version": 28
+        },
+        "signature": "2H2k8MuhjpTh9jWpEJMAFifRCaanWnMEPHd575fLPdSvmDBJkXsFdZFvvqPJJxRqJWN3uC2y7KeqARzFZqAKzDxv",
+        "slot": 510667279
+      },
+      {
+        "block_time": 1791904554,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904554200,
+          "oracle_publish_time": 1791904553,
+          "slot": 510667276,
+          "update_slot": 510667273
+        },
+        "signature": "fBzT4AQQvYmv3hjDaTARe1iTdQztL8SruXqtdGLV7fMAhK3aoetq9D4s3jtcxtEH6VMsTnM5uFfVmj25Lzp16qV",
+        "slot": 510667276
+      },
+      {
+        "block_time": 1791904547,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904546837,
+          "oracle_publish_time": 1791904546,
+          "slot": 510667248,
+          "update_slot": 510667243
+        },
+        "signature": "2juBroj3PBkTZhUJTUMYHuNxvsUsnuXqkWe5Mt3RZqeG4uuGCKfRfDowCWEEEr1YPpJ8eUfHebaKxd1XH8GgCim3",
+        "slot": 510667248
+      },
+      {
+        "block_time": 1791904540,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904539892,
+          "oracle_publish_time": 1791904539,
+          "slot": 510667220,
+          "update_slot": 510667215
+        },
+        "signature": "2jjWoJ3HVAabAfBvFJpFE6PXGdQaokyCVQEqDMwRUgirhxUwj5i4hZMKk6cUggWJzNADGqtjesgyKEiL78pfpJkK",
+        "slot": 510667220
+      },
+      {
+        "block_time": 1791904531,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904530186,
+          "oracle_publish_time": 1791904529,
+          "slot": 510667179,
+          "update_slot": 510667174
+        },
+        "signature": "5oyCenFgRsWv13RTBnxwwYackmbp1P4AysvPHZKKL63mFMsLhKaoK7D2UnKP3BRSECFkJMq5fq6NZvFpZo8ZCapj",
+        "slot": 510667179
+      },
+      {
+        "block_time": 1791904527,
+        "event_type": "QuoteCommitted",
+        "payload": {
+          "name": "QuoteCommitted",
+          "nonce": 1791904525872,
+          "slot": 510667166,
+          "version": 27
+        },
+        "signature": "5tQwK16nWevWnQWXzZKCZa7JbFXcFJtLmTtpPDi9uLZr7nkWwHTcB9YnRiZp4DJdVvXAf157VUG3sFv5MPQWptDZ",
+        "slot": 510667166
+      },
+      {
+        "block_time": 1791904527,
+        "event_type": "QuoteUpdated",
+        "payload": {
+          "anchor_sqrt_price": 6049725767820342067,
+          "depth_mult_bps": 7300,
+          "name": "QuoteUpdated",
+          "slot": 510667166,
+          "version": 27
+        },
+        "signature": "5tQwK16nWevWnQWXzZKCZa7JbFXcFJtLmTtpPDi9uLZr7nkWwHTcB9YnRiZp4DJdVvXAf157VUG3sFv5MPQWptDZ",
+        "slot": 510667166
+      },
+      {
+        "block_time": 1791904526,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904525872,
+          "oracle_publish_time": 1791904525,
+          "slot": 510667162,
+          "update_slot": 510667156
+        },
+        "signature": "4PwrdL3G9oi8xHSBtRYQbthkPYtMS494pvWfogK1vPzwHAuACCsiu6HBLQyqB615iPHH6FarfrddUwWxWkvYsTKf",
+        "slot": 510667162
+      },
+      {
+        "block_time": 1791904520,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904519284,
+          "oracle_publish_time": 1791904518,
+          "slot": 510667136,
+          "update_slot": 510667129
+        },
+        "signature": "5qMSPHGP5sdYohL3EZ5GWH59m1XUqyWSE76isT2iZweFbqb72WRAQqbqf5xLEoFhUpHrstpVokEGrsb4ayB78CUj",
+        "slot": 510667136
+      },
+      {
+        "block_time": 1791904514,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904513581,
+          "oracle_publish_time": 1791904513,
+          "slot": 510667109,
+          "update_slot": 510667105
+        },
+        "signature": "5iZjGrC7dFbVRSGV4JwjbzuN75UEtxd4XoEQUhUmJpiWVWHEwgqzc6Ln3ru6C9TkLEzgRLmpDwabcdHyLHsN6TC8",
+        "slot": 510667109
+      },
+      {
+        "block_time": 1791904508,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904507237,
+          "oracle_publish_time": 1791904506,
+          "slot": 510667083,
+          "update_slot": 510667078
+        },
+        "signature": "5xG17F871TkqPKcLyjBfsGouGe8LUcTQHnkzL6GkwGGEkZnLkrQ9vMVJTVNYa2fMu3jnKL8PEXwt6DNg9M39K7tS",
+        "slot": 510667083
+      },
+      {
+        "block_time": 1791904504,
+        "event_type": "QuoteCommitted",
+        "payload": {
+          "name": "QuoteCommitted",
+          "nonce": 1791904502472,
+          "slot": 510667066,
+          "version": 26
+        },
+        "signature": "2wMaVpX4VsGnDTMcpzcaK1xsoNVCxkSi3P89eYdtbABCPTemNdTRdvS5FkjGAfsa2VXvpcZFr7cJcRHmqAhG2pPN",
+        "slot": 510667066
+      },
+      {
+        "block_time": 1791904504,
+        "event_type": "QuoteUpdated",
+        "payload": {
+          "anchor_sqrt_price": 6050974385057610715,
+          "depth_mult_bps": 6400,
+          "name": "QuoteUpdated",
+          "slot": 510667066,
+          "version": 26
+        },
+        "signature": "2wMaVpX4VsGnDTMcpzcaK1xsoNVCxkSi3P89eYdtbABCPTemNdTRdvS5FkjGAfsa2VXvpcZFr7cJcRHmqAhG2pPN",
+        "slot": 510667066
+      },
+      {
+        "block_time": 1791904503,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904502472,
+          "oracle_publish_time": 1791904502,
+          "slot": 510667062,
+          "update_slot": 510667058
+        },
+        "signature": "268ctSC6FomPMsqatLmB9NEfNVbFVufm8aUgDx7Bsntcb4eWSs8LFV19adPG6RWVViUip13cTW8EMChMF9P6z8h4",
+        "slot": 510667062
+      },
+      {
+        "block_time": 1791904497,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904496289,
+          "oracle_publish_time": 1791904493,
+          "slot": 510667036,
+          "update_slot": 510667031
+        },
+        "signature": "5WKApERonCtZ5b471Pe5a4zMWAnZa1okQcPMSvpKkJjRHp5bi1bgFMnokeHJUoE1TeciwAzLE9eNmKFeDc9A3LN2",
+        "slot": 510667036
+      },
+      {
+        "block_time": 1791904486,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904485346,
+          "oracle_publish_time": 1791904484,
+          "slot": 510666990,
+          "update_slot": 510666985
+        },
+        "signature": "hebA2gehffqZxpNH9vGt7ord9LWPZJ5ggrj9j19kL3SR9FLmShadnr6r1erAPq8tpFZB8DE2sSDZNpUN2EB2xCb",
+        "slot": 510666990
+      },
+      {
+        "block_time": 1791904482,
+        "event_type": "QuoteCommitted",
+        "payload": {
+          "name": "QuoteCommitted",
+          "nonce": 1791904480511,
+          "slot": 510666973,
+          "version": 25
+        },
+        "signature": "3JRisfRk8SDEkh2fh99dJAXnPq4cYtuW4JhwNdgvb2s9CKK7KYRasrjaVwWA6aD1KtjFp6WmWg78cXYyTX7nmbs4",
+        "slot": 510666973
+      },
+      {
+        "block_time": 1791904482,
+        "event_type": "QuoteUpdated",
+        "payload": {
+          "anchor_sqrt_price": 6053136703906690522,
+          "depth_mult_bps": 7300,
+          "name": "QuoteUpdated",
+          "slot": 510666973,
+          "version": 25
+        },
+        "signature": "3JRisfRk8SDEkh2fh99dJAXnPq4cYtuW4JhwNdgvb2s9CKK7KYRasrjaVwWA6aD1KtjFp6WmWg78cXYyTX7nmbs4",
+        "slot": 510666973
+      },
+      {
+        "block_time": 1791904481,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904480511,
+          "oracle_publish_time": 1791904479,
+          "slot": 510666970,
+          "update_slot": 510666965
+        },
+        "signature": "eaJHat1NMo7awZGzuRqoH4yCBRkiZXDnCqZNeCi83hMzaDZJnmUdAtEnkiKLUdK2Ujb2ZtZnihdwgJ7rzLMQwqS",
+        "slot": 510666970
+      },
+      {
+        "block_time": 1791904474,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904474037,
+          "oracle_publish_time": 1791904473,
+          "slot": 510666942,
+          "update_slot": 510666938
+        },
+        "signature": "TqkeJRy5UczsKmDaN9PLzpScYi3jpzaob7C4otLahj7BBx7AuujXbRA51AkSZeghF1HMzRWd5BtSnL2rST9xmpS",
+        "slot": 510666942
+      },
+      {
+        "block_time": 1791904467,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904467257,
+          "oracle_publish_time": 1791904466,
+          "slot": 510666914,
+          "update_slot": 510666910
+        },
+        "signature": "5UkFX4o7fxLCnNAjVUHwhzHk2vn7UubX78AySgkAu2Zx4fLAfSSPcbt521gf1Vx2L5nzgoBLinEwFoMUcVaSFB4D",
+        "slot": 510666914
+      },
+      {
+        "block_time": 1791904464,
+        "event_type": "QuoteCommitted",
+        "payload": {
+          "name": "QuoteCommitted",
+          "nonce": 1791904462759,
+          "slot": 510666900,
+          "version": 24
+        },
+        "signature": "wGPZhP28doZ1Lx8WVNzD9q9oiMotzZnsppD1Zb88hVsFjVM74U9TviM8tgnQddFJDNfGiuLrFb4MQ1faW9UKbqY",
+        "slot": 510666900
+      },
+      {
+        "block_time": 1791904464,
+        "event_type": "QuoteUpdated",
+        "payload": {
+          "anchor_sqrt_price": 6051654081924329555,
+          "depth_mult_bps": 7300,
+          "name": "QuoteUpdated",
+          "slot": 510666900,
+          "version": 24
+        },
+        "signature": "wGPZhP28doZ1Lx8WVNzD9q9oiMotzZnsppD1Zb88hVsFjVM74U9TviM8tgnQddFJDNfGiuLrFb4MQ1faW9UKbqY",
+        "slot": 510666900
+      },
+      {
+        "block_time": 1791904463,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904462759,
+          "oracle_publish_time": 1791904462,
+          "slot": 510666896,
+          "update_slot": 510666891
+        },
+        "signature": "2tceQtikEbspkJqk6uqaLSSzY7HFYAu4LGw3v81aNsCf263Bid9NACanUnGxcCczVZYHrzBNzuv7kJ3ytTjpxQuv",
+        "slot": 510666896
+      },
+      {
+        "block_time": 1791904458,
+        "event_type": "QuoteCommitted",
+        "payload": {
+          "name": "QuoteCommitted",
+          "nonce": 1791904456564,
+          "slot": 510666873,
+          "version": 23
+        },
+        "signature": "54yGvHWSC8jQegshuZbSnf6ZqJ7NsdD9F7Rt1pjgF3soDo7dsX1VYw2JzMjcVV1ymD5mA2RUharkbEkfuntyPWJ7",
+        "slot": 510666873
+      },
+      {
+        "block_time": 1791904458,
+        "event_type": "QuoteUpdated",
+        "payload": {
+          "anchor_sqrt_price": 6051957897414055441,
+          "depth_mult_bps": 7300,
+          "name": "QuoteUpdated",
+          "slot": 510666873,
+          "version": 23
+        },
+        "signature": "54yGvHWSC8jQegshuZbSnf6ZqJ7NsdD9F7Rt1pjgF3soDo7dsX1VYw2JzMjcVV1ymD5mA2RUharkbEkfuntyPWJ7",
+        "slot": 510666873
+      },
+      {
+        "block_time": 1791904457,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904456564,
+          "oracle_publish_time": 1791904456,
+          "slot": 510666870,
+          "update_slot": 510666865
+        },
+        "signature": "yhhW6oyudqbGvWzmL654HU149LeV7sBur1zA6X8443CxYqm9F8fFXJvSDwcci1gEsrWwsrofUCuENRe6Ru6aZmQ",
+        "slot": 510666870
+      },
+      {
+        "block_time": 1791904448,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904447785,
+          "oracle_publish_time": 1791904446,
+          "slot": 510666832,
+          "update_slot": 510666827
+        },
+        "signature": "5pdA9kEnazBu9uhLaWpSkztsYmJa4kiL9qo2dtJMoum7fG6bTPikPiAtZDLYFmd1zD9e2RkMp72Uysea3QYrgYLR",
+        "slot": 510666832
+      },
+      {
+        "block_time": 1791904443,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904443185,
+          "oracle_publish_time": 1791904442,
+          "slot": 510666814,
+          "update_slot": 510666810
+        },
+        "signature": "47nLsCqPryzHZ7gcpvUCtoADJaDXezswE8EQRzQVvnurAgi3RUUgy7YwajkBLDD4LKha65pFx96cnrHcGTujD4MF",
+        "slot": 510666814
+      },
+      {
+        "block_time": 1791904438,
+        "event_type": "QuoteCommitted",
+        "payload": {
+          "name": "QuoteCommitted",
+          "nonce": 1791904436897,
+          "slot": 510666793,
+          "version": 22
+        },
+        "signature": "34dNY9gujQGW4zqMod3fJWwnVNaD8PuX2DtxqdzDbo6Ufeq5DXCewSPXkh2wtkHtz7RDjpZu9SEaMGGkmuriqxf1",
+        "slot": 510666793
+      },
+      {
+        "block_time": 1791904438,
+        "event_type": "QuoteUpdated",
+        "payload": {
+          "anchor_sqrt_price": 6051513012468735673,
+          "depth_mult_bps": 6400,
+          "name": "QuoteUpdated",
+          "slot": 510666793,
+          "version": 22
+        },
+        "signature": "34dNY9gujQGW4zqMod3fJWwnVNaD8PuX2DtxqdzDbo6Ufeq5DXCewSPXkh2wtkHtz7RDjpZu9SEaMGGkmuriqxf1",
+        "slot": 510666793
+      },
+      {
+        "block_time": 1791904437,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904436897,
+          "oracle_publish_time": 1791904436,
+          "slot": 510666788,
+          "update_slot": 510666782
+        },
+        "signature": "3NABYJznc4C517RJhxRmixc3LB66uPecM3KgSvzwR9Xp2xJCDmXxSipxAyhnZ4ptBN9gxyQVp1iLrpUVrbLHXG2b",
+        "slot": 510666788
+      },
+      {
+        "block_time": 1791904429,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904427443,
+          "oracle_publish_time": 1791904426,
+          "slot": 510666752,
+          "update_slot": 510666743
+        },
+        "signature": "2StgLxAE7gPSewEpx7PQL4d72aZBggDEFAPYRQqRj3yFwA21LGVBmaeeGegBnuiCnbe8EfD4jmFwj6a7yxYNgNxS",
+        "slot": 510666752
+      },
+      {
+        "block_time": 1791904425,
+        "event_type": "QuoteCommitted",
+        "payload": {
+          "name": "QuoteCommitted",
+          "nonce": 1791904423823,
+          "slot": 510666737,
+          "version": 21
+        },
+        "signature": "2mBfr7D8q8VVgeVL2uqoNYar88KkATmyUUjyh6gUBpo3qeJDZakuR5szyjqm2gHYfdch8NHyN17vAVPZAfGq7xNs",
+        "slot": 510666737
+      },
+      {
+        "block_time": 1791904425,
+        "event_type": "QuoteUpdated",
+        "payload": {
+          "anchor_sqrt_price": 6052975939552051774,
+          "depth_mult_bps": 6400,
+          "name": "QuoteUpdated",
+          "slot": 510666737,
+          "version": 21
+        },
+        "signature": "2mBfr7D8q8VVgeVL2uqoNYar88KkATmyUUjyh6gUBpo3qeJDZakuR5szyjqm2gHYfdch8NHyN17vAVPZAfGq7xNs",
+        "slot": 510666737
+      },
+      {
+        "block_time": 1791904424,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904423823,
+          "oracle_publish_time": 1791904423,
+          "slot": 510666735,
+          "update_slot": 510666730
+        },
+        "signature": "5s2uLnZZrZYXvRp1nD8FfWmeF1ip5VFdMdCmoaSyi86KytTvpwpCvXbSERXorq5ds4A5Yz39hXcd8WhxbEFy7x9B",
+        "slot": 510666735
+      },
+      {
+        "block_time": 1791904418,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904417033,
+          "oracle_publish_time": 1791904416,
+          "slot": 510666708,
+          "update_slot": 510666702
+        },
+        "signature": "5ZSwSdCD9PXXYBPYhmTcUJfSuA71zkjm8iCUFxsrpk7DLzHfW9QV8CakY5nbLmXbKD5kbgkhmWBFpPMJaEkR18bs",
+        "slot": 510666708
+      },
+      {
+        "block_time": 1791904412,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904410564,
+          "oracle_publish_time": 1791904410,
+          "slot": 510666684,
+          "update_slot": 510666675
+        },
+        "signature": "26PuGnhiCXnHFtipCPuxSRfnvozqCbNi8RyMHsXLzbMqjNkFgenKhtAa86MhZQUeT68M6GQFo3Fo8FuumHtjt3w7",
+        "slot": 510666684
+      },
+      {
+        "block_time": 1791904400,
+        "event_type": "QuoteStaged",
+        "payload": {
+          "name": "QuoteStaged",
+          "nonce": 1791904399806,
+          "oracle_publish_time": 1791904399,
+          "slot": 510666636,
+          "update_slot": 510666631
+        },
+        "signature": "3KxYxX4WLMHHEAm8i3Dqa48nhqdTZdiRh6kKzQ19b5GKZXv48ovcXyxujoN9mkar9mUv9E1nnSTiji9FQLkFS6Ld",
+        "slot": 510666636
+      },
+      {
+        "block_time": 1791904397,
+        "event_type": "QuoteCommitted",
+        "payload": {
+          "name": "QuoteCommitted",
+          "nonce": 1791904396073,
+          "slot": 510666624,
+          "version": 20
+        },
+        "signature": "4u1gtjsJuyrgJWay2Nu5UVdk6dPmxzBZJ6r4tcLJkWwJVcwC9kEzL5QXvyzP5SFY8Ld8jpe6P3FZ52sC7Cd7BL6G",
+        "slot": 510666624
+      }
+    ],
+    "quote_commits_truncated": 125,
+    "source": "indexed confirmed transactions (program events)",
+    "swaps": [
+      {
+        "block_time": 1791842540,
+        "event_type": "SwapEvent",
+        "payload": {
+          "amount_in": 1750000,
+          "amount_out": 16290295,
+          "fee": 175,
+          "mid_at_fill": 0.0,
+          "name": "SwapEvent",
+          "quoted_out": 0.0,
+          "side": "buy",
+          "slot": 510407827,
+          "version": 18
+        },
+        "signature": "51TkKqfi9bt8QqpKKxJZnN2nyFv1HAMnSGW2mjctDYDEpuDi4Roch43RJapj3poz8H8DqYCfmE8QFSrbxVHx9TUC",
+        "slot": 510407827
+      }
+    ],
+    "withdrawals": []
+  },
+  "index_status": {
+    "counts": {
+      "deposits": 2,
+      "events": 231,
+      "ingest_errors": 0,
+      "reconciliations": 1,
+      "schema_version": 1,
+      "swaps": 1,
+      "transactions": 339,
+      "withdrawals": 0
+    },
+    "coverage": {
+      "events": 231,
+      "first_block_time": 1791641257,
+      "first_indexed_at": "2026-10-13T19:36:35.179166+00:00",
+      "first_slot": 509565633,
+      "last_block_time": 1791914702,
+      "last_indexed_at": "2026-10-13T19:42:13.612731+00:00",
+      "last_slot": 510709748,
+      "transactions": 339
+    },
+    "ingest_errors": [],
+    "last_indexed_at": "2026-10-13T19:42:13.612731+00:00",
+    "last_signature": "5d57rhdsBJDScXa7dVmjSo9iUHzSNx9hdjXxgWUWWkRjbxEqArwi2HuBg5ftMDkcnx3vVw2sW4Py62RzUe2a8Q6c",
+    "last_slot": 510709748,
+    "schema_version": 1
+  },
+  "limitations": [
+    "Coverage is bounded by what the configured RPC provider retains; earlier history is a gap, not zero activity.",
+    "No historical Pyth/SOL observations are indexed: markouts and quote-age are PENDING.",
+    "min_out is an instruction argument, not an event field: shown as N/A.",
+    "Quote attribution (keeper) is not reconstructable from events; only the live QuoteState keeper is shown.",
+    "Fee buckets are liabilities, not LP profit; inventory changes are not PnL.",
+    "Block times are absent on very old transactions; those rows carry null block_time."
+  ],
+  "lp": {
+    "deposits": {
+      "count": 2,
+      "shares_minted": 108979882,
+      "usdc_atoms": 36000000,
+      "wsol_atoms": 329912021
+    },
+    "nav_per_share": null,
+    "nav_per_share_reason": "NAV requires a reserve valuation; shown only when a live oracle price is available.",
+    "protocol_fee_buckets": null,
+    "protocol_fee_buckets_reason": "Fee buckets accrue inside the Vault account and are not emitted as events; read from the Vault snapshot, but they are a liability, not LP profit.",
+    "reserve_composition": {
+      "oracle_price_usdc_per_sol": 107.50099657
+    },
+    "reserves": {
+      "epoch": 0,
+      "insurance_base": 0,
+      "insurance_quote": 58,
+      "keeper_base": 0,
+      "keeper_quote": 58,
+      "protocol_base": 0,
+      "protocol_quote": 58,
+      "status": 0,
+      "total_shares": 108980882
+    },
+    "source": "live Vault/QuoteState + indexed deposit/withdraw events",
+    "status": "live+historical",
+    "units": {
+      "shares": "atoms (9 dp)",
+      "usdc": "atoms (6 dp)",
+      "wsol": "atoms (9 dp)"
+    },
+    "withdrawals": {
+      "count": 0,
+      "shares": 0,
+      "usdc_atoms": 0,
+      "wsol_atoms": 0
+    }
+  },
+  "markouts": {
+    "horizons_seconds": [
+      1,
+      5,
+      30
+    ],
+    "observations": [],
+    "reason": "No historical Pyth/SOL price observations are indexed, so post-trade markouts cannot be computed. Current prices are never substituted for historical ones.",
+    "source": "post-trade oracle observations",
+    "status": "pending"
+  },
+  "network": "devnet",
+  "protocol_live": {
+    "config": {
+      "epoch_slots": 1500,
+      "expiry_slots": 10,
+      "fee_bps": 1,
+      "flow_window_slots": 216000,
+      "keeper": "8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH",
+      "max_conf_bps": 10,
+      "max_quote_size": 100000000000,
+      "max_staleness_seconds": 2,
+      "max_window_flow_bps": 1000,
+      "min_liquidity": 1000,
+      "treasury": "8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH",
+      "utilization_max_bps": 5000,
+      "warmup_slots": 150
+    },
+    "quote_expired": true,
+    "quote_state": {
+      "anchor_sqrt_price": 6048197546310742586,
+      "ask_extra_bps": 0,
+      "bid_extra_bps": 0,
+      "depth_mult_bps": 7300,
+      "expiry_slot": 510667289,
+      "half_spread_bps": 5,
+      "keeper": "8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH",
+      "oracle_conf_bps": 3,
+      "oracle_price": 1983043371395518335,
+      "oracle_publish_time": 1791904553,
+      "p_res_sqrt": 6048197546310742586,
+      "update_slot": 510667273,
+      "version": 28
+    },
+    "reserves": {
+      "base": 313621726,
+      "quote": 37750000
+    },
+    "source": "live RPC reads",
+    "vault": {
+      "admin": "8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH",
+      "base_mint": "So11111111111111111111111111111111111111112",
+      "base_reserve": "8vfr2KmMmXYUTjRg5cAiSYD6EhN1d8pjJnmFC95E2vfm",
+      "epoch": 0,
+      "epoch_start": 510190432,
+      "insurance_base": 0,
+      "insurance_quote": 58,
+      "keeper_base": 0,
+      "keeper_quote": 58,
+      "protocol_base": 0,
+      "protocol_quote": 58,
+      "quote_mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "quote_reserve": "G8q1WMKT8fnGQh85kCB8Aihf6F7tctXJDKbA6gn1jPeS",
+      "share_lock": "E5mxeoL32RYohrDP9ycGhG7F1hAtm8DQFmT6Bp3Cwm2a",
+      "share_mint": "AyGcsmW6n8WvgHbHbw2SVbYAsWaw2XcYD5SyH9EdWeL9",
+      "status": 0,
+      "total_shares": 108980882
+    }
+  },
+  "reconciliation": {
+    "block_time": 1791842540,
+    "checks": {
+      "chain_event_count": 1,
+      "indexed_event_count": 1,
+      "success": true,
+      "swaps": 1,
+      "token_deltas": {
+        "5MpRjKvzgW5C7x8sbam4KgA5KGkGyTKNCXarbqZceCnJ": {
+          "after": 16290295,
+          "before": 0,
+          "delta": 16290295,
+          "mint": "So11111111111111111111111111111111111111112",
+          "owner": "8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH"
+        },
+        "5SThVCCb6vrvvkwSMukanW5vWkUehBCVW8iT53KqVzgV": {
+          "after": 2250000,
+          "before": 4000000,
+          "delta": -1750000,
+          "mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+          "owner": "8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH"
+        },
+        "8vfr2KmMmXYUTjRg5cAiSYD6EhN1d8pjJnmFC95E2vfm": {
+          "after": 313621726,
+          "before": 329912021,
+          "delta": -16290295,
+          "mint": "So11111111111111111111111111111111111111112",
+          "owner": "8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt"
+        },
+        "G8q1WMKT8fnGQh85kCB8Aihf6F7tctXJDKbA6gn1jPeS": {
+          "after": 37750000,
+          "before": 36000000,
+          "delta": 1750000,
+          "mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+          "owner": "8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt"
+        }
+      }
+    },
+    "failures": [],
+    "program_id": "2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm",
+    "signature": "51TkKqfi9bt8QqpKKxJZnN2nyFv1HAMnSGW2mjctDYDEpuDi4Roch43RJapj3poz8H8DqYCfmE8QFSrbxVHx9TUC",
+    "slot": 510407827,
+    "status": "MATCHED"
+  },
+  "swaps": [
+    {
+      "block_time": 1791842540,
+      "event_type": "SwapEvent",
+      "payload": {
+        "amount_in": 1750000,
+        "amount_out": 16290295,
+        "fee": 175,
+        "mid_at_fill": 0.0,
+        "name": "SwapEvent",
+        "quoted_out": 0.0,
+        "side": "buy",
+        "slot": 510407827,
+        "version": 18
+      },
+      "signature": "51TkKqfi9bt8QqpKKxJZnN2nyFv1HAMnSGW2mjctDYDEpuDi4Roch43RJapj3poz8H8DqYCfmE8QFSrbxVHx9TUC",
+      "slot": 510407827
+    }
+  ],
+  "trading": {
+    "buy_base": {
+      "avg_execution_price_usdc_per_sol": 107.42592445379289,
+      "count": 1,
+      "fee_usdc_atoms": 175,
+      "usdc_in_atoms": 1750000,
+      "wsol_out_atoms": 16290295
+    },
+    "failed_transactions": 125,
+    "sell_base": {
+      "avg_execution_price_usdc_per_sol": null,
+      "count": 0,
+      "fee_wsol_atoms": 0,
+      "usdc_out_atoms": 0,
+      "wsol_in_atoms": 0
+    },
+    "source": "indexed SwapEvent + transactions",
+    "status": "historical",
+    "success_rate": 0.007936507936507936,
+    "trade_count": 1,
+    "units": {
+      "avg_execution_price_usdc_per_sol": "USDC per SOL",
+      "usdc": "atoms (6 dp)",
+      "wsol": "atoms (9 dp)"
+    }
+  }
+}

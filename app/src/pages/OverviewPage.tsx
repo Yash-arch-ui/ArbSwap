@@ -585,7 +585,10 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           </p>
 
           <p className="hero-live">
-            Live on Solana Devnet: SOL/USDC Vault v{quoteState.version} · Slot {quoteState.currentSlot} · Verified Pyth Feed
+            Live on Solana Devnet: SOL/USDC Vault v{quoteState.version} · Slot {quoteState.currentSlot}
+            {quoteState.hasQuote && quoteState.status !== 'Fresh'
+              ? ` · Quote ${quoteState.status.toLowerCase()} (last-known, not executable)`
+              : ' · Verified Pyth Feed'}
           </p>
 
           <div className="hero-actions">
@@ -654,6 +657,11 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
             <span className="ribbon-label">Vault TVL (live)</span>
             <p className="ribbon-val mono">${vaultState.tvlUsd.toLocaleString()}</p>
             <span className="ribbon-sub mono">{vaultState.baseReserve.toLocaleString()} SOL + ${vaultState.quoteReserve.toLocaleString()} USDC</span>
+            {quoteState.hasQuote && quoteState.status !== 'Fresh' && (
+              <span className="ribbon-sub mono" style={{ color: 'var(--uni-warning)' }}>
+                valued at last-known quote (expired)
+              </span>
+            )}
           </div>
           <div className="ribbon-card">
             <span className="ribbon-label">2-Second Markout (model)</span>

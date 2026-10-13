@@ -191,3 +191,143 @@ def test_metrics_unavailable_are_none_not_fabricated(tmp_path):
     assert mark
     assert mark["status"] == "pending"
     assert mark["observations"] == []
+
+
+# --- S2-33: coverage, cursor-resume, quote history, expired semantics --------
+
+from simulation.analytics import export as export_mod
+from simulation.analytics.events import DepositEvent, QuoteCommitted, SwapEvent
+from simulation.analytics.onchain import TxRecord
+
+
+class FakeSignedRpc:
+    """Newest-first signature list; returns a canned tx per signature."""
+
+    def __init__(self, entries, result_by_sig):
+        self.entries = entries  # newest-first [{"signature","slot","err"}]
+        self.result_by_sig = result_by_sig
+
+    def get_signatures_for_address(self, address, *, limit=1000, before=None, until=None, commitment="confirmed"):
+        return list(self.entries)
+
+    def get_transaction(self, signature):
+        return self.result_by_sig.get(signature)
+
+
+def _record(signature, slot, events):
+    return TxRecord(signature=signature, slot=slot, block_time=slot * 2, err=None,
+                    program_id=DEFAULT_CANONICAL.program_id, events=tuple(events))
+
+
+def test_cursor_resume_only_collects_newer_signatures(tmp_path):
+    db = Database(tmp_path / "index.sqlite")
+    # Pre-existing cursor at the older signature.
+    old = _record("OLD", 100, [SwapEvent(slot=100, version=1, side="buy", amount_in=1, amount_out=2, fee=0)])
+    db.ingest_records(DEFAULT_CANONICAL.program_id, [old])
+    assert db.cursor(DEFAULT_CANONICAL.program_id)[0] == "OLD"
+
+    new = _record("NEW", 300, [SwapEvent(slot=300, version=2, side="sell", amount_in=3, amount_out=4, fee=0)])
+    rpc = FakeSignedRpc(
+        entries=[{"signature": "NEW", "slot": 300, "err": None},
+                 {"signature": "OLD", "slot": 100, "err": None}],
+        result_by_sig={"NEW": "NEW", "OLD": "OLD"},
+    )
+    # The indexer parses results itself, so give it parseable results via monkeypatch.
+    from simulation.analytics import indexer as idx
+    parsed = {"NEW": new, "OLD": old}
+    orig = idx.parse_transaction
+    idx.parse_transaction = lambda result, program_id: parsed[result]
+    try:
+        summary = idx.ChainIndexer(rpc, db, DEFAULT_CANONICAL.program_id, log=lambda *_: None).backfill()
+    finally:
+        idx.parse_transaction = orig
+    # Only NEW is collected; OLD stops the walk.
+    assert summary["candidates"] == 1
+    assert db.cursor(DEFAULT_CANONICAL.program_id)[0] == "NEW"
+    # OLD was not re-ingested (still exactly 2 swaps).
+    assert db.counts()["swaps"] == 2
+
+
+def test_cursor_never_moves_backwards(tmp_path):
+    db = Database(tmp_path / "index.sqlite")
+    newer = _record("NEW", 300, [])
+    older = _record("OLD", 100, [])
+    db.ingest_records(DEFAULT_CANONICAL.program_id, [newer])
+    assert db.cursor(DEFAULT_CANONICAL.program_id)[0] == "NEW"
+    # Ingest an older batch afterwards: cursor must stay at NEW.
+    db.ingest_records(DEFAULT_CANONICAL.program_id, [older])
+    assert db.cursor(DEFAULT_CANONICAL.program_id)[0] == "NEW"
+
+
+def test_coverage_reports_honest_range(tmp_path):
+    db = Database(tmp_path / "index.sqlite")
+    db.ingest_records(DEFAULT_CANONICAL.program_id, [
+        _record("A", 100, [DepositEvent(slot=100, shares=10, base_amount=1, quote_amount=2)]),
+        _record("B", 200, [QuoteCommitted(slot=200, version=5, nonce=9)]),
+    ])
+    cov = db.coverage()
+    assert cov["first_slot"] == 100 and cov["last_slot"] == 200
+    assert cov["transactions"] == 2 and cov["events"] == 2
+    assert cov["first_indexed_at"] and cov["last_indexed_at"]
+
+
+def test_quote_commits_view(tmp_path):
+    db = Database(tmp_path / "index.sqlite")
+    db.ingest_records(DEFAULT_CANONICAL.program_id, [
+        _record("A", 100, [QuoteCommitted(slot=100, version=1, nonce=1)]),
+        _record("B", 200, [QuoteCommitted(slot=200, version=2, nonce=2)]),
+    ])
+    commits = db.quote_commits()
+    assert [c["slot"] for c in commits] == [200, 100]  # newest first
+
+
+def test_build_bundle_history_and_expired_semantics(tmp_path):
+    db = Database(tmp_path / "index.sqlite")
+    db.ingest_records(DEFAULT_CANONICAL.program_id, [
+        _record("A", 100, [
+            SwapEvent(slot=100, version=5, side="buy", amount_in=1_000_000, amount_out=9_000_000, fee=100),
+            DepositEvent(slot=100, shares=42, base_amount=10, quote_amount=20),
+            QuoteCommitted(slot=100, version=5, nonce=7),
+        ]),
+    ])
+    bundle = export_mod.build_bundle(
+        db,
+        snapshot={"quote_state": {"version": 5, "expiry_slot": 150, "keeper": "K"}},
+        reserves={"base": 1, "quote": 2},
+        generated_at="2026-01-01T00:00:00+00:00",
+        current_slot=150,
+    )
+    assert bundle["history"]["swaps"][0]["payload"]["side"] == "buy"
+    assert bundle["history"]["deposits"][0]["payload"]["shares"] == 42
+    assert bundle["history"]["quote_commits"][0]["payload"]["version"] == 5
+    assert bundle["index_status"]["coverage"]["first_slot"] == 100
+    # expiry_slot == current_slot -> expired (strict < required for fresh)
+    assert bundle["freshness"]["quote_expired"] is True
+    assert bundle["protocol_live"]["quote_expired"] is True
+    # Fresh when current slot precedes expiry.
+    fresh = export_mod.build_bundle(
+        db, snapshot={"quote_state": {"version": 5, "expiry_slot": 150}}, current_slot=149,
+    )
+    assert fresh["freshness"]["quote_expired"] is False
+    # Version 0 is never "fresh".
+    zero = export_mod.build_bundle(
+        db, snapshot={"quote_state": {"version": 0, "expiry_slot": 150}}, current_slot=100,
+    )
+    assert zero["freshness"]["quote_expired"] is True
+
+
+def test_analytics_service_never_submits_or_signs():
+    """The analytics/indexer package is read-only: no signing or send paths."""
+    import simulation.analytics as pkg
+    from pathlib import Path
+
+    root = Path(pkg.__file__).parent
+    banned = ("sendTransaction", "sendRawTransaction", "signTransaction",
+              "secretKey", "from_secret_key", "Keypair")
+    offenders = []
+    for py in root.glob("*.py"):
+        text = py.read_text()
+        for token in banned:
+            if token in text:
+                offenders.append(f"{py.name}:{token}")
+    assert offenders == [], offenders

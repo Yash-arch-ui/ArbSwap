@@ -127,9 +127,13 @@ class ChainIndexer:
         program_id = self.program_id
         last_sig, _ = self.db.cursor(program_id)
 
+        # `getSignaturesForAddress` returns newest-first. To resume we page from
+        # the top and stop as soon as we reach the persisted cursor, so only
+        # genuinely-new signatures are collected (never re-walk older history or
+        # move the cursor backwards).
         collected: list[tuple[int, str]] = []
         stop = False
-        for batch in iter_signatures(self.rpc, program_id, before=last_sig):
+        for batch in iter_signatures(self.rpc, program_id):
             for item in batch:
                 signature = item["signature"]
                 slot = int(item["slot"])
