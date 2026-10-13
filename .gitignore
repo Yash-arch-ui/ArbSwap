@@ -25,3 +25,7 @@ app/test-results/
 
 # S2-31 raw keeper run logs (never committed)
 logs/
+
+# local browser env (may contain RPC keys)
+app/.env.local
+app/.env*.local
