@@ -322,7 +322,10 @@ async function main() {
     }
     vaaTx.sign(keeper, ...vaaSigners);
 
-    const pushTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
+    // S2-23: the push+commit tx is sent after stage/vaa confirm, so it gets its
+    // own fresh blockhash to avoid a stale blockhash/lastValidBlockHeight.
+    const { blockhash: pushBlockhash } = await connection.getLatestBlockhash("processed");
+    const pushTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: pushBlockhash });
     pushTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
     pushTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }));
     pushTx.add(pushItems[0].instruction);
@@ -336,9 +339,22 @@ async function main() {
       continue;
     }
 
-    const send = async (tx: Transaction): Promise<string> => {
+    const send = async (tx: Transaction, bh: string): Promise<string> => {
       const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 2, preflightCommitment: "processed" });
-      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight }, "processed");
+      try {
+        await connection.confirmTransaction({ signature: sig, blockhash: bh, lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight }, "processed");
+      } catch (e) {
+        // S2-23: an ambiguous confirm (timeout / blockhash expiry) must not abort
+        // the attempt when the signature actually landed. Inspect before failing.
+        const status = await connection
+          .getSignatureStatuses([sig], { searchTransactionHistory: false })
+          .catch(() => null);
+        const v = status?.value?.[0];
+        if (!v || v.err || (v.confirmationStatus !== "confirmed" && v.confirmationStatus !== "finalized")) {
+          throw e;
+        }
+        console.error(`send: confirm ambiguous but ${sig} is ${v.confirmationStatus}`);
+      }
       return sig;
     };
 
@@ -352,10 +368,10 @@ async function main() {
     let vaaSig: string | null = null;
     let pushSig: string | null = null;
     try {
-      [stageSig, vaaSig] = await Promise.all([send(stageTx), send(vaaTx)]);
+      [stageSig, vaaSig] = await Promise.all([send(stageTx, blockhash), send(vaaTx, blockhash)]);
       console.log(`stage_sig=${stageSig}`);
       console.log(`vaa_sig=${vaaSig}`);
-      pushSig = await send(pushTx);
+      pushSig = await send(pushTx, pushBlockhash);
     } catch (e) {
       // Ambiguous submit/confirm: inspect whatever landed before doing anything
       // else, then back off. Never blindly resubmit the same transaction.
