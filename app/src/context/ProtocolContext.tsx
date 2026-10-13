@@ -17,6 +17,11 @@ import {
   fetchWithdrawTicket,
 } from '../chain/program';
 import { toQuoteState, toVaultState, toRiskBreakers } from '../chain/live';
+import { createRpcFailover } from '../chain/rpcFailover';
+
+const RPC_FAILOVER = createRpcFailover(
+  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {},
+);
 
 const BASE_SYMBOL = ACTIVE_VAULT.baseMint.equals(BASE_MINT) ? 'WSOL' : 'BASE';
 const QUOTE_SYMBOL = ACTIVE_VAULT.quoteMint.equals(QUOTE_MINT) ? 'USDC' : 'QUOTE';
@@ -131,8 +136,8 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
     setBalancesLoading(true);
     try {
-      const { base, quote } = await loadWalletBalances(connection, publicKey);
-      const shares = await fetchShareBalance(connection, publicKey).catch(() => null);
+      const { base, quote } = await RPC_FAILOVER.run((c) => loadWalletBalances(c, publicKey));
+      const shares = await RPC_FAILOVER.run((c) => fetchShareBalance(c, publicKey)).catch(() => null);
       setTokens((prev) => ({
         SOL: { ...prev.SOL, balance: Number(base.toFixed(4)) },
         USDC: { ...prev.USDC, balance: Number(quote.toFixed(2)) },
@@ -148,8 +153,8 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const refreshProtocol = useCallback(async () => {
     try {
       const [state, slot] = await Promise.all([
-        fetchProtocolState(connection, ACTIVE_VAULT.baseMint, ACTIVE_VAULT.quoteMint),
-        connection.getSlot().catch(() => 0),
+        RPC_FAILOVER.run((c) => fetchProtocolState(c, ACTIVE_VAULT.baseMint, ACTIVE_VAULT.quoteMint)),
+        RPC_FAILOVER.run((c) => c.getSlot()).catch(() => 0),
       ]);
       const now = Math.floor(Date.now() / 1000);
       setVaultInitialized(state.exists);
@@ -178,13 +183,13 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       let dep: DepositTicketView | null = null;
       let wd: WithdrawTicketView | null = null;
       if (publicKey && state.vaultData) {
-        shares = await fetchShareBalance(connection, publicKey).catch(() => null);
-        const dt = await fetchDepositTicket(connection, publicKey).catch(() => null);
+        shares = await RPC_FAILOVER.run((c) => fetchShareBalance(c, publicKey)).catch(() => null);
+        const dt = await RPC_FAILOVER.run((c) => fetchDepositTicket(c, publicKey)).catch(() => null);
         if (dt) {
           const activate = Number((dt.activateSlot as { toString(): string } | undefined)?.toString() ?? '0');
           dep = { shares: BigInt((dt.shares as { toString(): string }).toString()), activateSlot: activate, active: slot >= activate };
         }
-        const wt = await fetchWithdrawTicket(connection, publicKey).catch(() => null);
+        const wt = await RPC_FAILOVER.run((c) => fetchWithdrawTicket(c, publicKey)).catch(() => null);
         if (wt) {
           wd = {
             shares: BigInt((wt.shares as { toString(): string }).toString()),
