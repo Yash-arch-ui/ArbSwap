@@ -191,6 +191,12 @@ pub struct KeeperParams {
     pub volatility_coeff_bps: u32,
     pub confidence_coeff_bps: u32,
     pub confidence_max_bps: u32,
+    /// S2-24: depth fraction retained when `confidence_bps == confidence_max_bps`
+    /// (the deployed program's acceptance boundary), in bps. The confidence
+    /// throttle ramps from full depth at `confidence_bps == 0` down to this floor
+    /// at the cap — never to zero — so a boundary observation the program still
+    /// accepts can produce a conservative quote instead of being silently dropped.
+    pub confidence_floor_bps: u32,
     pub age_coeff_bps: u32,
     pub jump_extra_bps: u32,
     pub jump_cooldown_bps: u32,
@@ -225,6 +231,7 @@ impl Default for KeeperParams {
             volatility_coeff_bps: 10_000,
             confidence_coeff_bps: 10_000,
             confidence_max_bps: 10,
+            confidence_floor_bps: 1_000,
             age_coeff_bps: 1,
             jump_extra_bps: 5,
             jump_cooldown_bps: 5_000,
@@ -478,12 +485,17 @@ pub fn compute_quote(
     let confidence_factor = if params.confidence_max_bps == 0 {
         0
     } else {
-        BPS.saturating_sub(
+        // Linear ramp from full depth at conf=0 to `confidence_floor_bps` at the
+        // deployed acceptance cap. Never zero at the cap (S2-24): a boundary
+        // observation the program accepts must still be quotable.
+        let floor = (params.confidence_floor_bps as u128).min(BPS);
+        let scaled = BPS.saturating_sub(
             (tick.confidence_bps as u128)
                 .saturating_mul(BPS)
                 .saturating_div(params.confidence_max_bps as u128)
                 .min(BPS),
-        )
+        );
+        floor.saturating_add(scaled.saturating_mul(BPS.saturating_sub(floor)) / BPS)
     };
     let jump_factor = if state.jump {
         params.jump_cooldown_bps as u128
@@ -2068,6 +2080,53 @@ mod tests {
             quote.is_none(),
             "a volatility spike must stop quoting (no quote)"
         );
+    }
+
+    #[test]
+    fn confidence_at_the_deployed_cap_still_quotes_conservatively() {
+        // S2-24: conf == max_conf_bps is accepted on-chain, so the keeper must
+        // still emit a positive, conservative depth (never zero) at the boundary.
+        let params = KeeperParams::default(); // confidence_max_bps=10, floor=1000
+        let mk = |conf: u32| OracleTick {
+            slot: 1,
+            publish_time: 1,
+            price_q64: 150 * Q64,
+            confidence_bps: conf,
+        };
+        let base = 1_000_000_000_000u128;
+        let quote = 150_000_000_000_000u128;
+
+        let at_cap = compute_quote(
+            mk(10),
+            VolatilityState::default(),
+            base,
+            quote,
+            0,
+            0,
+            params,
+        )
+        .expect("a boundary-confidence quote must exist");
+        assert_eq!(at_cap.depth_mult_bps, 1_000, "floor depth at the cap");
+        assert!(
+            at_cap.ask_levels.iter().all(|l| l.liquidity > 0),
+            "boundary quote must have a positive ladder"
+        );
+
+        // Below the cap the ramp is strictly larger; above it clamps to the floor.
+        let below =
+            compute_quote(mk(9), VolatilityState::default(), base, quote, 0, 0, params).unwrap();
+        assert!(below.depth_mult_bps > at_cap.depth_mult_bps);
+        let above = compute_quote(
+            mk(11),
+            VolatilityState::default(),
+            base,
+            quote,
+            0,
+            0,
+            params,
+        )
+        .unwrap();
+        assert_eq!(above.depth_mult_bps, at_cap.depth_mult_bps);
     }
 
     fn sample_quote_and_bounds() -> (QuoteUpdate, PrevalidateBounds) {
