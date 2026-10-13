@@ -1453,3 +1453,154 @@ Authorized: one BuyBase swap on devnet, max 1.75 USDC. Executed and verified.
 - A live keeper must be run by the operator (`keeper_loop.sh`) for the app to
   show a Fresh quote — that requires on-chain quote transactions, which this
   read-only task does not authorize. Public devnet RPC 429s also delay refresh.
+
+## Part 3 / Step 23 — S2-17 decentralization audit + redesign plan (read-only)
+
+**No on-chain state changed; no transactions sent.** Full report:
+[`docs/DECENTRALIZATION_AUDIT.md`](DECENTRALIZATION_AUDIT.md). Key results:
+
+- **Independently reverified state:** QuoteState still **v18** (expired); vault
+  Active; `config.keeper = config.admin = 8R3V…`; **`min_bond = 0`** (allowlist);
+  program hash MATCH; **upgrade authority `ddGs6hk5…`** (single hot key) confirmed
+  by decoding the ProgramData header.
+- **Corrected the S2-16B anchor finding (units error).** The step guard is in
+  **√P space**, so a 0.5 % step is ≈1.0 % in price. Exact integer arithmetic
+  (`price_from_sqrt`, `floor(old·bps/10000)`) shows the reported S2-16B price
+  (108.272) had a **non-empty** interval `[108.001, 108.16]` — the keeper failed
+  only because it proposes the full oracle jump and never clamps
+  (`vault/keeper/src/lib.rs:515`). The deadlock is, however, **real at the current
+  price (≈108.57)**: bridgeable gap `((1.005)²/0.9975 − 1) = +1.256 %` < current
+  `+1.378 %`. Smallest single-parameter fixes (proposal only): `max_anchor_step_bps
+  50→57` **or** `max_anchor_dev_bps 25→38`.
+- **Freshness measured (read-only probe `scripts/devnet/quote_latency_probe.ts`, N=20,
+  small sample):** Hermes fetch p50 384 ms / p90 694 ms; **publish-age at fetch p50
+  424 ms / p90 903 ms**; RPC call p50 185 ms. The 2 s budget is achievable but not
+  reliable on one public RPC (Hermes alone consumes up to ~1 s). Host needs
+  `NODE_OPTIONS=--no-network-family-autoselection`.
+- **Keeper-loop bugs confirmed:** `keeper_live.ts:302` treats the existing stale
+  `version>0` as success; `:291-297` maps a `null` `getTransaction` to `err=null`;
+  `keeper_loop.sh:28-34` is an unbounded restart loop.
+- **Recommended:** keeper-side anchor **clamp** + corrected success detection +
+  provider diversification (no on-chain change) **plus** a contract redesign —
+  **Option D: expired-quote re-anchoring** (skip only the step guard when the prior
+  quote is expired/stale; keep the dev guard vs the verified Pyth price and every
+  other guard), enabling permissionless `min_bond>0` keepers. No policy was changed.
+- Dependency map and admin-escape-hatch audit (all 24 handlers) included in the
+  report; withdrawals are **not** status-gated, so user exits survive pause/
+  wind-down.
+
+## Part 3 / Step 24 — S2-18 quote-liveness fixes without changing vault math (local only)
+
+**No on-chain state changed; no transactions sent; program not deployed.**
+Report: [`docs/S2_18_IMPLEMENTATION.md`](S2_18_IMPLEMENTATION.md).
+
+- **Frozen math pinned:** new `vault/math/tests/liveness_regression.rs` pins the
+  v18 anchor price, the 9/6 normalization, and floor/ceil rounding. No AMM/quote/
+  share/fee/ladder function was refactored.
+- **Keeper anchor selection fixed:** `select_anchor_sqrt`/`anchor_interval` in
+  `vault/keeper/src/lib.rs` compute the exact integer step ∩ dev intersection in
+  **√price** space and clamp the target into it; disjoint intervals return `None`
+  (no fabricated anchor). `KeeperCore::step` uses it before prevalidation.
+- **Expired-quote recovery added (program source, local):** `quote_reanchor_eligible`
+  gates the step guard on on-chain expiry/staleness; the oracle-deviation bound
+  and every other guard still apply, and the step guard resumes once fresh.
+  8 new LiteSVM tests in `vault/program/tests/litesvm_recovery.rs`.
+- **Keeper result handling fixed:** new `scripts/devnet/keeper_commit.ts`
+  classifies commits and requires a confirmed tx plus a strictly greater reread
+  QuoteState version (never `version > 0`, never a missing `getTransaction`).
+  `keeper_live.ts` uses it with bounded backoff; `keeper_loop.sh` is now a
+  bounded `flock`-guarded runner (no unbounded `while true`).
+- **Permissionless keepers — plan only:** removing the `min_bond == 0` allowlist
+  inverts existing security tests and needs a bond policy + a `QuoteState`
+  layout/reward-routing change; documented in the report, not implemented.
+- **Tests:** `cargo test --workspace` green (program 87 lifecycle + 8 recovery +
+  3 oracle + 3 security + 2 breaker, keeper 44, math +4); `yarn test` 29, lint,
+  build clean; keeper TS `tsc` clean; `keeper_commit.test.ts` 9 passed.
+
+## Part 3 / Step 25 — S2-20 permissionless keepers + quote attribution (local only)
+
+**No on-chain state changed; no transactions; program not deployed.**
+Report: [`docs/S2_20_IMPLEMENTATION.md`](S2_20_IMPLEMENTATION.md).
+
+- **Permissionless authorization implemented:** `min_bond == 0` now allows any
+  valid signer to quote; `min_bond > 0` allows any bonded keeper. The
+  `config.keeper` allowlist was removed from `require_keeper_authorized` and
+  `update_quote`.
+- **Eligibility immutable:** `min_bond`/`keeper` removed from `ParamsUpdate`, so
+  `apply_params` cannot re-introduce an allowlist or an exclusionary bond.
+- **Quote attribution implemented:** `QuoteState` gains an appended `keeper`
+  field (author of the committed quote); a new per-keeper `KeeperReward` PDA is
+  credited at swap time to `quote_state.keeper` and claimable only by that
+  keeper. The aggregate `keeper_*` buckets and the fee split are unchanged.
+  Attribution lives in `QuoteState` (not a separate PDA) because the staged
+  commit tx has only ~52 B headroom under the 1232 B packet limit.
+- **Two-keeper tests:** independent staging, attribution isolation (B cannot
+  reach A's share; replacing the quote does not move A's accrual), and the
+  permissionless/bonded authorization paths.
+- **Clients/IDL updated:** IDL regenerated; frontend `swap`, keeper
+  `simulateSwap`, `swap_preflight.ts`, and the analytics decoder updated.
+- **Migration required (documented, not yet written):** the deployed 865-byte
+  `QuoteState` must be realloc'd to 897 bytes and `keeper` zero-initialised before
+  the new program can read it; `PendingConfig` proposals must be re-proposed.
+- **Tests:** `cargo test --workspace` green (program 90 lifecycle + 8 recovery +
+  3 oracle + 3 security + 2 breaker + 1 fixtures, keeper 44, math +4);
+  `cargo fmt --all --check` clean; analytics pytest 34; `yarn test` 29, lint,
+  build clean.
+
+## Part 3 / Step 26 — S2-21A legacy QuoteState migration (local only)
+
+**No on-chain state changed; no transactions; program not deployed.**
+Report: [`docs/S2_21A_MIGRATION.md`](S2_21A_MIGRATION.md).
+
+- **Verified layouts:** deployed `QuoteState` = **865 B** (disc `beffae2c13d7259c`,
+  owner = program); current = **897 B** (appended `keeper: Pubkey`). Only
+  `QuoteState` changed layout in S2-19/S2-20 (`Config` unchanged; `PendingConfig`
+  is transient).
+- **`migrate_quote_state` implemented (permissionless):** validates owner, the
+  `[b"quote", vault]` PDA, discriminator, and exact legacy length; decodes via a
+  dedicated `LegacyQuoteState` (never into the larger struct); funds only the rent
+  shortfall from the payer; `resize(897)`; re-serializes preserving every field;
+  sets `keeper = Pubkey::default()`. Idempotent on an already-migrated account;
+  atomic on failure; grants the caller no control over vault/quote/reserves/fees.
+- **Legacy attribution:** the appended keeper is the unattributed sentinel, never
+  `config.keeper`. `swap` now rejects unattributed quotes (`UnattributedQuote`),
+  so a migrated legacy quote cannot be swapped or rewarded until a fresh attributed
+  quote is committed. Expired legacy quotes recover through the existing
+  (unchanged) recovery path; fresh legacy quotes are readable but not swappable.
+- **Tests:** 9 LiteSVM migration tests (field preservation, unattributed state,
+  full legacy→migrated→attributed transition, idempotency, wrong PDA/owner/disc,
+  unsupported length, rent failure). `cargo test --workspace` green (program
+  lifecycle **99** incl. migration, recovery 8, oracle 3, security 3, breaker 2,
+  fixtures 1; keeper 44; math +4); `cargo fmt --check` clean; analytics pytest 34;
+  `yarn test` 29, lint, build clean; IDL regenerated with `migrate_quote_state`.
+- **Before deployment:** the single QuoteState PDA must be migrated once; ordered
+  steps are in the report.
+
+## Part 3 / Step 27 — S2-22 release readiness (local only)
+
+**No on-chain state changed; no transactions; program not deployed.**
+Report: [`docs/S2_22_RELEASE_READINESS.md`](S2_22_RELEASE_READINESS.md).
+
+- **Multi-RPC resilience:** `scripts/devnet/rpc.ts` (cluster-guarded config, URL
+  redaction, error classification, bounded jittered backoff, ordered failover
+  pool, genesis check) + 23 tests; frontend `app/src/chain/rpcConfig.ts` (env
+  config + cluster guard) + 5 vitest tests. Availability only — on-chain
+  validation remains authoritative.
+- **Keeper:** `keeper_live.ts` uses the RPC pool, asserts the cluster, and supports
+  `DRY_RUN=1` (builds + size-checks, never sends). Read-only `keeper_inspect.ts`.
+- **Release tooling:** read-only `release_preflight.ts` (program id/authority,
+  QuoteState owner/disc/len/PDA, rent shortfall, payer, artifact, IDL) and
+  `release_manifest.ts` → `docs/release_manifest.json`. Live preflight (read-only)
+  returned `ok:true`, legacy QuoteState 865 B, migration required, shortfall
+  162,560 lamports.
+- **Two-keeper E2E:** added `independent_keeper_recovers_expired_quote_after_large_jump`
+  (fresh large jump → `AnchorStepTooLarge`; expired → independent keeper B
+  recovers and is attributed). Existing two-keeper staging/attribution/isolation
+  and migration tests retained.
+- **Frontend:** `QuoteState.quoteKeeper` exposes the on-chain author (never the
+  configured operator); the depth footer shows `author …`/`unattributed`.
+- **Validation:** `cargo fmt --check` clean; `cargo test --workspace` green
+  (program lifecycle **100** incl. migration/recovery/two-keeper, recovery 8,
+  oracle 3, security 3, breaker 2, fixtures 1; keeper 44; math +4); analytics
+  pytest 34; `yarn test` 34, lint, build clean; TS `tsc` clean; docs-consistency
+  pass; secrets CLEAN.
