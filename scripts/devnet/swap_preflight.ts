@@ -63,13 +63,20 @@ async function main() {
   const minOut = (expectedOut * BigInt(10000 - SLIPPAGE_BPS)) / 10000n;
 
   const data = Buffer.concat([disc("swap"), Buffer.from([BUY_BASE]), u64(AMOUNT_IN), u64(minOut), u64(version)]);
+  // S2-19: QuoteState.keeper is appended at byte offset 845; the swap credits
+  // that keeper's reward PDA (created lazily by the program if absent).
+  const attributedKeeper = new PublicKey(qs.subarray(845, 877));
+  const [keeperReward] = PublicKey.findProgramAddressSync(
+    [Buffer.from("reward"), VAULT.toBuffer(), attributedKeeper.toBuffer()],
+    PROGRAM,
+  );
   const ix = new TransactionInstruction({
     programId: PROGRAM,
     data,
     keys: [
       meta(trader.publicKey, true, true), meta(VAULT, true), meta(CONFIG), meta(QUOTE_STATE, true),
       meta(BASE_RESERVE, true), meta(QUOTE_RESERVE, true), meta(TRADER_WSOL, true), meta(TRADER_USDC, true),
-      meta(TOKEN),
+      meta(keeperReward, true), meta(PublicKey.default), meta(TOKEN),
     ],
   });
   const { blockhash } = await connection.getLatestBlockhash("processed");

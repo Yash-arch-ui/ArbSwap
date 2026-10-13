@@ -29,6 +29,13 @@ import {
 import { createHash } from "crypto";
 import { execFileSync } from "child_process";
 import fs from "fs";
+import {
+  classifyCommit,
+  isSuccess,
+  backoffDelayMs,
+  type CommitObservation,
+} from "./keeper_commit";
+import { resolveRpcConfig, RpcPool } from "./rpc";
 
 const PROGRAM = new PublicKey("2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm");
 const VAULT = new PublicKey("8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt");
@@ -69,6 +76,13 @@ async function simulateSwap(connection: Connection, trader: Keypair, qsData: Buf
   const expiry = qsData.readBigUInt64LE(24);
   const pResSqrt = qsData.readBigUInt64LE(48) | (qsData.readBigUInt64LE(56) << 64n);
   const priceQ64 = (pResSqrt * pResSqrt) / (1n << 64n);
+  // S2-19: the quote author (QuoteState.keeper) is appended at byte offset 845;
+  // the swap credits that keeper's reward PDA.
+  const attributedKeeper = new PublicKey(qsData.subarray(845, 877));
+  const [keeperReward] = PublicKey.findProgramAddressSync(
+    [Buffer.from("reward"), VAULT.toBuffer(), attributedKeeper.toBuffer()],
+    PROGRAM,
+  );
   const amounts = (process.env.SWAP_ATOMS ?? "500000,1000000,2000000,3000000,3500000,3600000,4000000")
     .split(",").map((s) => BigInt(s.trim()));
 
@@ -79,7 +93,8 @@ async function simulateSwap(connection: Connection, trader: Keypair, qsData: Buf
       data,
       keys: [
         meta(trader.publicKey, true, true), meta(VAULT, true), meta(CONFIG), meta(QUOTE_STATE, true),
-        meta(BASE_RESERVE, true), meta(QUOTE_RESERVE, true), meta(TRADER_WSOL, true), meta(TRADER_USDC, true), meta(TOKEN),
+        meta(BASE_RESERVE, true), meta(QUOTE_RESERVE, true), meta(TRADER_WSOL, true), meta(TRADER_USDC, true),
+        meta(keeperReward, true), meta(SYSTEM), meta(TOKEN),
       ],
     });
     const { blockhash } = await connection.getLatestBlockhash("processed");
@@ -147,6 +162,37 @@ async function simulateSwap(connection: Connection, trader: Keypair, qsData: Buf
   console.log(JSON.stringify({ buybase_preflight: { side: "buyBase", fee_bps: feeBps, quote_version: version.toString(), quote_expiry_slot: expiry.toString(), candidates: results, best_with_min_out: confirm, execution } }));
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Retry `getTransaction` a bounded number of times before declaring it unobserved. */
+async function getTransactionWithRetry(
+  connection: Connection,
+  sig: string,
+  attempts = 6,
+): Promise<Awaited<ReturnType<Connection["getTransaction"]>>> {
+  for (let i = 1; i <= attempts; i += 1) {
+    const tx = await connection
+      .getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 })
+      .catch(() => null);
+    if (tx) return tx;
+    await sleep(backoffDelayMs(i, 300, 3_000));
+  }
+  return null;
+}
+
+/** Inspect ambiguous signatures on-chain (never blindly resubmit). */
+async function inspectAmbiguous(connection: Connection, sigs: string[]): Promise<void> {
+  if (sigs.length === 0) return;
+  const statuses = await connection
+    .getSignatureStatuses(sigs, { searchTransactionHistory: false })
+    .catch(() => null);
+  console.log(
+    JSON.stringify({
+      ambiguous_signatures: sigs.map((s, i) => ({ sig: s, status: statuses?.value?.[i] ?? null })),
+    }),
+  );
+}
+
 function priceQ64(price: string, expo: number): bigint {
   const p = BigInt(price);
   if (expo >= 0) return p * 10n ** BigInt(expo) * (1n << 64n);
@@ -158,14 +204,20 @@ function confBps(conf: string, price: string): number {
 }
 
 async function main() {
-  const rpc = process.env.RPC_URL ?? "https://api.devnet.solana.com";
+  const rpcConfig = resolveRpcConfig(process.env);
   const keyPath = process.env.ARBSWAP_KEYPAIR ?? `${process.env.HOME}/.config/solana/id.json`;
   const secret = Uint8Array.from(JSON.parse(fs.readFileSync(keyPath, "utf8")));
   const keeper = Keypair.fromSecretKey(secret);
-  const connection = new Connection(rpc, "processed");
+  // S2-22: primary + optional fallback endpoints, cluster-guarded. Availability
+  // only — the program remains the source of truth for quote validity.
+  const pool = new RpcPool({ endpoints: rpcConfig.endpoints, cluster: rpcConfig.cluster });
+  await pool.assertCluster();
+  const connection = pool.connection;
   const wallet = new Wallet(keeper);
   const hermes = new HermesClient(process.env.HERMES_URL ?? "https://hermes.pyth.network", process.env.PYTH_API_KEY ? { accessToken: process.env.PYTH_API_KEY } : {});
   const receiver = new PythSolanaReceiver({ connection, wallet });
+  const dryRun = process.env.DRY_RUN === "1";
+  if (dryRun) console.error(`keeper DRY_RUN: no transactions will be sent (rpc=${rpcConfig.endpoints[0]})`);
 
   const feed = Buffer.from(FEED_ID, "hex");
   const priceUpdate = getPriceFeedAccountForProgram(0, feed);
@@ -189,6 +241,7 @@ async function main() {
   const runSeconds = Number(process.env.RUN_SECONDS ?? 0);
   const deadline = Date.now() + runSeconds * 1000;
   let success = false;
+  let failures = 0;
   for (let attempt = 1; attempt <= attempts && !(success && runSeconds === 0); attempt += 1) {
     if (runSeconds > 0 && Date.now() > deadline) break;
     // 1. Fresh Hermes update (fetched immediately before staging/posting).
@@ -262,7 +315,7 @@ async function main() {
 
     const vaaTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
     vaaTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }));
-    const vaaSigners: Keypair[] = [];
+    const vaaSigners: any[] = [];
     for (const item of vaaItems) {
       vaaTx.add(item.instruction);
       vaaSigners.push(...(item.signers ?? []));
@@ -277,40 +330,90 @@ async function main() {
     pushTx.sign(keeper);
     console.log(`sizes stage=${stageTx.serialize().length} vaa=${vaaTx.serialize().length} push+commit=${pushTx.serialize().length}`);
 
+    if (dryRun) {
+      // S2-22: dry-run mode — build and size-check everything but never sign-send.
+      console.log(JSON.stringify({ dry_run: true, attempt, publish_time: publishTime, conf_bps: conf, body_len: body.length, stage_ok: true }));
+      continue;
+    }
+
     const send = async (tx: Transaction): Promise<string> => {
       const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 2, preflightCommitment: "processed" });
       await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight }, "processed");
       return sig;
     };
 
+    // S2-18: capture the version we are updating FROM, so success can require a
+    // strict version increase (never `version > 0`, which the stale v18 already
+    // satisfied and which previously masked every failed commit).
+    const prevVersion =
+      (await connection.getAccountInfo(QUOTE_STATE, "processed"))?.data.readBigUInt64LE(8) ?? 0n;
+
+    let stageSig: string | null = null;
+    let vaaSig: string | null = null;
+    let pushSig: string | null = null;
     try {
-      const [stageSig, vaaSig] = await Promise.all([send(stageTx), send(vaaTx)]);
+      [stageSig, vaaSig] = await Promise.all([send(stageTx), send(vaaTx)]);
       console.log(`stage_sig=${stageSig}`);
       console.log(`vaa_sig=${vaaSig}`);
-      const pushSig = await send(pushTx);
-      const tx = await connection.getTransaction(pushSig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
-      const err = tx?.meta?.err ?? null;
-      console.log(`push_commit_sig=${pushSig} slot=${tx?.slot ?? "?"} err=${JSON.stringify(err)}`);
-      if (err) {
-        console.error("commit logs:", tx?.meta?.logMessages?.slice(-8).join(" | "));
-        continue;
-      }
-      const qs = await connection.getAccountInfo(QUOTE_STATE, "processed");
-      const version = qs!.data.readBigUInt64LE(8);
-      const updateSlot = qs!.data.readBigUInt64LE(16);
-      console.log(`QuoteState version=${version} update_slot=${updateSlot}`);
-      if (version > 0n) {
-        success = true;
-        console.log(JSON.stringify({ ok: true, stage_sig: stageSig, vaa_sig: vaaSig, push_commit_sig: pushSig, slot: tx?.slot, version: version.toString(), update_slot: updateSlot.toString() }));
-        if (process.env.SIMULATE_SWAP === "1") {
-          await simulateSwap(connection, keeper, qs!.data);
-        }
-        if (runSeconds > 0) {
-          await new Promise((r) => setTimeout(r, 200));
-        }
-      }
+      pushSig = await send(pushTx);
     } catch (e) {
-      console.error("attempt failed:", (e as Error).message);
+      // Ambiguous submit/confirm: inspect whatever landed before doing anything
+      // else, then back off. Never blindly resubmit the same transaction.
+      await inspectAmbiguous(connection, [stageSig, vaaSig, pushSig].filter((s): s is string => !!s));
+      failures += 1;
+      console.error(`attempt=${attempt} submit/confirm failed:`, (e as Error).message);
+      await sleep(backoffDelayMs(failures));
+      continue;
+    }
+
+    const tx = await getTransactionWithRetry(connection, pushSig);
+    const currentSlot = await connection
+      .getSlot("processed")
+      .then((s) => BigInt(s))
+      .catch(() => null);
+    const qs = await connection.getAccountInfo(QUOTE_STATE, "processed").catch(() => null);
+    const newVersion = qs ? qs.data.readBigUInt64LE(8) : null;
+    const expirySlot = qs ? qs.data.readBigUInt64LE(24) : null;
+    const observation: CommitObservation = {
+      signature: pushSig,
+      txFound: tx != null,
+      txErr: tx?.meta?.err ?? null,
+      prevVersion,
+      newVersion,
+      currentSlot,
+      expirySlot,
+    };
+    const { state, reason } = classifyCommit(observation);
+    const txSlot = (tx as { slot?: number } | null)?.slot ?? "?";
+    console.log(JSON.stringify({ push_commit_sig: pushSig, slot: txSlot, state, reason }));
+    if (tx == null) {
+      console.error("unobserved push/commit transaction:", pushSig);
+    } else if (tx.meta?.err) {
+      console.error("commit logs:", tx.meta.logMessages?.slice(-8).join(" | "));
+    }
+    if (isSuccess(state)) {
+      success = true;
+      failures = 0;
+      console.log(
+        JSON.stringify({
+          ok: true,
+          state,
+          stage_sig: stageSig,
+          vaa_sig: vaaSig,
+          push_commit_sig: pushSig,
+          version: (newVersion ?? 0n).toString(),
+          update_slot: (qs?.data.readBigUInt64LE(16) ?? 0n).toString(),
+        }),
+      );
+      if (process.env.SIMULATE_SWAP === "1") {
+        await simulateSwap(connection, keeper, qs!.data);
+      }
+      if (runSeconds > 0) {
+        await sleep(200);
+      }
+    } else {
+      failures += 1;
+      await sleep(backoffDelayMs(failures));
     }
   }
   if (!success) {
