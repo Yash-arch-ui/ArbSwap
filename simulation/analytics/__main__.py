@@ -81,9 +81,35 @@ def build(out: Path, *, scenario: str, length: int, seed: int) -> dict:
     return payload
 
 
+def _add_onchain_commands(sub) -> None:
+    from simulation.analytics.export import DEFAULT_CANONICAL
+
+    c = DEFAULT_CANONICAL
+    default_db = Path("simulation/analytics/out/index.sqlite")
+
+    index_p = sub.add_parser("index", help="backfill/resume on-chain events into SQLite")
+    index_p.add_argument("--db", type=Path, default=default_db)
+    index_p.add_argument("--rpc", default="https://api.devnet.solana.com")
+    index_p.add_argument("--program-id", default=c.program_id)
+    index_p.add_argument("--from-slot", type=int, default=None)
+    index_p.add_argument("--max", type=int, default=None)
+    index_p.add_argument("--batch-size", type=int, default=25)
+
+    rec_p = sub.add_parser("reconcile", help="reconcile one signature against chain state")
+    rec_p.add_argument("--db", type=Path, default=default_db)
+    rec_p.add_argument("--rpc", default="https://api.devnet.solana.com")
+    rec_p.add_argument("--signature", default=c.s215_swap)
+
+    exp_p = sub.add_parser("export", help="write the dashboard data bundle")
+    exp_p.add_argument("--db", type=Path, default=default_db)
+    exp_p.add_argument("--out", type=Path, default=Path("app/public/analytics/onchain.json"))
+    exp_p.add_argument("--rpc", default="https://api.devnet.solana.com")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    _add_onchain_commands(sub)
     build_parser = sub.add_parser("build", help="index a scenario and render the dashboard")
     build_parser.add_argument("--scenario", default="calm", choices=("calm", "trend", "crash"))
     build_parser.add_argument("--length", type=int, default=3_600)
@@ -103,7 +129,56 @@ def main() -> None:
     backup_parser.add_argument("--out", type=Path, default=Path("simulation/analytics/out"))
     args = parser.parse_args()
 
-    if args.command == "build":
+    if args.command == "index":
+        from simulation.analytics.chain import SolanaRpc
+        from simulation.analytics.db import Database
+        from simulation.analytics.indexer import ChainIndexer
+
+        rpc = SolanaRpc(url=args.rpc)
+        db = Database(args.db)
+        indexer = ChainIndexer(rpc, db, args.program_id, batch_size=args.batch_size)
+        result = indexer.backfill(from_slot=args.from_slot, max_transactions=args.max)
+        print(json.dumps(result, sort_keys=True))
+    elif args.command == "reconcile":
+        from simulation.analytics.chain import SolanaRpc
+        from simulation.analytics.db import Database
+        from simulation.analytics.export import DEFAULT_CANONICAL
+        from simulation.analytics.reconcile import ReconcileTarget, reconcile_signature
+
+        rpc = SolanaRpc(url=args.rpc)
+        db = Database(args.db)
+        c = DEFAULT_CANONICAL
+        target = ReconcileTarget(
+            program_id=c.program_id, vault=c.vault, base_mint=c.base_mint, quote_mint=c.quote_mint,
+            base_reserve=c.base_reserve, quote_reserve=c.quote_reserve, trader=c.trader,
+            trader_base=c.trader_base, trader_quote=c.trader_quote,
+        )
+        result = reconcile_signature(rpc, db, target, args.signature)
+        print(json.dumps(result, indent=2, sort_keys=True))
+    elif args.command == "export":
+        from simulation.analytics import export as export_mod
+        from simulation.analytics import onchain_accounts as accts
+        from simulation.analytics.chain import SolanaRpc
+        from simulation.analytics.db import Database
+        from simulation.analytics.reconcile import ReconcileTarget, reconcile_signature
+
+        c = export_mod.DEFAULT_CANONICAL
+        rpc = SolanaRpc(url=args.rpc)
+        db = Database(args.db)
+        snapshot = accts.read_protocol_snapshot(rpc, c.vault, c.quote_state, c.config)
+        reserves = export_mod.live_reserves(rpc, c)
+        target = ReconcileTarget(
+            program_id=c.program_id, vault=c.vault, base_mint=c.base_mint, quote_mint=c.quote_mint,
+            base_reserve=c.base_reserve, quote_reserve=c.quote_reserve, trader=c.trader,
+            trader_base=c.trader_base, trader_quote=c.trader_quote,
+        )
+        reconcile = reconcile_signature(rpc, db, target, c.s215_swap)
+        bundle = export_mod.build_bundle(
+            db, canonical=c, snapshot=snapshot, reserves=reserves, reconcile=reconcile
+        )
+        path = export_mod.write_bundle(bundle, args.out)
+        print(f"wrote {path} ({len(bundle['swaps'])} swaps, reconciliation={reconcile['status']})")
+    elif args.command == "build":
         payload = build(args.out, scenario=args.scenario, length=args.length, seed=args.seed)
         print(json.dumps(payload, sort_keys=True))
     elif args.command == "demo":

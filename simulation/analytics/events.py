@@ -79,6 +79,21 @@ class SwapEvent:
 
 
 @dataclass(frozen=True)
+class QuoteStaged:
+    slot: int
+    nonce: int
+    oracle_publish_time: int
+    update_slot: int
+
+
+@dataclass(frozen=True)
+class QuoteCommitted:
+    slot: int
+    version: int
+    nonce: int
+
+
+@dataclass(frozen=True)
 class BreakerTripped:
     slot: int
 
@@ -135,6 +150,8 @@ EVENT_TYPES: dict[str, type] = {
         WithdrawRequested,
         WithdrawClaimed,
         QuoteUpdated,
+        QuoteStaged,
+        QuoteCommitted,
         SwapEvent,
         BreakerTripped,
         BreakerReset,
@@ -167,6 +184,9 @@ class _Writer:
 
     def u64(self, value: int) -> None:
         self.buf += struct.pack("<Q", value)
+
+    def i64(self, value: int) -> None:
+        self.buf += struct.pack("<q", value)
 
     def u128(self, value: int) -> None:
         self.buf += value.to_bytes(16, "little")
@@ -201,6 +221,9 @@ _SPEC: dict[str, tuple[tuple[str, str], ...]] = {
                         ("quote_amount", "u64")),
     "QuoteUpdated": (("slot", "u64"), ("version", "u64"), ("anchor_sqrt_price", "u128"),
                      ("depth_mult_bps", "u32")),
+    "QuoteStaged": (("slot", "u64"), ("nonce", "u64"), ("oracle_publish_time", "i64"),
+                    ("update_slot", "u64")),
+    "QuoteCommitted": (("slot", "u64"), ("version", "u64"), ("nonce", "u64")),
     "SwapEvent": (("slot", "u64"), ("version", "u64"), ("side", "u8"),
                   ("amount_in", "u64"), ("amount_out", "u64"), ("fee", "u64")),
     "BreakerTripped": (("slot", "u64"),),
@@ -232,6 +255,9 @@ class _Reader:
     def u64(self) -> int:
         return struct.unpack("<Q", self.take(8))[0]
 
+    def i64(self) -> int:
+        return struct.unpack("<q", self.take(8))[0]
+
     def u128(self) -> int:
         return int.from_bytes(self.take(16), "little")
 
@@ -243,6 +269,8 @@ def _decode_payload(name: str, reader: _Reader) -> dict:
             values[field] = reader.u32()
         elif kind == "u64":
             values[field] = reader.u64()
+        elif kind == "i64":
+            values[field] = reader.i64()
         elif kind == "u128":
             values[field] = reader.u128()
         elif kind == "u8":

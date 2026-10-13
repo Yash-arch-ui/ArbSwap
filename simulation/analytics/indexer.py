@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from simulation.analytics import events as ev
+from simulation.analytics.chain import RpcError, SolanaRpc, iter_signatures
+from simulation.analytics.onchain import parse_transaction
 
 
 @dataclass
@@ -92,3 +94,90 @@ def _replace(swap, mid: float):
         mid_at_fill=mid,
         quoted_out=swap.quoted_out,
     )
+
+
+# --- on-chain indexer (Build Plan §9.1) ------------------------------------
+
+class ChainIndexer:
+    """Backfill/resume the on-chain program's transactions into a database.
+
+    The indexer is careful about partial progress: it collects the signatures
+    newer than the persisted cursor, processes them oldest-first, and flushes
+    each batch atomically. If an RPC call fails mid-range it records the error
+    and stops *without* advancing the cursor past the last good transaction, so
+    a later run resumes exactly there.
+    """
+
+    def __init__(
+        self,
+        rpc: SolanaRpc,
+        db,
+        program_id: str,
+        *,
+        batch_size: int = 25,
+        log=print,
+    ) -> None:
+        self.rpc = rpc
+        self.db = db
+        self.program_id = program_id
+        self.batch_size = max(1, batch_size)
+        self.log = log
+
+    def backfill(self, *, from_slot: int | None = None, max_transactions: int | None = None) -> dict:
+        program_id = self.program_id
+        last_sig, _ = self.db.cursor(program_id)
+
+        collected: list[tuple[int, str]] = []
+        stop = False
+        for batch in iter_signatures(self.rpc, program_id, before=last_sig):
+            for item in batch:
+                signature = item["signature"]
+                slot = int(item["slot"])
+                if last_sig is not None and signature == last_sig:
+                    stop = True
+                    break
+                if from_slot is not None and slot < from_slot:
+                    stop = True
+                    break
+                collected.append((slot, signature))
+                if max_transactions is not None and len(collected) >= max_transactions:
+                    stop = True
+                    break
+            if stop:
+                break
+
+        collected.sort()  # oldest-first
+        processed = 0
+        buffer: list = []
+        for slot, signature in collected:
+            try:
+                result = self.rpc.get_transaction(signature)
+            except RpcError as error:
+                self.db.record_error(
+                    program_id=program_id, signature=signature, slot=slot,
+                    method="getTransaction", message=str(error),
+                )
+                self.log(f"indexer: stopping at {signature}: {error}")
+                break
+            if result is None:
+                self.db.record_error(
+                    program_id=program_id, signature=signature, slot=slot,
+                    method="getTransaction", message="transaction not available yet",
+                )
+                self.log(f"indexer: stopping at {signature}: transaction not available")
+                break
+            buffer.append(parse_transaction(result, program_id))
+            if len(buffer) >= self.batch_size:
+                self.db.ingest_records(program_id, buffer)
+                processed += len(buffer)
+                buffer = []
+        if buffer:
+            self.db.ingest_records(program_id, buffer)
+            processed += len(buffer)
+
+        return {
+            "program_id": program_id,
+            "candidates": len(collected),
+            "processed": processed,
+            "cursor": self.db.cursor(program_id),
+        }
