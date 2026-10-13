@@ -68,6 +68,14 @@ export function withdrawTicket(vault: PublicKey, user: PublicKey) {
   return PublicKey.findProgramAddressSync([Buffer.from('wd'), vault.toBuffer(), user.toBuffer()], PROGRAM_ID)[0];
 }
 
+/** S2-24: per-keeper reward PDA `[b"reward", vault, keeper]`. */
+export function keeperRewardPda(vault: PublicKey, keeper: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('reward'), vault.toBuffer(), keeper.toBuffer()],
+    PROGRAM_ID,
+  )[0];
+}
+
 /**
  * Assert the runtime-derived PDAs match the configured canonical vault. Call at
  * startup so a wrong mint/address cannot silently point the demo elsewhere.
@@ -515,6 +523,51 @@ export async function claimWithdraw(connection: Connection, wallet: unknown): Pr
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .preInstructions(preInstructions)
+    .rpc();
+}
+
+/**
+ * S2-24: the connected wallet's claimable keeper reward (base/quote atoms), or
+ * `null` when it has no `KeeperReward` account (not a keeper, or never authored a
+ * committed quote). Never fabricates an entitlement.
+ */
+export async function fetchKeeperReward(
+  connection: Connection,
+  owner: PublicKey,
+): Promise<{ base: bigint; quote: bigint } | null> {
+  const { vault } = deriveVaultAddresses();
+  try {
+    const r = (await accounts(readOnlyProgram(connection)).keeperReward.fetch(
+      keeperRewardPda(vault, owner),
+    )) as Record<string, unknown>;
+    return { base: BigInt((r.base as BN).toString()), quote: BigInt((r.quote as BN).toString()) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * S2-24: claim the connected keeper's own accrued reward. The program pays only
+ * the signer's `KeeperReward` PDA and caps the claim by the vault's aggregate
+ * keeper buckets, so a keeper can never claim another keeper's accrual.
+ */
+export async function claimKeeperReward(connection: Connection, wallet: unknown): Promise<string> {
+  const w = wallet as Wallet;
+  const program = getProgram(connection, wallet);
+  const { vault } = deriveVaultAddresses();
+  const owner = w.publicKey;
+  const state = await fetchProtocolState(connection);
+  if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
+  const keeperBase = getAssociatedTokenAddressSync(BASE_MINT, owner);
+  const keeperQuote = getAssociatedTokenAddressSync(QUOTE_MINT, owner);
+  return program.methods
+    .claimKeeperReward()
+    .accounts({
+      keeper: owner, vault,
+      keeperReward: keeperRewardPda(vault, owner),
+      baseReserve: state.vaultData.baseReserve, quoteReserve: state.vaultData.quoteReserve,
+      keeperBase, keeperQuote, tokenProgram: TOKEN_PROGRAM_ID,
+    })
     .rpc();
 }
 

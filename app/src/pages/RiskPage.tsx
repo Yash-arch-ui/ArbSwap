@@ -8,6 +8,7 @@ import {
   Cpu
 } from 'lucide-react';
 import { useProtocol } from '../context/ProtocolContext';
+import { KeeperRewards } from '../components/KeeperRewards';
 
 export const RiskPage: React.FC = () => {
   const { quoteState, riskBreakers, status } = useProtocol();
@@ -32,6 +33,8 @@ export const RiskPage: React.FC = () => {
             </span>
           </div>
         </div>
+
+        <KeeperRewards />
 
         {/* Global Health Status Banner */}
         <div className={`glass-card status-banner ${isTripped ? 'tripped' : 'healthy'}`}>
