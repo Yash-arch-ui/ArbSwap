@@ -244,8 +244,11 @@ async function main() {
   let failures = 0;
   for (let attempt = 1; attempt <= attempts && !(success && runSeconds === 0); attempt += 1) {
     if (runSeconds > 0 && Date.now() > deadline) break;
+    const tCycle = Date.now();
     // 1. Fresh Hermes update (fetched immediately before staging/posting).
+    const tH = Date.now();
     const updates = await hermes.getLatestPriceUpdates([`0x${FEED_ID}`], { encoding: "base64" });
+    const hermesMs = Date.now() - tH;
     const parsed = updates.parsed?.[0]?.price;
     if (!parsed) throw new Error("hermes returned no parsed price");
     const publishTime = parsed.publish_time;
@@ -267,6 +270,7 @@ async function main() {
     // 2. Quote engine. Returns no quote (non-zero exit) when its own depth
     // throttle fails closed (e.g. confidence at the cap); skip and retry.
     let quote: any;
+    const tE = Date.now();
     try {
       const out = execFileSync(KEEPER_BIN, [
         "quote-json", q64.toString(), baseAvail.toString(), quoteAvail.toString(),
@@ -277,6 +281,7 @@ async function main() {
       console.error(`attempt=${attempt} quote engine returned no quote (conf_bps=${conf}); skipping`);
       continue;
     }
+    const engineMs = Date.now() - tE;
     const body = Buffer.from(quote.body_hex, "hex");
     if (body.length !== 692) throw new Error(`unexpected quote body length ${body.length}`);
     const oraclePublishTime = BigInt(quote.oracle_publish_time);
@@ -345,12 +350,16 @@ async function main() {
 
     if (dryRun) {
       // S2-22: dry-run mode — build and size-check everything but never sign-send.
-      console.log(JSON.stringify({ dry_run: true, attempt, publish_time: publishTime, conf_bps: conf, body_len: body.length, stage_ok: true }));
+      console.log(JSON.stringify({ dry_run: true, attempt, publish_time: publishTime, conf_bps: conf, body_len: body.length, stage_ok: true, hermes_ms: hermesMs, engine_ms: engineMs, fetch_age_ms: fetchAgeMs, total_ms: Date.now() - tCycle }));
       continue;
     }
 
-    const send = async (tx: Transaction, _bh: string): Promise<string> => {
+    const txTimes: Record<string, { sendMs: number; confirmMs: number }> = {};
+    const send = async (tx: Transaction, _bh: string, label: string): Promise<string> => {
+      const ts = Date.now();
       const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 2, preflightCommitment: "processed" });
+      const sendMs = Date.now() - ts;
+      const tc = Date.now();
       // S2-29: confirm by fast bounded `getSignatureStatuses` polling rather than
       // `confirmTransaction` (which relies on the websocket and fell back to slow
       // polling, pushing the staged pipeline past the 2 s freshness window). A
@@ -362,7 +371,10 @@ async function main() {
           .catch(() => null);
         const v = status?.value?.[0];
         if (v?.err) throw new Error(`tx ${sig} failed: ${JSON.stringify(v.err)}`);
-        if (v && (v.confirmationStatus === "confirmed" || v.confirmationStatus === "finalized")) return sig;
+        if (v && (v.confirmationStatus === "confirmed" || v.confirmationStatus === "finalized")) {
+          txTimes[label] = { sendMs, confirmMs: Date.now() - tc };
+          return sig;
+        }
         if (Date.now() > deadline) throw new Error(`tx ${sig} not confirmed within 12s`);
         await sleep(150);
       }
@@ -378,10 +390,10 @@ async function main() {
     let vaaSig: string | null = null;
     let pushSig: string | null = null;
     try {
-      [stageSig, vaaSig] = await Promise.all([send(stageTx, blockhash), send(vaaTx, blockhash)]);
+      [stageSig, vaaSig] = await Promise.all([send(stageTx, blockhash, "stage"), send(vaaTx, blockhash, "vaa")]);
       console.log(`stage_sig=${stageSig}`);
       console.log(`vaa_sig=${vaaSig}`);
-      pushSig = await send(pushTx, pushBlockhash);
+      pushSig = await send(pushTx, pushBlockhash, "push");
     } catch (e) {
       // Ambiguous submit/confirm: inspect whatever landed before doing anything
       // else, then back off. Never blindly resubmit the same transaction.
@@ -412,6 +424,16 @@ async function main() {
     const { state, reason } = classifyCommit(observation);
     const txSlot = (tx as { slot?: number } | null)?.slot ?? "?";
     console.log(JSON.stringify({ push_commit_sig: pushSig, slot: txSlot, state, reason }));
+    // S2-31 (Task B1): structured per-cycle timing line (side-effect free).
+    const commitBlockTime = (tx as { blockTime?: number } | null)?.blockTime ?? null;
+    console.log(JSON.stringify({
+      cycle: attempt, hermes_ms: hermesMs, engine_ms: engineMs, fetch_age_ms: fetchAgeMs,
+      stage: txTimes.stage ?? null, vaa: txTimes.vaa ?? null, push: txTimes.push ?? null,
+      commit_slot: txSlot, commit_block_time: commitBlockTime,
+      publish_time: publishTime,
+      age_at_commit_ms: commitBlockTime != null ? commitBlockTime * 1000 - publishTime * 1000 : null,
+      result: state, version_before: prevVersion.toString(), version_after: (newVersion ?? 0n).toString(),
+    }));
     if (tx == null) {
       console.error("unobserved push/commit transaction:", pushSig);
     } else if (tx.meta?.err) {
