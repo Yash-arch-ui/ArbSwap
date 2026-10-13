@@ -3,6 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 import { fetchKeeperReward, claimKeeperReward } from '../chain/program';
 import { useProtocol } from '../context/ProtocolContext';
+import { READ_ONLY_MODE } from '../chain/config';
 
 /**
  * S2-24: keeper reward surface. Shows the *connected* wallet's own claimable
@@ -35,6 +36,7 @@ export const KeeperRewards: React.FC = () => {
   }, [load]);
 
   const claim = async () => {
+    if (READ_ONLY_MODE) { setNote('Read-only mode: claiming is disabled.'); return; }
     if (!connected || !wallet) return;
     setLoading(true);
     setNote(null);
@@ -70,10 +72,10 @@ export const KeeperRewards: React.FC = () => {
           type="button"
           className="uni-main-button"
           style={{ width: 'auto', padding: '8px 16px' }}
-          disabled={!connected || !hasReward || loading}
+          disabled={READ_ONLY_MODE || !connected || !hasReward || loading}
           onClick={claim}
         >
-          {loading ? 'Claiming…' : hasReward ? 'Claim keeper reward' : 'Nothing to claim'}
+          {READ_ONLY_MODE ? 'Read-only mode' : loading ? 'Claiming…' : hasReward ? 'Claim keeper reward' : 'Nothing to claim'}
         </button>
       </div>
       {note && (

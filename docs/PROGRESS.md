@@ -1779,3 +1779,38 @@ Report: [`docs/DEMO_READINESS.md`](DEMO_READINESS.md). Canonical runbook rewritt
   not forced here.
 - **Incomplete (stated):** independent keeper B live commit — provider/Pyth
   latency; no rule weakened; no transaction submitted in this task.
+
+## Part 3 / Step 36 — S2-31 frontend swap-pipeline fixes + S2-32 read-only backend integration
+
+Reports: [`docs/S2_32_READ_ONLY_FRONTEND_INTEGRATION.md`](S2_32_READ_ONLY_FRONTEND_INTEGRATION.md)
+(and the S2-31 work recorded in commits `25b5b38`/`b5f3321`).
+
+- **S2-31 frontend correctness (part of `b5f3321`).** Integer-exact swap output:
+  the browser now mirrors `arb_math::walk_ladder` (verified against pinned Rust
+  vectors), so `min_out` is the program's own output rather than a
+  reservation-price over-estimate. `swap()` idempotently creates missing trader
+  ATAs (the program's `trader_base`/`trader_quote` are not `init_if_needed`).
+  Swap success now requires confirmation **and** refreshes vault/quote state.
+  WSOL/inventory pre-submit guards and success-vs-failure note severity added.
+- **S2-32 read-only integration (this commit).** Every active page is connected
+  to real sources with provenance: live RPC (Vault/Config/QuoteState/reserves/
+  tickets/keeper reward) and the published artifact bundle (`/artifacts/*.json`).
+  Removed fabricated marketing/measured numbers from Overview/Analytics/Risk/Vault
+  production paths (see report §4); UI shows `Unavailable`/`Not indexed`/`n/a`
+  when a source is absent. Added `verifyCluster`/`verifyProgram`, block time,
+  real `epochSlotsRemaining`, a stale-response guard, and a `verified` indicator.
+- **Read-only mode.** `READ_ONLY_MODE` (default on) disables and labels every
+  action (swap/deposit/withdraw/claim/keeper-claim) with
+  `Transactions disabled in read-only integration mode`; no page calls a submit
+  API. No blockchain transaction was sent in either task.
+- **No browser-reachable analytics API exists** (local-only SQLite; no served
+  endpoint). The optional `/analytics/onchain.json` export is not present →
+  honest `missing`. Reported as the smallest missing read-only contract; not
+  invented (report §7).
+- **Evidence:** app `yarn test` **73 passed** (8 files; +6 ladder vectors, +13
+  S2-32), `yarn lint` clean, `yarn build` clean; browser E2E exit 0 with 0 app
+  exceptions/console errors and all read-only checks true (live Slot 510727809,
+  quote v28 verified, real ladder/reserves; model 5.42/0.19 bps); `cargo fmt`
+  clean; secrets CLEAN.
+- **Not done (external):** serving `/analytics/onchain.json` or an API; live
+  independent-keeper freshness (S2-31 latency, provider-bound).

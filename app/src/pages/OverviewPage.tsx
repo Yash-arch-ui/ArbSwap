@@ -7,6 +7,7 @@ import {
 } from 'motion/react';
 import type { NavTab } from '../components/Navbar';
 import { useProtocol } from '../context/ProtocolContext';
+import { useModelMetrics } from '../data/backend';
 
 interface OverviewPageProps {
   onNavigate: (tab: NavTab) => void;
@@ -66,7 +67,16 @@ const mechanicsWords: WordItem[] = [
   { text: "and", isEm: true }, { text: "cryptographic", isEm: true }, { text: "guards.", isEm: true },
 ];
 
-export const problemCards = [
+export interface DisplayMetrics {
+  arbMarkout: string;
+  b1Markout: string;
+  cuUpdate: string;
+  cuSwap: string;
+  cuRatio: string;
+  modelLabel: string;
+}
+
+export const problemCards = (m: DisplayMetrics) => [
   {
     index: '01 / ADVERSE SELECTION',
     metric: 'PASSIVE AMMS',
@@ -74,13 +84,13 @@ export const problemCards = [
     equation: 'LVR / V ≈ σ² / 8',
     tone: 'var(--uni-critical)',
     lead: 'Passive pools reprice only after arbitrageurs extract value from stale quotes. LPs continuously bleed to toxic order flow.',
-    footer: 'Markout: -0.23 bps · Persistent toxic flow',
+    footer: `Passive markout (model): ${m.b1Markout}`,
   },
   {
     index: '02 / CLOSED OPERATORS',
     metric: 'PROPRIETARY AMMS',
     title: 'Quote Degradation',
-    equation: 'Gap = 1.08 bps · Fill = 39%',
+    equation: 'Off-chain quote · not observable on-chain',
     tone: 'var(--uni-warning)',
     lead: 'Closed propAMMs rely on off-chain servers, exposing traders to intra-slot degradation, fee flips, and phantom liquidity.',
     footer: 'Traders face spoofing; capital is closed',
@@ -92,18 +102,18 @@ export const problemCards = [
     equation: 'V_active ≤ 8(R − gas) / σ²',
     tone: 'var(--uni-accent1)',
     lead: 'Permissionless vaults with volatility-responsive pricing. On-chain versioning guarantees quoted prices match execution.',
-    footer: 'Markout: +0.38 bps · 0.00 bps execution gap',
+    footer: `ArbSwap markout (model): ${m.arbMarkout}`,
   },
 ];
 
-export const mechanicsPanels = [
+export const mechanicsPanels = (m: DisplayMetrics) => [
   {
     index: '01 / ANCHOR LADDER',
     metric: '6-LEVEL ORDER BOOK',
     title: 'Constant-Product Segments',
     equation: 'P_res = P · (1 − g · q)',
     tone: 'var(--uni-accent1)',
-    lead: 'Pyth-anchored 6-tier ladder with inventory aversion. Updates the complete book in a single ~620 CU transaction.',
+    lead: `Pyth-anchored 6-tier ladder with inventory aversion. Updates the complete book in a single on-chain transaction (model median ${m.cuUpdate}).`,
   },
   {
     index: '02 / RISK BUDGET',
@@ -119,7 +129,7 @@ export const mechanicsPanels = [
     title: 'Versioned Execution',
     equation: 'require out ≥ min_out & v ≥ v_min',
     tone: 'var(--uni-accent1)',
-    lead: 'Enforces explicit quote versions and slippage floors. Swaps instantly revert if prices shift or quotes age past 4.0s.',
+    lead: 'Enforces explicit quote versions and slippage floors. Swaps instantly revert if prices shift or quotes age past the configured expiry.',
   },
 ];
 
@@ -127,14 +137,14 @@ export const mechanicsPanels = [
    MATH.MD DERIVED GRAPH & PICTORIAL VISUALS FOR PROTOCOL PRINCIPLES
    ========================================================================= */
 
-function VisualActiveRepricing() {
+function VisualActiveRepricing({ m }: { m: DisplayMetrics }) {
   return (
     <div className="principle-chart-box" aria-hidden="true">
       <div className="bench-bars-wrap">
         <div className="bench-row">
           <div className="bench-meta">
-            <span className="mono">ARBSWAP KEEPER</span>
-            <b className="mono text-accent">~620 CU</b>
+            <span className="mono">ARBSWAP REPRICE</span>
+            <b className="mono text-accent">{m.cuUpdate}</b>
           </div>
           <div className="bench-track">
             <div className="bench-fill keeper-bar" style={{ width: '12%' }} />
@@ -143,7 +153,7 @@ function VisualActiveRepricing() {
         <div className="bench-row">
           <div className="bench-meta">
             <span className="mono">PASSIVE AMM SWAP</span>
-            <b className="mono text-muted">16,938 CU</b>
+            <b className="mono text-muted">{m.cuSwap}</b>
           </div>
           <div className="bench-track">
             <div className="bench-fill passive-bar" style={{ width: '88%' }} />
@@ -151,13 +161,13 @@ function VisualActiveRepricing() {
         </div>
       </div>
       <div className="bench-footer mono">
-        <span className="pulse-dot" /> 27.3× CHEAPER · REPRICE BEFORE ARBITRAGE
+        <span className="pulse-dot" /> {m.cuRatio} SWAP/UPDATE · {m.modelLabel}
       </div>
     </div>
   );
 }
 
-function VisualDynamicSpread() {
+function VisualDynamicSpread({ sMin }: { sMin: number | null }) {
   return (
     <div className="principle-chart-box" aria-hidden="true">
       <svg className="principle-svg" viewBox="0 0 240 70" preserveAspectRatio="none">
@@ -167,10 +177,10 @@ function VisualDynamicSpread() {
             <stop offset="100%" stopColor="var(--uni-accent1)" stopOpacity="0.0" />
           </linearGradient>
         </defs>
-        {/* Baseline s_floor line */}
+        {/* Baseline s_floor line (live Config s_min when available) */}
         <line x1="10" y1="52" x2="230" y2="52" stroke="var(--uni-surface3)" strokeDasharray="3 3" />
-        <text x="12" y="62" fill="var(--uni-neutral3)" fontSize="8" fontFamily="var(--uni-mono)">s_floor (5 bps)</text>
-        {/* Dynamic Spread Wave: Calm -> Jump Spike -> Calm */}
+        <text x="12" y="62" fill="var(--uni-neutral3)" fontSize="8" fontFamily="var(--uni-mono)">s_floor ({sMin === null ? 'n/a' : `${sMin} bps`})</text>
+        {/* Illustrative dynamic-spread wave (calm -> jump -> calm) */}
         <path
           d="M 10 50 Q 50 48, 80 44 Q 110 38, 130 18 Q 145 12, 160 22 Q 180 42, 230 48 L 230 65 L 10 65 Z"
           fill="url(#spreadGrad)"
@@ -181,9 +191,8 @@ function VisualDynamicSpread() {
           stroke="var(--uni-accent1)"
           strokeWidth="2"
         />
-        {/* Peak Callout */}
         <circle cx="130" cy="18" r="3.5" fill="var(--uni-accent1)" />
-        <text x="136" y="18" fill="var(--uni-accent1)" fontSize="8.5" fontFamily="var(--uni-mono)">JUMP: ±48 bps</text>
+        <text x="136" y="18" fill="var(--uni-accent1)" fontSize="8.5" fontFamily="var(--uni-mono)">JUMP WIDEN</text>
       </svg>
       <div className="bench-footer mono">
         s_raw = s_floor + a₁·σ + a₂·|q| + a₅·jump
@@ -217,13 +226,14 @@ function VisualProRataShares() {
         </div>
       </div>
       <div className="bench-footer mono">
-        NO ORACLE FOR DEPOSITS · ZERO ARBITRAGE SURFACE
+        SCHEMATIC · NO ORACLE FOR DEPOSITS
       </div>
     </div>
   );
 }
 
-function VisualEpochQueues() {
+function VisualEpochQueues({ warmup }: { warmup: number | null }) {
+  const w = warmup === null ? 'n/a' : `${warmup}`;
   return (
     <div className="principle-chart-box" aria-hidden="true">
       <div className="epoch-track-wrap">
@@ -233,10 +243,10 @@ function VisualEpochQueues() {
           <span className="step-label mono">Deposit</span>
         </div>
         <div className="epoch-connecting-bar">
-          <span className="shield-tag mono">🛡️ 150 SLOTS WARMUP</span>
+          <span className="shield-tag mono">🛡️ {w} SLOTS WARMUP</span>
         </div>
         <div className="epoch-step active">
-          <span className="mono step-slot">Slot T+150</span>
+          <span className="mono step-slot">Slot T+{w}</span>
           <span className="step-node active-node">●</span>
           <span className="step-label mono">Active LP</span>
         </div>
@@ -248,17 +258,17 @@ function VisualEpochQueues() {
   );
 }
 
-function VisualBoundedKeepers() {
+function VisualBoundedKeepers({ sMin, sMax }: { sMin: number | null; sMax: number | null }) {
   return (
     <div className="principle-chart-box" aria-hidden="true">
       <svg className="principle-svg" viewBox="0 0 240 70" preserveAspectRatio="none">
         {/* Corridor Upper Bound */}
         <line x1="10" y1="16" x2="230" y2="16" stroke="var(--uni-critical)" strokeDasharray="3 3" strokeWidth="1.2" />
-        <text x="12" y="12" fill="var(--uni-critical)" fontSize="7.5" fontFamily="var(--uni-mono)">s_max = 100 bps (REVERT BOUND)</text>
+        <text x="12" y="12" fill="var(--uni-critical)" fontSize="7.5" fontFamily="var(--uni-mono)">s_max = {sMax === null ? 'n/a' : `${sMax} bps`} (CONFIG)</text>
         {/* Corridor Lower Bound */}
         <line x1="10" y1="56" x2="230" y2="56" stroke="var(--uni-accent1)" strokeDasharray="3 3" strokeWidth="1.2" />
-        <text x="12" y="65" fill="var(--uni-neutral3)" fontSize="7.5" fontFamily="var(--uni-mono)">s_min = 2 bps (MIN SPREAD)</text>
-        {/* Keeper fail-closed trajectory */}
+        <text x="12" y="65" fill="var(--uni-neutral3)" fontSize="7.5" fontFamily="var(--uni-mono)">s_min = {sMin === null ? 'n/a' : `${sMin} bps`} (CONFIG)</text>
+        {/* Illustrative bounded trajectory */}
         <path
           d="M 15 42 L 55 42 L 55 34 L 105 34 L 105 26 L 155 26 L 155 38 L 205 38 L 225 38"
           fill="none"
@@ -274,14 +284,14 @@ function VisualBoundedKeepers() {
   );
 }
 
-function VisualMeasuredMarkouts() {
+function VisualMeasuredMarkouts({ m }: { m: DisplayMetrics }) {
   return (
     <div className="principle-chart-box" aria-hidden="true">
       <svg className="principle-svg" viewBox="0 0 240 70" preserveAspectRatio="none">
         {/* Zero Markout Line */}
         <line x1="10" y1="36" x2="230" y2="36" stroke="var(--uni-surface3)" strokeWidth="1" />
         <text x="12" y="34" fill="var(--uni-neutral3)" fontSize="7.5" fontFamily="var(--uni-mono)">0.0 bps</text>
-        {/* ArbSwap (+0.38 bps at +2s) Climbing Line */}
+        {/* ArbSwap model markout (illustrative curve; value is the W2-W6 model mean) */}
         <path
           d="M 20 36 Q 70 36, 110 24 T 220 18"
           fill="none"
@@ -289,32 +299,35 @@ function VisualMeasuredMarkouts() {
           strokeWidth="2.2"
         />
         <circle cx="220" cy="18" r="3" fill="var(--uni-accent1)" />
-        <text x="145" y="15" fill="var(--uni-accent1)" fontSize="8" fontFamily="var(--uni-mono)">+0.38 bps (ArbSwap)</text>
-        {/* Passive Pool (-0.23 bps) Declining Line */}
+        <text x="120" y="15" fill="var(--uni-accent1)" fontSize="8" fontFamily="var(--uni-mono)">{m.arbMarkout} (ArbSwap)</text>
+        {/* Passive B1 model markout (illustrative curve) */}
         <path
-          d="M 20 36 Q 70 36, 110 48 T 220 54"
+          d="M 20 36 Q 70 36, 110 40 T 220 44"
           fill="none"
           stroke="var(--uni-critical)"
           strokeWidth="1.8"
           strokeDasharray="4 2"
         />
-        <text x="155" y="62" fill="var(--uni-critical)" fontSize="8" fontFamily="var(--uni-mono)">-0.23 bps (Passive)</text>
+        <text x="120" y="62" fill="var(--uni-critical)" fontSize="8" fontFamily="var(--uni-mono)">{m.b1Markout} (Passive B1)</text>
       </svg>
       <div className="bench-footer mono">
-        6-WEEK EMPIRICAL REPLAY · LVR REDUCED 86%
+        {m.modelLabel} · SCHEMATIC CURVE SHAPE
       </div>
     </div>
   );
 }
 
-export const principles = [
+export const principles = (
+  m: DisplayMetrics,
+  params: { sMin: number | null; sMax: number | null; warmup: number | null },
+) => [
   {
     number: '01 · ACTIVE REPRICING',
     title: 'Reprice without a trade.',
-    line: 'A keeper writes small parameters on-chain for ~620 CU versus 16,938+ for a swap, keeping prices fresh before arbitrageurs strike.',
-    badge: 'MATH §2 · 620 CU WRITE',
+    line: `A keeper writes small parameters on-chain (model median ${m.cuUpdate}) versus ${m.cuSwap} for a swap, keeping prices fresh before arbitrageurs strike.`,
+    badge: 'MATH §2 · ON-CHAIN REPRICE',
     formula: 'write_quote(P_res, s, q)',
-    visual: <VisualActiveRepricing />,
+    visual: <VisualActiveRepricing m={m} />,
   },
   {
     number: '02 · DYNAMIC SPREAD',
@@ -322,7 +335,7 @@ export const principles = [
     line: 'Half-spreads scale with short-term volatility, inventory imbalance, and oracle confidence intervals, defending the book.',
     badge: 'MATH §4 · EWMA VOL ESTIMATOR',
     formula: 's_raw = s_floor + a₁·σ + a₂·|q|',
-    visual: <VisualDynamicSpread />,
+    visual: <VisualDynamicSpread sMin={params.sMin} />,
   },
   {
     number: '03 · PRO-RATA SHARES',
@@ -335,26 +348,26 @@ export const principles = [
   {
     number: '04 · EPOCH QUEUES',
     title: 'Block phantom liquidity.',
-    line: '150-slot deposit warm-up and epoch withdrawal queues prevent just-in-time liquidity and frontrunning volatility jumps.',
-    badge: 'MATH §7 · 150-SLOT WARMUP',
-    formula: 'warmup_delay = 150 slots',
-    visual: <VisualEpochQueues />,
+    line: 'A configured deposit warm-up and epoch withdrawal queues prevent just-in-time liquidity and frontrunning volatility jumps.',
+    badge: 'MATH §7 · DEPOSIT WARMUP',
+    formula: 'warmup_delay = config.warmup_slots',
+    visual: <VisualEpochQueues warmup={params.warmup} />,
   },
   {
     number: '05 · BOUNDED KEEPERS',
     title: 'Rule-bound execution.',
     line: 'The on-chain program validates bounds, staleness, and step caps. The keeper provides timeliness, but cannot set prices outside config.',
-    badge: 'MATH §4 · BONDED KEEPER',
+    badge: 'MATH §4 · BOUNDED KEEPER',
     formula: 'clamp(s_raw, s_min, s_max)',
-    visual: <VisualBoundedKeepers />,
+    visual: <VisualBoundedKeepers sMin={params.sMin} sMax={params.sMax} />,
   },
   {
     number: '06 · MEASURED MARKOUTS',
-    title: 'Empirical verification.',
-    line: 'Pre-registered evaluation on 6 weeks of 1-second price paths confirms positive 2-second markouts (+0.38 bps) and 86% LVR reduction.',
-    badge: 'MATH §6 · P1 REPLAY PROVEN',
-    formula: 'Markout(t+2s) = +0.38 bps',
-    visual: <VisualMeasuredMarkouts />,
+    title: 'Model verification.',
+    line: `Pre-registered evaluation on held-out windows (W2–W6, model/replay) gives an ArbSwap 2-second markout mean of ${m.arbMarkout} versus ${m.b1Markout} for passive B1. Full LVR-avoidance series is not bundled.`,
+    badge: 'MATH §6 · MODEL REPLAY',
+    formula: `Markout(t+2s) = ${m.arbMarkout}`,
+    visual: <VisualMeasuredMarkouts m={m} />,
   },
 ];
 
@@ -516,7 +529,27 @@ const inView = {
 };
 
 export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
-  const { quoteState, vaultState } = useProtocol();
+  const { quoteState, vaultState, protocolParams, riskBreakers } = useProtocol();
+  const model = useModelMetrics();
+
+  const fmtBps = (v: number | null): string =>
+    v === null ? 'Unavailable' : `${v >= 0 ? '+' : ''}${v.toFixed(2)} bps`;
+  const m: DisplayMetrics = {
+    arbMarkout: fmtBps(model.arbMarkout2sBps),
+    b1Markout: fmtBps(model.b1Markout2sBps),
+    cuUpdate: model.cuUpdateQuote ? `${model.cuUpdateQuote.toLocaleString()} CU` : 'Unavailable',
+    cuSwap: model.cuSwap ? `${model.cuSwap.toLocaleString()} CU` : 'Unavailable',
+    cuRatio: model.cuRatio ? `${model.cuRatio.toFixed(2)}×` : 'n/a',
+    modelLabel: model.meta ? `MODEL · W2–W6 (${model.meta.short})` : 'MODEL',
+  };
+  const params = {
+    sMin: riskBreakers.minSpreadBps || null,
+    sMax: riskBreakers.maxSpreadBps || null,
+    warmup: protocolParams ? protocolParams.warmupSlots : null,
+  };
+  const problems = problemCards(m);
+  const mechanics = mechanicsPanels(m);
+  const protocolPrinciples = principles(m, params);
 
   // Scroll targets for word-by-word reveal animations
   const manifestoRef = useRef<HTMLParagraphElement>(null);
@@ -584,32 +617,32 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         <div className="protocol-ticker-track">
           <span>ARBSWAP ON-CHAIN PROPAMM</span>
           <span className="ticker-bullet">·</span>
-          <span>~620 COMPUTE UNITS PER UPDATE</span>
+          <span>{m.cuUpdate} PER QUOTE UPDATE (MODEL)</span>
           <span className="ticker-bullet">·</span>
-          <span>0.00 BPS QUOTE-VERSUS-FILL GAP</span>
+          <span>QUOTE-VERSUS-FILL GAP: NOT INDEXED</span>
           <span className="ticker-bullet">·</span>
           <span>LVR DEPTH THROTTLED BY σ²</span>
           <span className="ticker-bullet">·</span>
           <span>PYTH HIGH-PRECISION ORACLE</span>
           <span className="ticker-bullet">·</span>
-          <span>150-SLOT LIQUIDITY WARM-UP</span>
+          <span>{params.warmup === null ? 'CONFIGURED' : params.warmup}-SLOT LIQUIDITY WARM-UP</span>
           <span className="ticker-bullet">·</span>
-          <span>+0.38 BPS EMPIRICAL MARKOUT</span>
+          <span>ARBSWAP 2s MARKOUT {m.arbMarkout} (MODEL)</span>
           <span className="ticker-bullet">·</span>
           {/* Loop duplicate */}
           <span>ARBSWAP ON-CHAIN PROPAMM</span>
           <span className="ticker-bullet">·</span>
-          <span>~620 COMPUTE UNITS PER UPDATE</span>
+          <span>{m.cuUpdate} PER QUOTE UPDATE (MODEL)</span>
           <span className="ticker-bullet">·</span>
-          <span>0.00 BPS QUOTE-VERSUS-FILL GAP</span>
+          <span>QUOTE-VERSUS-FILL GAP: NOT INDEXED</span>
           <span className="ticker-bullet">·</span>
           <span>LVR DEPTH THROTTLED BY σ²</span>
           <span className="ticker-bullet">·</span>
           <span>PYTH HIGH-PRECISION ORACLE</span>
           <span className="ticker-bullet">·</span>
-          <span>150-SLOT LIQUIDITY WARM-UP</span>
+          <span>{params.warmup === null ? 'CONFIGURED' : params.warmup}-SLOT LIQUIDITY WARM-UP</span>
           <span className="ticker-bullet">·</span>
-          <span>+0.38 BPS EMPIRICAL MARKOUT</span>
+          <span>ARBSWAP 2s MARKOUT {m.arbMarkout} (MODEL)</span>
           <span className="ticker-bullet">·</span>
         </div>
       </div>
@@ -618,24 +651,24 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
       <section className="metrics-ribbon">
         <div className="metrics-ribbon-grid">
           <div className="ribbon-card">
-            <span className="ribbon-label">Vault TVL</span>
+            <span className="ribbon-label">Vault TVL (live)</span>
             <p className="ribbon-val mono">${vaultState.tvlUsd.toLocaleString()}</p>
             <span className="ribbon-sub mono">{vaultState.baseReserve.toLocaleString()} SOL + ${vaultState.quoteReserve.toLocaleString()} USDC</span>
           </div>
           <div className="ribbon-card">
-            <span className="ribbon-label">2-Second Markout</span>
-            <p className="ribbon-val mono text-accent">+0.38 bps</p>
-            <span className="ribbon-sub">Passive AMMs average -0.23 bps</span>
+            <span className="ribbon-label">2-Second Markout (model)</span>
+            <p className="ribbon-val mono text-accent">{m.arbMarkout}</p>
+            <span className="ribbon-sub">Passive B1 average {m.b1Markout} · {m.modelLabel}</span>
           </div>
           <div className="ribbon-card">
             <span className="ribbon-label">Quote-vs-Fill Gap</span>
-            <p className="ribbon-val mono text-success">0.00 bps</p>
-            <span className="ribbon-sub">Honest execution guarantee</span>
+            <p className="ribbon-val mono text-muted" style={{ fontSize: 22 }}>Unavailable</p>
+            <span className="ribbon-sub">Requires live fills (not indexed)</span>
           </div>
           <div className="ribbon-card">
-            <span className="ribbon-label">Update Compute</span>
-            <p className="ribbon-val mono">~620 CU</p>
-            <span className="ribbon-sub mono">16,938+ CU for passive swaps</span>
+            <span className="ribbon-label">Update Compute (model)</span>
+            <p className="ribbon-val mono">{m.cuUpdate}</p>
+            <span className="ribbon-sub mono">{m.cuSwap} for a swap · {m.cuRatio} ratio</span>
           </div>
         </div>
       </section>
@@ -669,7 +702,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         </div>
 
         <div className="problem-grid">
-          {problemCards.map((card, i) => (
+          {problems.map((card, i) => (
             <motion.article className="problem-card" key={i} {...inView}>
               <div className="card-rule">
                 <span>{card.index}</span>
@@ -706,7 +739,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         </div>
 
         <div className="geometry-grid">
-          {mechanicsPanels.map((panel, i) => (
+          {mechanics.map((panel, i) => (
             <motion.article className="geometry-panel" key={i} {...inView}>
               <div className="card-rule">
                 <span>{panel.index}</span>
@@ -735,7 +768,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         </div>
 
         <div className="principle-grid">
-          {principles.map((pr, i) => (
+          {protocolPrinciples.map((pr, i) => (
             <motion.article className="principle-card" key={i} {...inView}>
               <div className="principle-visual-box">
                 {pr.visual}

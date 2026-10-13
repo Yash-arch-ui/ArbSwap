@@ -35,12 +35,18 @@ async function main() {
   const pending = new Map();
   const exceptions = [];
   const consoleErrors = [];
+  const rpcRetryNotices = [];
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
     if (m.method === "Runtime.exceptionThrown") exceptions.push(m.params.exceptionDetails?.text ?? "exception");
-    if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error")
-      consoleErrors.push((m.params.args ?? []).map((a) => a.value ?? a.description).join(" "));
+    if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") {
+      const msg = (m.params.args ?? []).map((a) => a.value ?? a.description).join(" ");
+      // Public-RPC 429 retry notices from @solana/web3.js are transport noise,
+      // not application errors; track them separately so the gate measures the app.
+      if (/429|rate.?limit|Retrying after/i.test(msg)) rpcRetryNotices.push(msg);
+      else consoleErrors.push(msg);
+    }
   };
   await new Promise((r) => (ws.onopen = r));
   const send = (method, params = {}) =>
@@ -79,12 +85,26 @@ async function main() {
     screenshots: OUT,
     exceptions,
     consoleErrors,
+    rpcRetryNotices: rpcRetryNotices.length,
     hasKeeperRewardsPanel: /Keeper rewards/.test(states["04-risk"] ?? ""),
-    swapExpiredHonest: /Quote expired|Swaps stay disabled|EXPIRED/.test(states["02-swap"] ?? ""),
+    swapExpiredHonest: /Quote expired|Swaps stay disabled|EXPIRED|Quote unavailable|Read-only/i.test(states["02-swap"] ?? ""),
     analyticsHonest: /analytics (export|unavailable)|historical only/i.test(states["05-analytics"] ?? ""),
+    // S2-32 read-only integration checks.
+    readOnlyBanner: /Read-only integration mode/i.test(
+      `${states["02-swap"] ?? ""}${states["03-vault"] ?? ""}${states["04-risk"] ?? ""}${states["05-analytics"] ?? ""}`,
+    ),
+    swapReadOnly: /Read-only mode/i.test(states["02-swap"] ?? ""),
+    modelLabelled: /model/i.test(states["01-overview"] ?? ""),
+    noFabricatedMarkout: !/\+0\.38 bps/.test(states["01-overview"] ?? ""),
   };
   console.log(JSON.stringify(summary, null, 2));
   ws.close();
-  if (exceptions.length || consoleErrors.length) process.exit(1);
+  const ok =
+    exceptions.length === 0 &&
+    consoleErrors.length === 0 &&
+    summary.readOnlyBanner &&
+    summary.swapReadOnly &&
+    summary.noFabricatedMarkout;
+  process.exit(ok ? 0 : 1);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

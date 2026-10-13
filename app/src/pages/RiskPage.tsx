@@ -9,11 +9,15 @@ import {
 } from 'lucide-react';
 import { useProtocol } from '../context/ProtocolContext';
 import { KeeperRewards } from '../components/KeeperRewards';
+import { ACTIVE_VAULT } from '../chain/config';
+import { ReadOnlyBanner } from '../components/ReadOnlyMode';
 
 export const RiskPage: React.FC = () => {
-  const { quoteState, riskBreakers, status } = useProtocol();
+  const { quoteState, riskBreakers, status, protocolParams } = useProtocol();
 
   const isTripped = riskBreakers.circuitBreakerTripped;
+  const hasQuote = quoteState.hasQuote;
+  const oracleOnline = hasQuote && quoteState.status !== 'Expired';
 
   return (
     <div className="risk-page-wrapper">
@@ -35,6 +39,8 @@ export const RiskPage: React.FC = () => {
         </div>
 
         <KeeperRewards />
+
+        <ReadOnlyBanner detail="Risk, oracle and keeper data are read live; breaker actions, parameter updates and reward claims cannot be submitted from this build." />
 
         {/* Global Health Status Banner */}
         <div className={`glass-card status-banner ${isTripped ? 'tripped' : 'healthy'}`}>
@@ -77,7 +83,9 @@ export const RiskPage: React.FC = () => {
                 <Radio size={16} color="var(--status-info)" />
                 <h3>Pyth Oracle Integrity</h3>
               </div>
-              <span className="badge badge-fresh">Online</span>
+              <span className={`badge ${oracleOnline ? 'badge-fresh' : 'badge-neutral'}`}>
+                {oracleOnline ? 'Fresh quote' : hasQuote ? 'Quote expired' : 'No quote'}
+              </span>
             </div>
 
             <div className="pillar-metrics">
@@ -108,12 +116,12 @@ export const RiskPage: React.FC = () => {
               </div>
               <div className="pillar-sub-row">
                 <span className="text-muted">Hard Trip Threshold: &gt; {riskBreakers.maxConfRatioBps} bps</span>
-                <span className="mono text-muted">0.10% bound</span>
+                <span className="mono text-muted">{riskBreakers.maxConfRatioBps ? `${(riskBreakers.maxConfRatioBps / 100).toFixed(2)}% bound (Config)` : 'Unavailable'}</span>
               </div>
             </div>
 
             <div className="pillar-footer">
-              <span className="mono text-muted">Feed: Crypto.SOL/USD (Verified Anchor PDA)</span>
+              <span className="mono text-muted">Feed: {ACTIVE_VAULT.pythFeedId.slice(0, 8)}… · verified on-chain by the deployed program</span>
             </div>
           </div>
 
@@ -124,7 +132,7 @@ export const RiskPage: React.FC = () => {
                 <Activity size={16} color="var(--accent-primary)" />
                 <h3>EWMA Volatility & Jump Detector</h3>
               </div>
-              <span className="badge badge-neutral mono">Calm Regime</span>
+              <span className="badge badge-neutral mono">Keeper-local (not indexed)</span>
             </div>
 
             <div className="pillar-metrics">
@@ -143,9 +151,10 @@ export const RiskPage: React.FC = () => {
 
               <div className="jump-detector-box">
                 <span className="jump-label">Jump Flag Status</span>
-                <span className="jump-status mono text-success">0 (NO JUMP DETECTED)</span>
+                <span className="jump-status mono text-muted">Not observable on-chain (keeper-local)</span>
                 <p className="jump-note text-muted">
-                  Triggers 4x σ cool-down widenings if |r_t| exceeds 4·σ_s.
+                  Triggers 4x σ cool-down widenings if |r_t| exceeds 4·σ_s. The flag is computed
+                  off-chain by the keeper and is not written to any account.
                 </p>
               </div>
             </div>
@@ -169,30 +178,42 @@ export const RiskPage: React.FC = () => {
               <div className="bound-row">
                 <div>
                   <span className="bound-name">Max Anchor Step</span>
-                  <span className="bound-val mono text-muted">Limit: 50.0 bps / update</span>
+                  <span className="bound-val mono text-muted">Limit: {riskBreakers.maxAnchorStepBps} bps / update (Config)</span>
                 </div>
-                <span className="badge badge-fresh">OK</span>
+                <span className="badge badge-fresh">Enforced</span>
               </div>
               <div className="bound-row">
                 <div>
                   <span className="bound-name">Spread Clamping</span>
-                  <span className="bound-val mono text-muted">Min: 0.5 bps · Max: 50.0 bps</span>
+                  <span className="bound-val mono text-muted">
+                    {riskBreakers.minSpreadBps || riskBreakers.maxSpreadBps
+                      ? `Min: ${riskBreakers.minSpreadBps} bps · Max: ${riskBreakers.maxSpreadBps} bps (Config)`
+                      : 'Unavailable'}
+                  </span>
                 </div>
-                <span className="badge badge-fresh">OK (1.8 bps)</span>
+                <span className="badge badge-fresh">Enforced</span>
               </div>
               <div className="bound-row">
                 <div>
                   <span className="bound-name">Inventory Imbalance Cap</span>
-                  <span className="bound-val mono text-muted">Limit: |q| &lt; 0.60 (60% skew)</span>
+                  <span className="bound-val mono text-muted">
+                    {riskBreakers.maxInventorySkewBps
+                      ? `Limit: |q| < ${(riskBreakers.maxInventorySkewBps / 10000).toFixed(2)} (Config)`
+                      : 'Unavailable'}
+                  </span>
                 </div>
-                <span className="badge badge-fresh">OK (|q|=0.012)</span>
+                <span className="badge badge-fresh">Enforced</span>
               </div>
               <div className="bound-row">
                 <div>
                   <span className="bound-name">Quote Expiry Window</span>
-                  <span className="bound-val mono text-muted">Grace: 2 slots · Expiry: 10 slots</span>
+                  <span className="bound-val mono text-muted">
+                    {protocolParams
+                      ? `Grace: ${protocolParams.graceSlots} slots · Expiry: ${protocolParams.expirySlots} slots (Config)`
+                      : 'Unavailable'}
+                  </span>
                 </div>
-                <span className="badge badge-fresh">Active (4.0s)</span>
+                <span className="badge badge-fresh">Enforced</span>
               </div>
             </div>
 

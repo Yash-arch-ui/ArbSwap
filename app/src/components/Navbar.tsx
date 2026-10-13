@@ -3,6 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { ArbLogo } from '../ui/Orbs';
 import { useProtocol } from '../context/ProtocolContext';
+import { CLUSTER } from '../chain/config';
 
 export type NavTab = 'overview' | 'swap' | 'vault' | 'risk' | 'analytics';
 
@@ -12,7 +13,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
-  const { quoteState } = useProtocol();
+  const { quoteState, genesisVerified, programVerified } = useProtocol();
   const { connected, publicKey, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
 
@@ -70,9 +71,15 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
         {/* Cluster + Live Slot & Quote Heartbeat pill */}
         <div className="uni-cluster-pill" title="Solana cluster, live slot, and on-chain quote version">
           <span className="uni-dot" />
-          <span>Devnet</span>
+          <span>{CLUSTER === 'mainnet-beta' ? 'Mainnet' : CLUSTER === 'devnet' ? 'Devnet' : 'Localnet'}</span>
           <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>Slot {quoteState.currentSlot}</span>
           <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>quote v{quoteState.version}</span>
+          <span
+            style={{ color: genesisVerified && programVerified ? 'var(--uni-accent1)' : 'var(--uni-warning)', fontSize: 11 }}
+            title="Devnet genesis hash and deployed program account verified before data is trusted"
+          >
+            {genesisVerified && programVerified ? 'verified' : 'unverified'}
+          </span>
         </div>
 
         {/* Real Solana Wallet Adapter Button */}

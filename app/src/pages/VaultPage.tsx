@@ -6,7 +6,8 @@ import { useProtocol } from '../context/ProtocolContext';
 import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, claimWithdraw as claimWithdrawOnChain, withdrawTicket as deriveWithdrawTicket, expectedDepositShares } from '../chain/program';
 import { parseUnits, formatUnits } from '../chain/amounts';
 import { claimWithdrawState } from '../chain/gating';
-import { ACTIVE_VAULT, explorerTxUrl } from '../chain/config';
+import { ACTIVE_VAULT, READ_ONLY_MODE, explorerTxUrl } from '../chain/config';
+import { ReadOnlyBanner, READ_ONLY_NOTICE } from '../components/ReadOnlyMode';
 
 export const VaultPage: React.FC = () => {
   const {
@@ -66,6 +67,7 @@ export const VaultPage: React.FC = () => {
       : 0;
 
   const handleDeposit = async () => {
+    if (READ_ONLY_MODE) { setNotice(READ_ONLY_NOTICE); return; }
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
@@ -92,6 +94,7 @@ export const VaultPage: React.FC = () => {
   };
 
   const handleWithdraw = async () => {
+    if (READ_ONLY_MODE) { setNotice(READ_ONLY_NOTICE); return; }
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
@@ -108,6 +111,7 @@ export const VaultPage: React.FC = () => {
   };
 
   const handleClaim = async () => {
+    if (READ_ONLY_MODE) { setNotice(READ_ONLY_NOTICE); return; }
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
@@ -139,6 +143,8 @@ export const VaultPage: React.FC = () => {
         </p>
       </div>
 
+      <ReadOnlyBanner detail="Reserves, shares, tickets and epoch state are read live from Devnet; deposit, withdrawal and claim are disabled in this build." />
+
       {!vaultInitialized && (
         <div className="uni-card">
           <strong>Vault not initialized.</strong> No on-chain vault exists for the
@@ -154,14 +160,14 @@ export const VaultPage: React.FC = () => {
           <span className="mono" style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>{vaultState.baseReserve.toLocaleString()} SOL + ${vaultState.quoteReserve.toLocaleString()} USDC</span>
         </div>
         <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha (annualized, model)</span>
-          <p className="mono" style={{ fontSize: 26, fontWeight: 600, color: 'var(--uni-accent1)', margin: '8px 0 4px' }}>+{vaultState.netHedgedApy}%</p>
-          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Trading fees minus adverse selection</span>
+          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha (annualized)</span>
+          <p className="mono" style={{ fontSize: 20, fontWeight: 600, color: 'var(--uni-neutral2)', margin: '8px 0 4px' }}>Unavailable</p>
+          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Not derivable from on-chain state (not indexed)</span>
         </div>
         <div className="uni-card">
           <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>LVR Avoided (7-Day)</span>
-          <p className="mono" style={{ fontSize: 26, fontWeight: 600, color: 'var(--uni-success)', margin: '8px 0 4px' }}>+${vaultState.lvrAvoided7dUsd.toLocaleString()}</p>
-          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Saved vs passive pool toxic flow</span>
+          <p className="mono" style={{ fontSize: 20, fontWeight: 600, color: 'var(--uni-neutral2)', margin: '8px 0 4px' }}>Unavailable</p>
+          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Requires indexed trade history (not indexed)</span>
         </div>
         <div className="uni-card">
           <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Current Epoch</span>
@@ -241,8 +247,8 @@ export const VaultPage: React.FC = () => {
                 <span className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>~{estimatedShares.toLocaleString()} shares</span>
               </div>
 
-              <button type="button" className="uni-main-button accent" onClick={handleDeposit} disabled={!vaultInitialized}>
-                {!vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Deposit pro-rata'}
+              <button type="button" className="uni-main-button accent" onClick={handleDeposit} disabled={READ_ONLY_MODE || !vaultInitialized}>
+                {READ_ONLY_MODE ? 'Read-only mode' : !vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Deposit pro-rata'}
               </button>
             </div>
           ) : (
@@ -276,8 +282,8 @@ export const VaultPage: React.FC = () => {
                 </div>
               </div>
 
-              <button type="button" className="uni-main-button accent" onClick={handleWithdraw} disabled={!vaultInitialized}>
-                {!vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Queue withdrawal for next epoch'}
+              <button type="button" className="uni-main-button accent" onClick={handleWithdraw} disabled={READ_ONLY_MODE || !vaultInitialized}>
+                {READ_ONLY_MODE ? 'Read-only mode' : !vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Queue withdrawal for next epoch'}
               </button>
 
               <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
@@ -289,11 +295,11 @@ export const VaultPage: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  className={`uni-main-button ${claimState.allowed ? 'accent' : 'disabled'}`}
+                  className={`uni-main-button ${claimState.allowed && !READ_ONLY_MODE ? 'accent' : 'disabled'}`}
                   onClick={handleClaim}
-                  disabled={!claimState.allowed || isClaiming}
+                  disabled={READ_ONLY_MODE || !claimState.allowed || isClaiming}
                 >
-                  {isClaiming ? 'Claiming…' : claimState.allowed ? 'Claim settled withdrawal' : 'Claim unavailable'}
+                  {READ_ONLY_MODE ? 'Read-only mode' : isClaiming ? 'Claiming…' : claimState.allowed ? 'Claim settled withdrawal' : 'Claim unavailable'}
                 </button>
               </div>
             </div>

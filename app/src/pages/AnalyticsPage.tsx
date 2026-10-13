@@ -1,9 +1,11 @@
 import React from 'react';
-import { useBackend, meanVenueMetric } from '../data/backend';
+import { useBackend, meanVenueMetric, useModelMetrics } from '../data/backend';
 import { OnchainAnalyticsPanel } from '../components/OnchainAnalyticsPanel';
+import { ReadOnlyBanner } from '../components/ReadOnlyMode';
 
 export const AnalyticsPage: React.FC = () => {
   const backend = useBackend();
+  const model = useModelMetrics();
   const arbMarkout = meanVenueMetric(backend.heldOut, 'ArbSwap', 'markout_2s_bps');
   const b1Markout = meanVenueMetric(backend.heldOut, 'B1_passive', 'markout_2s_bps');
   const arbShare = backend.routed?.rows.find((r) => r.venue === 'ArbSwap')?.volume_share ?? null;
@@ -13,6 +15,7 @@ export const AnalyticsPage: React.FC = () => {
     <div className="analytics-page-wrapper">
       <div className="container analytics-container">
         <OnchainAnalyticsPanel />
+        <ReadOnlyBanner detail="Analytics combines live on-chain observations, indexed/optional exports, and offline model artifacts — each labelled by provenance. No transactions." />
         
         {/* Header Block */}
         <div className="analytics-header">
@@ -76,55 +79,45 @@ export const AnalyticsPage: React.FC = () => {
                 </p>
               </div>
               <div className="chart-legend">
-                <span className="legend-item"><i className="legend-dot arbswap"></i> ArbSwap (+0.38 bps @ 2s)</span>
-                <span className="legend-item"><i className="legend-dot passive"></i> Passive AMM (-0.23 bps)</span>
+                <span className="legend-item"><i className="legend-dot arbswap"></i> ArbSwap ({fmt(arbMarkout)} bps @ 2s · model)</span>
+                <span className="legend-item"><i className="legend-dot passive"></i> Passive AMM ({fmt(b1Markout)} bps · model)</span>
               </div>
             </div>
 
-            {/* SVG Visualizer */}
+            {/* Data-driven per-window 2s markout bars from headline.e1_e4 (model). */}
             <div className="svg-chart-wrapper">
-              <svg viewBox="0 0 520 220" className="markout-svg">
-                {/* Horizontal Zero Axis */}
-                <line x1="40" y1="110" x2="500" y2="110" stroke="rgba(255,255,255,0.15)" strokeDasharray="3 3" />
-                <text x="15" y="114" fill="var(--text-muted)" fontSize="10" fontFamily="var(--font-mono)">0.0</text>
-                <text x="15" y="45" fill="var(--text-muted)" fontSize="10" fontFamily="var(--font-mono)">+0.5</text>
-                <text x="15" y="180" fill="var(--text-muted)" fontSize="10" fontFamily="var(--font-mono)">-0.5</text>
-
-                {/* Vertical 2s Marker */}
-                <line x1="220" y1="20" x2="220" y2="200" stroke="rgba(0, 229, 176, 0.25)" strokeDasharray="4 2" />
-                <text x="210" y="215" fill="var(--accent-primary)" fontSize="10" fontFamily="var(--font-mono)">τ = +2s</text>
-
-                {/* ArbSwap Curve (Green) */}
-                <path
-                  d="M 50 100 Q 120 95 180 80 T 220 55 T 320 48 T 490 45"
-                  fill="none"
-                  stroke="var(--accent-primary)"
-                  strokeWidth="3"
-                />
-                <circle cx="220" cy="55" r="5" fill="var(--accent-primary)" />
-                <text x="230" y="52" fill="var(--accent-primary)" fontSize="11" fontWeight="600" fontFamily="var(--font-mono)">+0.38 bps</text>
-
-                {/* Passive AMM Curve (Red) */}
-                <path
-                  d="M 50 112 Q 120 120 180 135 T 220 148 T 320 160 T 490 170"
-                  fill="none"
-                  stroke="var(--status-critical)"
-                  strokeWidth="2.5"
-                  strokeDasharray="4 3"
-                />
-                <circle cx="220" cy="148" r="4" fill="var(--status-critical)" />
-                <text x="230" y="152" fill="var(--status-critical)" fontSize="11" fontFamily="var(--font-mono)">-0.23 bps</text>
-
-                {/* X-axis labels */}
-                <text x="50" y="215" fill="var(--text-muted)" fontSize="10" fontFamily="var(--font-mono)">-5s</text>
-                <text x="130" y="215" fill="var(--text-muted)" fontSize="10" fontFamily="var(--font-mono)">0s</text>
-                <text x="320" y="215" fill="var(--text-muted)" fontSize="10" fontFamily="var(--font-mono)">+5s</text>
-                <text x="480" y="215" fill="var(--text-muted)" fontSize="10" fontFamily="var(--font-mono)">+15s</text>
-              </svg>
+              {(() => {
+                const e1 = backend.headline?.e1_e4 ?? {};
+                const windows = Object.keys(e1);
+                const arbVals = windows.map((w) => Number(e1[w]?.E2_arb_markout_2s_bps ?? 0));
+                const b1Vals = windows.map((w) => Number(e1[w]?.E2_b1_markout_2s_bps ?? 0));
+                const max = Math.max(0.1, ...arbVals.map(Math.abs), ...b1Vals.map(Math.abs));
+                if (!windows.length) {
+                  return (
+                    <p className="text-muted" style={{ margin: 'auto', textAlign: 'center', fontSize: 13 }}>
+                      Unavailable — no `headline.e1_e4` window series is bundled with this build.
+                    </p>
+                  );
+                }
+                return (
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, height: 180, padding: '8px 12px' }}>
+                    {windows.map((w) => (
+                      <div key={w} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end', height: '100%' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: '100%' }}>
+                          <div title={`ArbSwap ${arbVals[windows.indexOf(w)].toFixed(2)} bps`} style={{ width: 12, height: `${(Math.abs(arbVals[windows.indexOf(w)]) / max) * 100}%`, background: 'var(--accent-primary)' }} />
+                          <div title={`B1 ${b1Vals[windows.indexOf(w)].toFixed(2)} bps`} style={{ width: 12, height: `${(Math.abs(b1Vals[windows.indexOf(w)]) / max) * 100}%`, background: 'var(--status-critical)', opacity: 0.7 }} />
+                        </div>
+                        <span className="mono text-muted" style={{ fontSize: 10 }}>{w}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
-            
             <p className="chart-callout-text text-muted">
-              <strong>Observation:</strong> Arbitrageurs hit passive AMMs at stale prices, producing severe negative markouts. ArbSwap quotes dynamically adjust before trades land, flipping markouts positive.
+              <strong>Provenance:</strong> model/replay output per held-out window (W2–W6), ArbSwap
+              mean {fmt(arbMarkout)} bps vs passive B1 mean {fmt(b1Markout)} bps. Not live trading
+              performance and not an on-chain observation.
             </p>
           </div>
 
@@ -182,7 +175,7 @@ export const AnalyticsPage: React.FC = () => {
               { metric: '2s Markout (bps)', arbSwap: fmt(arbMarkout), propAmm: 'n/a', passiveAmm: fmt(b1Markout) },
               { metric: 'Quote-vs-Fill Gap (bps)', arbSwap: 'N/A (no live fills)', propAmm: 'n/a', passiveAmm: 'n/a' },
               { metric: 'Quiet-flow Half-spread (bps)', arbSwap: 'N/A', propAmm: 'n/a', passiveAmm: 'n/a' },
-              { metric: 'Compute Units / Update', arbSwap: 'N/A (not indexed)', propAmm: 'n/a', passiveAmm: 'n/a' },
+              { metric: 'Compute Units / Update', arbSwap: model.cuUpdateQuote ? `${model.cuUpdateQuote.toLocaleString()} CU` : 'n/a', propAmm: 'n/a', passiveAmm: 'n/a' },
             ].map((row) => (
               <div key={row.metric} className="matrix-row">
                 <span className="font-bold text-primary">{row.metric}</span>

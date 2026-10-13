@@ -32,7 +32,8 @@ export const SwapPage: React.FC = () => {
 
   const isSellingSol = inTokenSymbol === 'SOL';
   const side: SwapSideName = isSellingSol ? 'sellBase' : 'buyBase';
-  const feeBps = 1;
+  // Live on-chain fee (Config.fee_bps); fall back only for display before load.
+  const feeBps = protocolParams?.feeBps ?? 1;
 
   // Integer amount plan derived from the **committed on-chain ladder** (an exact
   // mirror of `arb_math::walk_ladder`), so `expectedOut` and `minOut` match what
@@ -90,6 +91,8 @@ export const SwapPage: React.FC = () => {
       circuitBreakerTripped: riskBreakers.circuitBreakerTripped,
       quoteAvailable,
     });
+  // S2-32: in read-only mode nothing can be submitted, regardless of quote state.
+  const submitBlockedReason = READ_ONLY_MODE ? READ_ONLY_NOTICE : swapBlockedReason;
 
   const flip = () => {
     setInTokenSymbol(outTokenSymbol);
@@ -97,6 +100,11 @@ export const SwapPage: React.FC = () => {
   };
 
   const handleSwap = async () => {
+    // Hard guard: this build is read-only and never signs or submits.
+    if (READ_ONLY_MODE) {
+      setSwapNote({ text: READ_ONLY_NOTICE, ok: false });
+      return;
+    }
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
@@ -142,6 +150,8 @@ export const SwapPage: React.FC = () => {
       <p className="uni-subheadline">
         ArbSwap continuously reprices around the Pyth reference price with dynamic spreads.
       </p>
+
+      <ReadOnlyBanner detail="Live quote, depth, and balances are read from Devnet, but this build cannot sign or submit swaps." />
 
       {!vaultInitialized && (
         <div className="uni-card" style={{ marginBottom: 12 }}>
@@ -337,14 +347,16 @@ export const SwapPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Main CTA */}
+          {/* Main CTA — disabled in read-only mode */}
           <button
             type="button"
-            className={`uni-main-button ${parsedInAmount > 0 && !swapBlockedReason && connected ? 'accent' : 'disabled'}`}
-            disabled={parsedInAmount <= 0 || isSwapping || (connected && !!swapBlockedReason)}
+            className={`uni-main-button ${parsedInAmount > 0 && !submitBlockedReason && connected ? 'accent' : 'disabled'}`}
+            disabled={READ_ONLY_MODE || parsedInAmount <= 0 || isSwapping || (connected && !!swapBlockedReason)}
             onClick={handleSwap}
           >
-            {!connected ? (
+            {READ_ONLY_MODE ? (
+              'Read-only mode'
+            ) : !connected ? (
               'Connect Wallet'
             ) : swapBlockedReason ? (
               'Swaps unavailable'
@@ -357,9 +369,9 @@ export const SwapPage: React.FC = () => {
             )}
           </button>
 
-          {connected && swapBlockedReason && (
+          {submitBlockedReason && (
             <p className="swap-success-note" style={{ color: 'var(--uni-warning)' }}>
-              {swapBlockedReason}
+              {submitBlockedReason}
             </p>
           )}
 
@@ -383,7 +395,7 @@ export const SwapPage: React.FC = () => {
               >
                 <span className="mono">Est. out ≈ {expectedOutHuman} {outTokenSymbol} (reservation-price floor)</span>
                 <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>
-                  Fee: 1.0 bps {detailsOpen ? '▲' : '▼'}
+                  Fee: {feeBps} bps {detailsOpen ? '▲' : '▼'}
                 </span>
               </button>
 
@@ -399,7 +411,7 @@ export const SwapPage: React.FC = () => {
                     </dd>
                   </div>
                   <div><dt>Order Routing</dt><dd>ArbSwap Engine (Direct On-Chain)</dd></div>
-                  <div><dt>Quote Expiry Guard</dt><dd>10 slots (~4.0s)</dd></div>
+                  <div><dt>Quote Expiry Guard</dt><dd>{protocolParams ? `${protocolParams.expirySlots} slots` : 'Unavailable'}</dd></div>
                 </dl>
               )}
             </div>
