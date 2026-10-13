@@ -9,7 +9,7 @@ import { swapUnavailableReason } from '../chain/gating';
 import './SwapPage.css';
 
 export const SwapPage: React.FC = () => {
-  const { quoteState, tokens, riskBreakers, refreshBalances, vaultInitialized, quoteAvailable } = useProtocol();
+  const { quoteState, tokens, riskBreakers, refreshBalances, vaultInitialized, quoteAvailable, liveError } = useProtocol();
   const { connection } = useConnection();
   const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
@@ -98,7 +98,8 @@ export const SwapPage: React.FC = () => {
     }
   };
 
-  const maxLevelCapacity = Math.max(...quoteState.levels.map((l) => l.capacityUsd));
+  // Guard against divide-by-zero when no quote is available (never render NaN bars).
+  const maxLevelCapacity = Math.max(1, ...quoteState.levels.map((l) => l.capacityUsd));
 
   return (
     <div className="uni-swap-wrapper">
@@ -109,9 +110,24 @@ export const SwapPage: React.FC = () => {
 
       {!vaultInitialized && (
         <div className="uni-card" style={{ marginBottom: 12 }}>
-          <strong>Vault not initialized.</strong> No on-chain vault exists for the
-          tSOL/tUSDC pair yet, so swaps are disabled and no live price is shown.
-          (TEST TOKEN, devnet.)
+          <strong>Vault not initialized.</strong> No on-chain vault was read for the
+          configured WSOL/USDC vault, so swaps are disabled and no live price is shown.
+        </div>
+      )}
+
+      {liveError && (
+        <div className="uni-card" style={{ marginBottom: 12, borderColor: 'var(--uni-warning)' }} role="alert">
+          <strong>Chain read error:</strong> {liveError}. Last known values are
+          retained; the app retries every 4&nbsp;s.
+        </div>
+      )}
+
+      {quoteState.hasQuote && quoteState.status !== 'Fresh' && (
+        <div className="uni-card" style={{ marginBottom: 12 }} role="status">
+          <strong>Quote {quoteState.status.toLowerCase()}.</strong>{' '}
+          Version v{quoteState.version}, expiry slot {quoteState.expirySlot} (current slot{' '}
+          {quoteState.currentSlot}). Swaps stay disabled until the keeper commits a new
+          staged quote.
         </div>
       )}
 
@@ -121,61 +137,88 @@ export const SwapPage: React.FC = () => {
           <div className="depth-ladder-header">
             <span className="mono depth-ladder-title">6-LEVEL ACTIVE BOOK</span>
             <span className="mono depth-ladder-subtitle">
-              SOL/USDC · Half-spread: {quoteState.halfSpreadBps.toFixed(2)} bps
+              SOL/USDC · {quoteState.hasQuote
+                ? `Half-spread: ${quoteState.halfSpreadBps.toFixed(2)} bps`
+                : 'Half-spread: unavailable'}
             </span>
           </div>
 
-          <div className="depth-cols">
-            <div className="depth-col-label mono">Size (USD)</div>
-            <div className="depth-col-label mono" style={{ textAlign: 'center' }}>Level</div>
-            <div className="depth-col-label mono" style={{ textAlign: 'right' }}>Price</div>
-          </div>
-
-          {/* Asks (reversed so lowest ask is closest to mid) */}
-          {[...quoteState.levels].reverse().map((lvl) => (
-            <div key={`ask-${lvl.level}`} className="depth-row ask-row">
-              <div className="depth-bar-wrap ask-side">
-                <div
-                  className="depth-bar ask-bar"
-                  style={{ width: `${(lvl.capacityUsd / maxLevelCapacity) * 100}%` }}
-                />
-              </div>
-              <span className="depth-row-size mono">${(lvl.capacityUsd / 1000).toFixed(0)}k</span>
-              <span className="depth-row-level mono">L{lvl.level}</span>
-              <span className="depth-row-price mono ask-price">${lvl.askPrice.toFixed(3)}</span>
+          {!quoteState.hasQuote ? (
+            <div className="depth-unavailable" role="status" aria-live="polite">
+              <strong>Quote unavailable</strong>
+              <p className="mono">
+                No committed on-chain quote was read for this vault, so no
+                price, spread, or depth is shown. The keeper must publish a fresh
+                staged quote (Pyth push + <code>commit_quote</code>) before this
+                book can display real values.
+              </p>
             </div>
-          ))}
-
-          {/* Mid anchor */}
-          <div className="depth-mid-row">
-            <span className="mono depth-mid-label">Pyth Mid</span>
-            <span className="mono depth-mid-price">${quoteState.oraclePrice.toFixed(2)}</span>
-            <span className="mono depth-mid-spread">±{quoteState.halfSpreadBps.toFixed(1)} bps</span>
-          </div>
-
-          {/* Bids */}
-          {quoteState.levels.map((lvl) => (
-            <div key={`bid-${lvl.level}`} className="depth-row bid-row">
-              <div className="depth-bar-wrap bid-side">
-                <div
-                  className="depth-bar bid-bar"
-                  style={{ width: `${(lvl.capacityUsd / maxLevelCapacity) * 100}%` }}
-                />
+          ) : (
+            <>
+              <div className="depth-cols">
+                <div className="depth-col-label mono">Size (USD)</div>
+                <div className="depth-col-label mono" style={{ textAlign: 'center' }}>Level</div>
+                <div className="depth-col-label mono" style={{ textAlign: 'right' }}>Price</div>
               </div>
-              <span className="depth-row-size mono">${(lvl.capacityUsd / 1000).toFixed(0)}k</span>
-              <span className="depth-row-level mono">L{lvl.level}</span>
-              <span className="depth-row-price mono bid-price">${lvl.bidPrice.toFixed(3)}</span>
-            </div>
-          ))}
+
+              {/* Asks (reversed so lowest ask is closest to mid) */}
+              {[...quoteState.levels].reverse().map((lvl) => (
+                <div key={`ask-${lvl.level}`} className="depth-row ask-row">
+                  <div className="depth-bar-wrap ask-side">
+                    <div
+                      className="depth-bar ask-bar"
+                      style={{ width: `${(lvl.capacityUsd / maxLevelCapacity) * 100}%` }}
+                    />
+                  </div>
+                  <span className="depth-row-size mono">${(lvl.capacityUsd / 1000).toFixed(0)}k</span>
+                  <span className="depth-row-level mono">L{lvl.level}</span>
+                  <span className="depth-row-price mono ask-price">${lvl.askPrice.toFixed(3)}</span>
+                </div>
+              ))}
+
+              {/* Mid anchor */}
+              <div className="depth-mid-row">
+                <span className="mono depth-mid-label">Pyth Mid</span>
+                <span className="mono depth-mid-price">${quoteState.oraclePrice.toFixed(2)}</span>
+                <span className="mono depth-mid-spread">±{quoteState.halfSpreadBps.toFixed(1)} bps</span>
+              </div>
+
+              {/* Bids */}
+              {quoteState.levels.map((lvl) => (
+                <div key={`bid-${lvl.level}`} className="depth-row bid-row">
+                  <div className="depth-bar-wrap bid-side">
+                    <div
+                      className="depth-bar bid-bar"
+                      style={{ width: `${(lvl.capacityUsd / maxLevelCapacity) * 100}%` }}
+                    />
+                  </div>
+                  <span className="depth-row-size mono">${(lvl.capacityUsd / 1000).toFixed(0)}k</span>
+                  <span className="depth-row-level mono">L{lvl.level}</span>
+                  <span className="depth-row-price mono bid-price">${lvl.bidPrice.toFixed(3)}</span>
+                </div>
+              ))}
+            </>
+          )}
 
           <div className="depth-footer mono">
-            <span>Version v{quoteState.version}</span>
+            <span>Version {quoteState.hasQuote ? `v${quoteState.version}` : '—'}</span>
             <span
-              className={`depth-status-badge ${quoteState.status === 'Fresh' ? 'fresh' : 'aging'}`}
+              className={`depth-status-badge ${quoteState.status === 'Fresh' ? 'fresh' : quoteState.status === 'Unavailable' ? 'unavailable' : 'aging'}`}
             >
               {quoteState.status}
             </span>
             <span>Slot {quoteState.currentSlot}</span>
+            {quoteState.hasQuote && (
+              <>
+                <span>exp {quoteState.expirySlot}</span>
+                <span>oracle {quoteState.oraclePublishTime}</span>
+                <span>
+                  author {quoteState.quoteKeeper
+                    ? `${quoteState.quoteKeeper.slice(0, 4)}…${quoteState.quoteKeeper.slice(-4)}`
+                    : 'unattributed'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -184,7 +227,15 @@ export const SwapPage: React.FC = () => {
           <div className="uni-tabs">
             <span className="uni-tab-title">Swap</span>
             <span style={{ fontSize: 13, color: 'var(--uni-neutral2)', fontFamily: 'var(--uni-mono)' }}>
-              v{quoteState.version} · {quoteState.status}
+              {quoteState.hasQuote ? `v${quoteState.version} · ${quoteState.status}` : 'quote unavailable'}
+            </span>
+          </div>
+
+          <div className="uni-panel-foot" style={{ justifyContent: 'flex-end', paddingTop: 0 }}>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--uni-neutral2)' }}>
+              {connected && publicKey
+                ? `Wallet ${publicKey.toBase58().slice(0, 4)}…${publicKey.toBase58().slice(-4)}`
+                : 'Wallet not connected'}
             </span>
           </div>
 
@@ -212,10 +263,12 @@ export const SwapPage: React.FC = () => {
             <div className="uni-panel-foot">
               <span>~${(parsedInAmount * (inTokenSymbol === 'SOL' ? quoteState.oraclePrice : 1)).toFixed(2)} USD</span>
               <span>
-                Balance: {inToken.balance} {inToken.symbol}
-                <button type="button" className="uni-max" onClick={() => setInAmount(inToken.balance.toString())}>
-                  Max
-                </button>
+                Balance: {connected ? `${inToken.balance} ${inToken.symbol}` : 'connect wallet'}
+                {connected && (
+                  <button type="button" className="uni-max" onClick={() => setInAmount(inToken.balance.toString())}>
+                    Max
+                  </button>
+                )}
               </span>
             </div>
           </div>
@@ -245,7 +298,7 @@ export const SwapPage: React.FC = () => {
             </div>
             <div className="uni-panel-foot">
               <span>~${(Number(expectedOutHuman) * (outTokenSymbol === 'SOL' ? quoteState.oraclePrice : 1)).toFixed(2)} USD (estimate)</span>
-              <span>Balance: {outToken.balance} {outToken.symbol}</span>
+              <span>Balance: {connected ? `${outToken.balance} ${outToken.symbol}` : 'connect wallet'}</span>
             </div>
           </div>
 

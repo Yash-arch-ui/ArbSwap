@@ -494,3 +494,15 @@
 .text-accent { color: var(--uni-accent1); }
 .text-success { color: var(--uni-success); }
 .text-critical { color: var(--uni-critical); }
+
+/* Explicit unavailable/stale states — never render a zero quote as if valid. */
+.depth-unavailable {
+  padding: 18px 16px;
+  border: 1px dashed var(--uni-warning, #d97706);
+  border-radius: 10px;
+  color: var(--uni-neutral2);
+  line-height: 1.5;
+}
+.depth-unavailable strong { color: var(--uni-text, #fff); }
+.depth-unavailable code { font-family: var(--uni-mono); font-size: 12px; }
+.depth-status-badge.unavailable { background: rgba(217, 119, 6, 0.18); color: #d97706; }

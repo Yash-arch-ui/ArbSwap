@@ -23,15 +23,16 @@ const QUOTE_SYMBOL = ACTIVE_VAULT.quoteMint.equals(QUOTE_MINT) ? 'USDC' : 'QUOTE
 
 /** Neutral state used before/without a live vault. Numbers are zero, not mock. */
 const EMPTY_QUOTE_STATE: QuoteState = {
+  hasQuote: false,
   version: 0, updateSlot: 0, currentSlot: 0, expirySlot: 0,
   oraclePrice: 0, anchorSqrtPrice: '0', pResSqrt: '0', reservationPrice: 0,
   halfSpreadBps: 0, askExtraBps: 0, bidExtraBps: 0, depthMultBps: 0,
-  flowNetSold: 0, oraclePublishTime: 0, oracleConfBps: 0,
+  flowNetSold: 0, oraclePublishTime: 0, oracleConfBps: 0, quoteKeeper: null,
   shortVolBps: 0, mediumVolBps: 0, recentMoveBps: 0,
   levels: Array.from({ length: 6 }, (_, i) => ({
     level: i + 1, offsetBps: 0, weightBps: 0, capacityUsd: 0, bidPrice: 0, askPrice: 0,
   })),
-  status: 'Expired',
+  status: 'Unavailable',
 };
 
 const EMPTY_VAULT_STATE: VaultState = {
@@ -243,7 +244,11 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     void refreshProtocol();
-    const id = setInterval(() => { void refreshProtocol(); }, 8_000);
+    // The deployed quote expiry is 10 slots (~4 s at 400 ms/slot), so poll at
+    // ~4 s. An 8 s poll would usually observe an already-expired quote even
+    // while a healthy keeper is re-quoting. Still a single lightweight RPC
+    // batch per tick (no transaction spam).
+    const id = setInterval(() => { void refreshProtocol(); }, 4_000);
     return () => clearInterval(id);
   }, [refreshProtocol]);
 

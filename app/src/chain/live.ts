@@ -1,4 +1,5 @@
 import { BN } from '@coral-xyz/anchor';
+import { PublicKey } from '@solana/web3.js';
 import type { OnChainProtocolState, OnChainLevel } from './program';
 import type { QuoteState, QuoteLevel, VaultState, RiskBreakers } from '../types/protocol';
 
@@ -20,7 +21,12 @@ const num = (bn: BN | undefined | null): number => (bn ? Number(bn.toString()) :
 /** Human USD price from a Q64.64 sqrt price (raw-atom price × 10^(base-quote)). */
 export function humanPriceFromSqrt(sqrt: BN): number {
   if (!sqrt || sqrt.isZero()) return 0;
-  const scaled = sqrt.mul(sqrt).muln(1_000_000_000 * DEC_SCALE).div(Q128);
+  // NOTE: bn.js `muln` asserts the multiplier is < 2^26, so a constant as large
+  // as 1e12 (1e9 × DEC_SCALE) must be passed as a BN to `mul`, never `muln`.
+  // Using `muln` here threw on every present quote, which the caller caught and
+  // silently rendered as a zero price/ladder — the exact bug this fixes.
+  const scale = new BN(1_000_000_000).mul(new BN(DEC_SCALE));
+  const scaled = sqrt.mul(sqrt).mul(scale).div(Q128);
   return num(scaled) / 1_000_000_000;
 }
 
@@ -65,14 +71,19 @@ export function toQuoteState(
 
   const grace = cfg ? num(cfg.graceSlots) : 0;
   const expiry = q ? num(q.expirySlot) : 0;
-  let status: QuoteState['status'] = 'Expired';
-  if (q && expiry > 0) {
+  const hasQuote = q !== undefined && num(q.version) > 0 && expiry > 0;
+  // `Unavailable` (no quote account / version 0) is distinct from `Expired`
+  // (a real, readable quote whose slot window has passed). The UI must render
+  // the former as an explicit unavailable state — never as a numeric zero.
+  let status: QuoteState['status'] = 'Unavailable';
+  if (hasQuote) {
     if (currentSlot >= expiry) status = 'Expired';
     else if (currentSlot >= expiry - Math.max(0, grace)) status = 'Aging';
     else status = 'Fresh';
   }
 
   return {
+    hasQuote,
     version: q ? num(q.version) : 0,
     updateSlot: q ? num(q.updateSlot) : 0,
     currentSlot,
@@ -88,6 +99,10 @@ export function toQuoteState(
     flowNetSold: 0,
     oraclePublishTime: q ? num(q.oraclePublishTime) : 0,
     oracleConfBps: q ? q.oracleConfBps : 0,
+    // Only expose an author when it is genuinely on-chain and not the
+    // unattributed sentinel; never substitute the configured operator.
+    quoteKeeper:
+      q && q.keeper && !q.keeper.equals(PublicKey.default) ? q.keeper.toBase58() : null,
     shortVolBps: 0, // keeper-internal, not stored on-chain
     mediumVolBps: 0,
     recentMoveBps: 0,

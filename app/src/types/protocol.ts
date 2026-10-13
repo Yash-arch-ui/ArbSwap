@@ -23,6 +23,8 @@ export interface QuoteLevel {
 }
 
 export interface QuoteState {
+  /** True only when a committed quote account was actually read on-chain. */
+  hasQuote: boolean;
   version: number;
   updateSlot: number;
   currentSlot: number;
@@ -39,11 +41,18 @@ export interface QuoteState {
   flowNetSold: number; // in SOL
   oraclePublishTime: number; // Unix timestamp
   oracleConfBps: number;
+  /** S2-19/S2-22: the keeper that authored the committed quote, or null when the
+   * quote is unattributed (legacy/migrated). Never the configured operator. */
+  quoteKeeper: string | null;
   shortVolBps: number; // sigma_s
   mediumVolBps: number; // sigma_m
   recentMoveBps: number;
   levels: QuoteLevel[];
-  status: 'Fresh' | 'Aging' | 'Expired';
+  /**
+   * `Unavailable` = no quote account read at all (never zero-fill this as a
+   * numeric price); `Expired` = a real quote exists but its slot window passed.
+   */
+  status: 'Fresh' | 'Aging' | 'Expired' | 'Unavailable';
 }
 
 export interface VaultState {

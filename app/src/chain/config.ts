@@ -1,4 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
+import { resolveFrontendRpc, redactRpcUrl } from './rpcConfig';
 
 /**
  * Single source of truth for the ArbSwap deployment the app talks to.
@@ -31,10 +32,18 @@ export interface VaultDeployment {
   pythFeedId: string;
 }
 
-/** Devnet RPC used by the app and the wallet adapter. */
-export const SOLANA_DEVNET_RPC = 'https://api.devnet.solana.com';
+/** RPC endpoints resolved from env (`VITE_SOLANA_RPC_URL[_FALLBACKS]`). */
+const RPC = resolveFrontendRpc(
+  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {},
+);
 
-export const CLUSTER: Cluster = 'devnet';
+/** Primary Devnet RPC used by the app and the wallet adapter. */
+export const SOLANA_DEVNET_RPC = RPC.endpoints[0];
+/** Optional read-only fallback endpoints (availability only). */
+export const SOLANA_RPC_FALLBACKS = RPC.endpoints.slice(1);
+export { redactRpcUrl };
+
+export const CLUSTER: Cluster = RPC.cluster;
 
 /**
  * Deployed ArbSwap program id (matches `vault/program/src/lib.rs`

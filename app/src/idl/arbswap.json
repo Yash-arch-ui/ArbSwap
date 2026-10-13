@@ -376,23 +376,33 @@
           "writable": true
         },
         {
-          "name": "config",
+          "name": "keeper_reward",
+          "docs": [
+            "S2-19: the signer's own reward account. Rewards are per-keeper, so no",
+            "keeper can claim another keeper's accrual, and `config.keeper` no longer",
+            "confers any exclusive reward entitlement."
+          ],
+          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100
                 ]
               },
               {
                 "kind": "account",
                 "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "keeper"
               }
             ]
           }
@@ -1094,6 +1104,100 @@
       ]
     },
     {
+      "name": "migrate_quote_state",
+      "docs": [
+        "S2-21A: permissionless, one-time layout upgrade of a legacy `QuoteState`",
+        "(865 B, no appended `keeper`) to the current layout (897 B). Only the",
+        "account allocation and the appended `keeper` field change: every existing",
+        "quote field is preserved byte-for-byte. The appended field is set to the",
+        "unattributed sentinel (`Pubkey::default()`); a legacy quote has no",
+        "cryptographically established author, so it must never be attributed to",
+        "`config.keeper` and can never generate keeper rewards. Any payer may fund",
+        "the rent shortfall and invoke this; it grants no control over the vault,",
+        "quote contents, reserves, shares, or fee accounting."
+      ],
+      "discriminator": [
+        148,
+        39,
+        160,
+        63,
+        15,
+        99,
+        39,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Funds any rent shortfall for the larger account. May be any signer."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "account",
+                "path": "vault.quote_mint",
+                "account": "Vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_state",
+          "docs": [
+            "PDA for `vault` (enforced by the `seeds`/`bump` constraint), the correct",
+            "`QuoteState` discriminator, and a supported legacy length. It is an",
+            "`UncheckedAccount` because the legacy bytes cannot be deserialized into",
+            "the larger current `QuoteState` struct."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "propose_admin",
       "docs": [
         "B4: the current admin proposes a successor. It takes effect only when the",
@@ -1779,6 +1883,45 @@
           "writable": true
         },
         {
+          "name": "keeper_reward",
+          "docs": [
+            "S2-19: the reward account of the keeper attributed to the active quote",
+            "(`quote_state.keeper`). Declared after the vault-token bindings so a",
+            "mis-bound reserve/config still fails on its own account. Created lazily",
+            "(trader pays) only when the quote was committed through the legacy direct",
+            "path; the normal staged path creates it in `stage_quote` (keeper pays)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "quote_state.keeper",
+                "account": "QuoteState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
@@ -2160,6 +2303,19 @@
       ]
     },
     {
+      "name": "KeeperReward",
+      "discriminator": [
+        30,
+        176,
+        118,
+        116,
+        9,
+        49,
+        116,
+        146
+      ]
+    },
+    {
       "name": "PendingClaim",
       "discriminator": [
         157,
@@ -2461,6 +2617,19 @@
       ]
     },
     {
+      "name": "QuoteStateMigrated",
+      "discriminator": [
+        241,
+        173,
+        108,
+        72,
+        61,
+        217,
+        46,
+        219
+      ]
+    },
+    {
       "name": "QuoteUpdated",
       "discriminator": [
         18,
@@ -2744,6 +2913,31 @@
       "code": 6040,
       "name": "StagedStateChanged",
       "msg": "Quote-relevant vault state changed between staging and commit"
+    },
+    {
+      "code": 6041,
+      "name": "QuoteAttributionMismatch",
+      "msg": "Quote attribution does not match the active quote version"
+    },
+    {
+      "code": 6042,
+      "name": "UnattributedQuote",
+      "msg": "Quote has no verified keeper attribution"
+    },
+    {
+      "code": 6043,
+      "name": "InvalidAccountOwner",
+      "msg": "Account is not owned by this program"
+    },
+    {
+      "code": 6044,
+      "name": "InvalidAccountDiscriminator",
+      "msg": "Incorrect account discriminator"
+    },
+    {
+      "code": 6045,
+      "name": "UnsupportedAccountLength",
+      "msg": "Unsupported account length for this operation"
     }
   ],
   "types": [
@@ -3337,6 +3531,37 @@
       }
     },
     {
+      "name": "KeeperReward",
+      "docs": [
+        "S2-19: per-keeper claimable reward. Credited at swap time to the author of",
+        "the quote used by that swap (the keeper recorded in `QuoteState.keeper`).",
+        "Bookkeeping only — the tokens stay in the vault reserves exactly as before",
+        "and move only at claim, so the fee split and reserve accounting are",
+        "unchanged."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "base",
+            "type": "u64"
+          },
+          {
+            "name": "quote",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "KeeperSlashed",
       "type": {
         "kind": "struct",
@@ -3505,12 +3730,12 @@
             "type": "u32"
           },
           {
-            "name": "min_bond",
-            "type": "u64"
-          },
-          {
             "name": "unbond_cooldown_slots",
             "docs": [
+              "S2-19: `min_bond` is NOT tunable. Keeper-eligibility policy is fixed at",
+              "vault initialization so an administrator can never re-introduce a",
+              "single-wallet allowlist or an exclusionary bond threshold after the fact.",
+              "(The `min_bond` and `keeper` fields were removed from this struct.)",
               "p2-T5: cooldown before a keeper's unbond releases (slots)."
             ],
             "type": "u64"
@@ -3553,15 +3778,6 @@
               "Item 1a: max one-sided base flow per window, in bps of base reserve."
             ],
             "type": "u32"
-          },
-          {
-            "name": "keeper",
-            "docs": [
-              "Item 5: optional keeper rotation, applied (timelocked) when set."
-            ],
-            "type": {
-              "option": "pubkey"
-            }
           }
         ]
       }
@@ -4044,6 +4260,38 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "keeper",
+            "docs": [
+              "S2-19: the keeper that authored the currently committed quote. Appended",
+              "(additive, migration-only) so existing field offsets are preserved. It",
+              "binds the keeper fee share to the quote version that a swap consumes."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteStateMigrated",
+      "docs": [
+        "S2-21A: a legacy `QuoteState` account was migrated to the current layout."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "from_len",
+            "type": "u64"
+          },
+          {
+            "name": "to_len",
+            "type": "u64"
           }
         ]
       }

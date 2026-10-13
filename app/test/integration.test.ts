@@ -6,6 +6,9 @@ import { swapUnavailableReason, claimWithdrawState } from '../src/chain/gating';
 import { feeAtoms, expectedOutAtoms, minOutWithSlippage, swapAmounts } from '../src/chain/swapMath';
 import { deriveVaultAddresses, expectedDepositShares } from '../src/chain/program';
 import { CANONICAL_VAULT, ACTIVE_VAULT } from '../src/chain/config';
+import { toQuoteState } from '../src/chain/live';
+import { BN } from '@coral-xyz/anchor';
+import { PublicKey } from '@solana/web3.js';
 
 describe('canonical vault wiring', () => {
   it('derives the configured canonical WSOL/USDC vault/config/quote PDAs', () => {
@@ -179,5 +182,46 @@ describe('live pages do not use mock data', () => {
     const path = fileURLToPath(new URL('../src/context/ProtocolContext.tsx', import.meta.url));
     const src = readFileSync(path, 'utf8');
     expect(src).not.toMatch(/mockData/);
+  });
+});
+
+describe('quote availability never falls back to a numeric zero', () => {
+  const pk = PublicKey.default;
+  const base = { exists: true, vault: pk, config: pk, quoteState: pk };
+
+  it('reports Unavailable (hasQuote=false) when no quote account was read', () => {
+    const q = toQuoteState({ ...base }, 1000);
+    expect(q.hasQuote).toBe(false);
+    expect(q.status).toBe('Unavailable');
+    expect(q.oraclePrice).toBe(0); // genuine absence, rendered as Unavailable not "$0.00"
+  });
+
+  it('reports Expired for a real quote past its slot window', () => {
+    const quoteData = {
+      version: new BN(18), updateSlot: new BN(100), expirySlot: new BN(110),
+      halfSpreadBps: 11, askExtraBps: 0, bidExtraBps: 0, depthMultBps: 7000,
+      oraclePrice: new BN(0), anchorSqrtPrice: new BN('6036613448307627517'),
+      pResSqrt: new BN('6036613448307627517'), oraclePublishTime: new BN(1791842540),
+      oracleConfBps: 4, askLevels: [], bidLevels: [],
+    };
+    const expired = toQuoteState({ ...base, quoteData }, 5000);
+    expect(expired.hasQuote).toBe(true);
+    expect(expired.status).toBe('Expired');
+    expect(expired.oraclePrice).toBeGreaterThan(0);
+
+    const fresh = toQuoteState({ ...base, quoteData }, 105);
+    expect(fresh.status).toBe('Fresh');
+
+    const aging = toQuoteState({
+      ...base,
+      quoteData,
+      configData: { graceSlots: new BN(4) } as never,
+    }, 108);
+    expect(aging.status).toBe('Aging');
+  });
+
+  it('swap gate stays closed while the quote is unavailable or expired', () => {
+    const unavailable = toQuoteState({ ...base }, 1000);
+    expect(swapUnavailableReason({ vaultInitialized: true, circuitBreakerTripped: false, quoteAvailable: unavailable.hasQuote && unavailable.status !== 'Expired' })).toMatch(/no fresh Pyth quote/);
   });
 });

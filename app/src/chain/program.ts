@@ -192,6 +192,8 @@ export interface OnChainQuote {
   pResSqrt: BN;
   oraclePublishTime: BN;
   oracleConfBps: number;
+  /** S2-19: the keeper that authored the active quote (reward attribution). */
+  keeper: PublicKey;
   askLevels: OnChainLevel[];
   bidLevels: OnChainLevel[];
 }
@@ -301,6 +303,7 @@ export async function fetchProtocolState(
       pResSqrt: q.pResSqrt as BN,
       oraclePublishTime: q.oraclePublishTime as BN,
       oracleConfBps: q.oracleConfBps as number,
+      keeper: (q.keeper as PublicKey | undefined) ?? PublicKey.default,
       askLevels: (q.askLevels as OnChainLevel[]) ?? [],
       bidLevels: (q.bidLevels as OnChainLevel[]) ?? [],
     };
@@ -444,12 +447,19 @@ export async function swap(
   if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
   const traderBase = (await ensureAta(connection, BASE_MINT, owner)).ata;
   const traderQuote = (await ensureAta(connection, QUOTE_MINT, owner)).ata;
+  // S2-19: the keeper reward PDA for the keeper attributed to the active quote.
+  const attributedKeeper = state.quoteData?.keeper ?? PublicKey.default;
+  const [keeperReward] = PublicKey.findProgramAddressSync(
+    [Buffer.from('reward'), vault.toBuffer(), attributedKeeper.toBuffer()],
+    PROGRAM_ID,
+  );
   return program.methods
     .swap(side as never, new BN(amountIn.toString()), new BN(minOut.toString()), new BN(minVersion.toString()))
     .accounts({
       trader: owner, vault, config, quoteState,
       baseReserve: state.vaultData.baseReserve, quoteReserve: state.vaultData.quoteReserve,
-      traderBase, traderQuote, tokenProgram: TOKEN_PROGRAM_ID,
+      traderBase, traderQuote, keeperReward, systemProgram: SYSTEM_PROGRAM_ID,
+      tokenProgram: TOKEN_PROGRAM_ID,
     })
     .rpc();
 }
