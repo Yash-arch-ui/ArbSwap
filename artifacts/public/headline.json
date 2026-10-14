@@ -22,12 +22,12 @@
   },
   "cost": {
     "cu_swap": 63579,
-    "cu_update_quote": 49336,
+    "cu_update_quote": 47836,
     "sol_price": 150.0,
     "swap_total_quote": 0.00075953685,
     "update_gas_quote": 0.00075,
-    "update_priority_quote": 7.4003999999999995e-06,
-    "update_total_quote": 0.0007574004,
+    "update_priority_quote": 7.1754e-06,
+    "update_total_quote": 0.0007571754,
     "updates_per_hour": 3600
   },
   "e1_e4": {
@@ -83,13 +83,13 @@
     }
   },
   "meta": {
-    "commit": "50c5b0cd739fd142c774817385990d3cd53814d4",
+    "commit": "0c4015fa090eb8c95ea1f8e39c5292632d68bdf1",
     "data_sha256": {},
     "date": "2026-10-14",
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "50c5b0c"
+    "short": "0c4015f"
   },
   "routed_world": {
     "rows": [

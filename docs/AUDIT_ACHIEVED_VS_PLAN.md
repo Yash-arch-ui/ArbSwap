@@ -112,7 +112,7 @@ data/keys. Commit: `0a9c44e`.
 | E7 safety | **PASS** | all contained |
 | E8 real-pool gap | CLOSED-BY-DECISION | proxy only (`e8_proxy.json`) |
 | E9 sensitivity | PASS | 45/81 negative cells; jump 0/27 |
-| E10 cost | PASS | 49,336 / 63,579 CU (`cargo build-sbf`) |
+| E10 cost | PASS | 47,836 / 63,579 CU (`cargo build-sbf`) |
 
 ---
 
@@ -156,7 +156,7 @@ push main" text). One status per item.
 
 | Item | Status | Evidence / commit |
 |---|---|---|
-| B1 CU regression | **PASS** | cause = build-method artifact (`cargo build-sbf` 49,336 vs `anchor build` idl-build ≈51.3k), not a source regression; `scripts/measure_cu.sh`; `86bacdc` |
+| B1 CU regression | **PASS** | cause = build-method artifact (`cargo build-sbf` 47,836 vs `anchor build` idl-build ≈51.3k), not a source regression; `scripts/measure_cu.sh`; `86bacdc` |
 | B2 compute redesign (verify-instead-of-compute) | **PASS** | implemented as C3/B2 (`2d77d3e`): keeper inverse-sqrt payload verified on-chain (`inv_sqrt_is_conservative`, `InvalidInverseSqrt`); 1M-case differential; mutation S4.4 |
 | B3a mutation completeness | **PASS** | B4 admin guards + F6 pre-validation guards + C3/B2 inverse-sqrt guard all mutated and caught (S4.2–S4.4); 55 caught (`artifacts/public/mutation.json`) |
 | B3b cargo-fuzz | **PASS** | 3 targets (`arb_math`, `walk_ladder`, `quote_validation`) in `fuzz/` + nightly CI job (`3df287b`); `proptest` retained |

@@ -89,7 +89,7 @@ README with no data and no API keys.
 ## Closure pass (C1-C6) — on `main` per instruction
 
 - C1 single source of truth: `scripts/export_artifacts.py` → `artifacts.json`;
-  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (49,336 /
+  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (47,836 /
   63,579). PASS.
 - C2 pre-registered thesis (Amendment 3): `docs/THESIS.md` — **Option 1 not
   shown**; T-A.iii no-propAMM share 27.9%; calibration CLOSED-BY-DECISION.
@@ -107,11 +107,11 @@ README with no data and no API keys.
 
 - **B1 CU regression — PASS (cause named).** The `update_quote` difference was a
   **build-method artifact**, not a source regression: `cargo build-sbf`
-  (661 KB, no `idl-build`) = 49,336; `anchor build` (744 KB, `idl-build`) =
+  (661 KB, no `idl-build`) = 47,836; `anchor build` (744 KB, `idl-build`) =
   ≈51.3k. The program source in the measured path is byte-identical to `43002b3`
   (diff of `update_quote`/`Config`/`QuoteState`/fixture/`quote_update` empty).
   Fix: `scripts/measure_cu.sh` builds in a clean dedicated target dir and records
-  the `.so` hash; canonical `update_quote` **49,336**, `swap` **63,579**
+  the `.so` hash; canonical `update_quote` **47,836**, `swap` **63,579**
   (`artifacts/public/cu.json`).
 
 - **B4 timelocked admin rotation — PASS.** `propose_admin` / `accept_admin` /
@@ -136,7 +136,7 @@ README with no data and no API keys.
   `AUDIT_ACHIEVED_VS_PLAN.md`, `CLAIMS.md` updated.
 - **F2 CU single source — PASS.** All CU rendered from `artifacts/public/cu.json`;
   `scripts/check_docs_consistency.py` scans every doc and bans stale tokens.
-  Canonical `update_quote` **49,336**, `swap` **63,579** (`cargo build-sbf`).
+  Canonical `update_quote` **47,836**, `swap` **63,579** (`cargo build-sbf`).
 - **F3 bundle freshness — PASS.** Bundle regenerated at HEAD;
   `scripts/check_bundle_freshness.py` added to CI. Re-ran suites: **148 Rust /
   193 Python**; mutation table **51** (47 + 4 new F6 rows).
@@ -215,7 +215,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   `scripts/measure_cu.sh` now samples `N=5` fresh runs and stores
   min/median/max/range/stdev; `cu.json` holds the median plus stats. The variance
   is real:   transfer/account-init instructions spread up to 9,000 CU; the
-  `<1,000 CU` target is **not met** (later redesigned to 49,336 median under C3/B2).
+  `<1,000 CU` target is **not met** (later redesigned to 47,836 median under C3/B2).
   Read-only devnet provenance
   (`scripts/devnet_program_hash.py`): the deployed program (744,376 B,
   `c0080ccf…`) **differs** from the exact HEAD build (683,680 B, `c5ba3d1f…`).
@@ -244,7 +244,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   256-bit division. Differential: 1,000,000 random ladders agree/bound
   (`vault/math/tests/capacity_inverse.rs` + Python mirror). Mutation S4.4. Tests:
   `update_quote_rejects_an_under_estimated_inverse_sqrt`.
-- **CU:** the quote update fell from ~48k to a median of 49,336 (range across 5
+- **CU:** the quote update fell from ~48k to a median of 47,836 (range across 5
   runs 47,836–50,836) — the `<=40k` target is **not met** on the demo host; `<1,000` is not.
 - Docs synced: `FORMULA.md` (proof sketch + rounding rule), `SECURITY_CHECKLIST.md`
   §3/S4.4, `REMAINING_WORK.md`; bundle regenerated. 157 Rust / 204 Python, 55
@@ -2021,7 +2021,7 @@ Program upgraded and `expiry_slots` made admin-tunable (Step 41). This step:
   (failure codes 6015×7, 6037×3, 6039×4) — the exact failure Option C addresses.
   Post-change command: `scripts/devnet/measure_fresh.sh 1800 400`.
 - **Release (Task 7) DONE except the tag.** `app/vercel.json` headers + test;
-  CU re-measured on the new binary (5 runs; update_quote 49,336, swap 63,579;
+  CU re-measured on the new binary (5 runs; update_quote 47,836, swap 63,579;
   docs reconciled honestly — ≤40k not met on this host); program hash/size
   reconciled; runbooks updated. Full gate green: fmt/clippy/workspace (lifecycle
   104), pytest 228/2, keeper TS 17/9/24, app 118 + build, E2E exit 0,

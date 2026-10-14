@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "demo_streams",
+  "type": "object",
+  "required": [
+    "meta",
+    "streams"
+  ],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": [
+        "generator",
+        "seed",
+        "steps"
+      ]
+    },
+    "streams": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "mid",
+          "arbSwap",
+          "passive",
+          "events"
+        ],
+        "properties": {
+          "mid": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "arbSwap": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "passive": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "events": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

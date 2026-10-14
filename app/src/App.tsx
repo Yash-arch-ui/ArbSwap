@@ -11,6 +11,7 @@ import { RiskPage } from './pages/RiskPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { DemoPage } from './pages/DemoPage';
 import { EvidencePage } from './pages/EvidencePage';
+import { ClaimsPage } from './pages/ClaimsPage';
 import './theme.css';
 
 // Fail loudly if the configured vault addresses do not match the PDAs derived
@@ -35,6 +36,7 @@ export function App() {
             {currentTab === 'analytics' && <AnalyticsPage />}
             {currentTab === 'demo' && <DemoPage />}
             {currentTab === 'evidence' && <EvidencePage />}
+            {currentTab === 'claims' && <ClaimsPage />}
           </main>
         </div>
       </ProtocolProvider>

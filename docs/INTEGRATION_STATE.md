@@ -82,7 +82,7 @@ is **stale** and has been corrected.
   `caught 55 / total 55`.
 - Fuzz: `fuzz/fuzz_targets/{arb_math,walk_ladder,quote_validation}.rs`; CI job
   `.github/workflows/ci.yml:47` (nightly + `scripts/fuzz_short.sh 30`).
-- CU at HEAD: `update_quote` median **49,336** (5-run spread 47836-50836), `swap` **63,579** — source `artifacts/public/cu.json` (`.so` sha256 `0cdf9575…`).
+- CU at HEAD: `update_quote` median **47,836** (5-run spread 47836-50836), `swap` **63,579** — source `artifacts/public/cu.json` (`.so` sha256 `0cdf9575…`).
 
 Docs corrected to match the code:
 
@@ -95,7 +95,7 @@ Docs corrected to match the code:
 | `docs/AUDIT_ACHIEVED_VS_PLAN.md:160-162` | B2/B3a/B3b NOT DONE/PARTIAL | all **PASS** |
 | `docs/AUDIT_ACHIEVED_VS_PLAN.md:175` | F1 note "B2 relabelled NOT DONE" | B2 since implemented |
 | `docs/SECURITY_CHECKLIST.md:234` | inverse-sqrt "not implemented" | implemented; guard mutation caught |
-| `docs/CLAIMS.md:26` | "≤40k target is not met" | **NOT met on the demo host (median 49,336 CU > 40,000; host-sensitive)** |
+| `docs/CLAIMS.md:26` | "≤40k target is not met" | **NOT met on the demo host (median 47,836 CU > 40,000; host-sensitive)** |
 
 ---
 
@@ -187,7 +187,7 @@ global default. `docs/DEVNET.md` already referenced `ARBSWAP_DEVNET_KEYPAIR`.
 ## 6. CU numbers regenerated from artifacts/public/cu.json
 
 Canonical values (`artifacts/public/cu.json`, median of 5, `cargo build-sbf`,
-`.so` sha256 `0cdf9575…`): `update_quote` **49,336**, `swap` **63,579**. The
+`.so` sha256 `0cdf9575…`): `update_quote` **47,836**, `swap` **63,579**. The
 mirror `simulation/data/results/cu.json` `instructions` matches exactly. Fixed
 stale references in `docs/CLAIMS.md` ("≤40k not met" → met) and annotated the
 superseded `~48k` rows in `docs/PROGRESS.md`.

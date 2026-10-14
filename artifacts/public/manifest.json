@@ -1,10 +1,10 @@
 {
-  "commit": "50c5b0cd739fd142c774817385990d3cd53814d4",
+  "commit": "0c4015fa090eb8c95ea1f8e39c5292632d68bdf1",
   "data_sha256": {},
   "files": {
     "cu.json": {
       "schema": "../schema/cu.json",
-      "sha256": "5f6f2f7eb15df1759499f7599ba2e8457317c51b4b8010883c703dbb6dabb275"
+      "sha256": "0d5ff9265aa30b92de8f9d3b2857c9b078cdcc31434fa717e3b4a518973f96e7"
     },
     "e8_proxy.json": {
       "schema": "../schema/e8_proxy.json",
@@ -16,7 +16,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "3c40b9056bcc129e2a362d63e344dd2426a183bb7a243f4462c25a3f6d3ce903"
+      "sha256": "a54c97af7883f17c3211495bcabc9604a74247f7234636818f4b797e3779c442"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -32,7 +32,7 @@
     },
     "test_counts.json": {
       "schema": "../schema/test_counts.json",
-      "sha256": "f3d0d2f565b2160a1d24bb528eb0af17247fa4cdca46b86bfdb66c2518ba15ff"
+      "sha256": "e8de7e11d43f51491588cf9715e9e9afe8925c7bb9bbc56660c16c0b9f3004c1"
     },
     "thesis.json": {
       "schema": "../schema/thesis.json",
@@ -43,5 +43,5 @@
   "generated": "2026-10-14",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "50c5b0c"
+  "short": "0c4015f"
 }

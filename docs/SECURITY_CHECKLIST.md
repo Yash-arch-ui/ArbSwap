@@ -252,14 +252,14 @@ sha256 `0cdf95754c50…`, 688,616 B):
 
 | Instruction | CU (median) |
 |---|---|
-| `update_quote` | **49,336** |
-| `update_quote_wide_conf_rejected` | 16,875 |
+| `update_quote` | **47,836** |
+| `update_quote_wide_conf_rejected` | 15,375 |
 | `swap` | **63,579** |
-| `deposit` | 46,657 |
+| `deposit` | 43,657 |
 | `request_withdraw` | 18,160 |
 | `claim_withdraw` | 23,730 |
 | `crank_epoch` | 5,164 |
-| `bond_keeper` | 27,630 |
+| `bond_keeper` | 26,130 |
 | `slash_keeper` | 16,901 |
 | `claim_keeper_reward` | 14,267 |
 | `propose_admin` | 8,064 |
@@ -280,7 +280,7 @@ Q64.64 inverse square roots (verified on-chain with one multiply each,
 `inv_sqrt_is_conservative`) and the program computes the ask base capacity by
 multiply+shift (`base_capacity_from_inverse_sqrts`), which is conservatively
 `>=` the exact floor (one-million-case differential, Rust + Python). The quote
-update fell from ~48k to a **median 49,336 CU (range 47,836–50,836)**, exceeding the ≤40k
+update fell from ~48k to a **median 47,836 CU (range 47,836–50,836)**, exceeding the ≤40k
 target at the median (the LiteSVM spread is measurement noise, not a code path).
 
 `update_quote` exceeds the keeper's former 60k limit, so
@@ -304,7 +304,7 @@ Profiled by ablation (LiteSVM, two-sided ladder, 12 levels):
 (~23k CU) are gone: the keeper supplies per-level inverse square roots, the
 program verifies each with one multiply (`inv_sqrt_is_conservative`) and computes
 the ask base capacity by multiply+shift (`base_capacity_from_inverse_sqrts`),
-conservatively `>=` the exact floor. Measured median **49,336 CU**
+conservatively `>=` the exact floor. Measured median **47,836 CU**
 (47,836-50,836 over 5 runs; `artifacts/public/cu.json`). The remaining fixed cost
 is account validation + Pyth verification (~30k), which the program cannot remove
 without dropping the on-chain oracle check.

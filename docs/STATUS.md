@@ -22,7 +22,7 @@ Applying the table above:
   multiply+shift (`base_capacity_from_inverse_sqrts`), conservatively `>=` the
   exact floor (1,000,000-case differential; `vault/math/tests/capacity_inverse.rs`).
   Mutation S4.4 and `update_quote_rejects_an_under_estimated_inverse_sqrt` cover
-  the guard. `update_quote` median 49,336 CU (≤40k target **not met** on this host; host-sensitive).
+  the guard. `update_quote` median 47,836 CU (≤40k target **not met** on this host; host-sensitive).
 - **B5 high-volatility real windows** — **NOT DONE.** Binance public archives are
   downloadable with `simulation/data/download_vision.py` (two are downloaded and
   used by the F5 amendment). "EXTERNAL (data)" was incorrect: the data is not
