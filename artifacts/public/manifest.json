@@ -1,10 +1,10 @@
 {
-  "commit": "b6c060ca1e4f26cb19a41ce0673e5594238fabba",
+  "commit": "3402a5a40bd22bf5183116c98b87876f1bd221d7",
   "data_sha256": {},
   "files": {
     "cu.json": {
       "schema": "../schema/cu.json",
-      "sha256": "8b9164a97e0cf09a5e0f66f6a2c798d7d7580f9d1c78ea2868f7acc0a3147bd1"
+      "sha256": "552b7775b4baa7f8613d514d4037192aa6a15489fa09a4f6ffa042956297fa2d"
     },
     "e8_proxy.json": {
       "schema": "../schema/e8_proxy.json",
@@ -16,7 +16,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "06f228fb748adcccc9962d08030c0ed72e6f5a8fb3b2a7aac45685061016a316"
+      "sha256": "14c0317b8b1d1598e13b2096448d3be87c6afad2f6b4d571113c3e26ccf3e9d5"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -43,5 +43,5 @@
   "generated": "2026-10-14",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "b6c060c"
+  "short": "3402a5a"
 }

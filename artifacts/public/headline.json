@@ -21,13 +21,13 @@
     "window": "W1"
   },
   "cost": {
-    "cu_swap": 65079,
-    "cu_update_quote": 52336,
+    "cu_swap": 59327,
+    "cu_update_quote": 38563,
     "sol_price": 150.0,
-    "swap_total_quote": 0.00075976185,
+    "swap_total_quote": 0.00075889905,
     "update_gas_quote": 0.00075,
-    "update_priority_quote": 7.8504e-06,
-    "update_total_quote": 0.0007578504,
+    "update_priority_quote": 5.78445e-06,
+    "update_total_quote": 0.0007557844500000001,
     "updates_per_hour": 3600
   },
   "e1_e4": {
@@ -83,13 +83,13 @@
     }
   },
   "meta": {
-    "commit": "b6c060ca1e4f26cb19a41ce0673e5594238fabba",
+    "commit": "3402a5a40bd22bf5183116c98b87876f1bd221d7",
     "data_sha256": {},
     "date": "2026-10-14",
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "b6c060c"
+    "short": "3402a5a"
   },
   "routed_world": {
     "rows": [
