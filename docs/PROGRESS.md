@@ -1931,3 +1931,32 @@ S2-35 working tree, closed one code/claim gap, and committed the result.
   oracle change, no mint/deposit/withdraw/claim/transfer, no swap. This pass
   commits the S2-35 work; operator action for the live browser swap is in the
   report §9/§10.
+
+## Part 3 / Step 40 — S2-36 fresh-quote observation (root cause + live feed)
+
+Report: [`docs/S2_36_FRESH_QUOTE_OBSERVATION.md`](S2_36_FRESH_QUOTE_OBSERVATION.md).
+Branch `s2-36-fresh-quote-diagnosis` (not pushed).
+
+- **Root cause (measured).** The quote was read as one field of the slow,
+  adaptive `readVault` poll and its status was frozen at that read's slot, so the
+  UI ran **behind** the chain (showed v110 `EXPIRED` while chain v111 was `FRESH`)
+  and **ahead** of expiry (kept showing `Fresh` ~5 s after expiry). 110 s
+  correlation run: 19 browser samples fell while the chain was fresh but only
+  **2** showed fresh; **22** classified mismatches.
+- **Fix.** New `app/src/chain/liveQuote.ts` (`classifyQuoteFreshness` +
+  `LiveQuoteFeed`) drives the quote at the `processed` commitment every ~700 ms,
+  re-classifies against the **current** slot each tick, ignores out-of-order
+  slots, and never marks a stale quote executable. `program.ts` gains
+  `fetchQuoteOnly` (single `processed` read); `rpcFailover.ts` gains
+  `APP_LIVE_RPC`; `ProtocolContext` lets the feed own quote freshness. No rule was
+  weakened; submit-time re-read unchanged.
+- **Result.** Same methodology after fix: browser fresh **15/194**, **14/15**
+  samples while chain-fresh showed fresh, mismatches **22 → 2** (≤ one poll).
+- **Tests.** New `app/test/liveQuote.test.ts` (+7). app `yarn test` **99 passed
+  (10 files)**, `tsc -b`/`lint`/`build` clean (no secret in `dist`), browser E2E
+  exit 0.
+- **Wallet.** Code is correct (Phantom/Solflare adapters, connected adapter signs,
+  no key substitution); the live swap is blocked only because this headless
+  container has no browser wallet extension.
+- **Boundary.** Read-only; no sign/swap/deploy, no on-chain or keeper/program
+  change; the branch is not pushed.

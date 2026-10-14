@@ -14,13 +14,16 @@ import {
   fetchShareBalance,
   fetchDepositTicket,
   fetchWithdrawTicket,
+  fetchQuoteOnly,
   verifyCluster,
   verifyProgram,
+  deriveVaultAddresses,
   type OnChainProtocolState,
 } from '../chain/program';
 import { readVault } from '../chain/vaultRead';
 import { toQuoteState, toVaultState, toRiskBreakers } from '../chain/live';
-import { APP_RPC_FAILOVER, type RpcHealthSnapshot } from '../chain/rpcFailover';
+import { LiveQuoteFeed } from '../chain/liveQuote';
+import { APP_RPC_FAILOVER, APP_LIVE_RPC, type RpcHealthSnapshot } from '../chain/rpcFailover';
 import {
   liveSource,
   loadingSource,
@@ -226,6 +229,7 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [autoRetryPaused, setAutoRetryPaused] = useState(false);
 
   const shareMintRef = useRef<string | null>(null);
+  const configDataRef = useRef<OnChainProtocolState['configData']>(undefined);
   const refreshSeqRef = useRef(0);
   const lastGoodRef = useRef<{ state: OnChainProtocolState; slot: number } | null>(null);
   const failureStreakRef = useRef(0);
@@ -283,15 +287,16 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const quote = toQuoteState(state, slot);
       const hasQuote = state.quoteData !== undefined && Number(state.quoteData.version) > 0;
       const isFresh = hasQuote && slot < Number(state.quoteData?.expirySlot ?? 0);
-      setQuoteState(quote);
-      setQuoteAvailable(isFresh);
-      setQuoteFresh(isFresh);
+      // NOTE: the quote freshness state (quoteState/quoteAvailable/quoteFresh/
+      // currentSlot) is owned by the live quote feed (S2-36), not this slow
+      // vault/config read, so the UI never renders a stale quote as live.
       const risk = toRiskBreakers(state, nowMs / 1000);
       risk.circuitBreakerTripped = state.vaultData ? state.vaultData.status !== 0 : false;
       risk.activeBreakerReason = risk.circuitBreakerTripped ? 'Vault status is not Active' : null;
       risk.keeperActiveAddress = state.configData ? state.configData.keeper.toBase58() : '';
       setRiskBreakers(risk);
       if (state.configData) {
+        configDataRef.current = state.configData;
         const c = state.configData;
         setProtocolParams({
           feeBps: c.feeBps,
@@ -308,7 +313,7 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           maxConfBps: c.maxConfBps,
         });
       }
-      setCurrentSlot(slot);
+      setCurrentSlot((prev) => (prev === 0 ? slot : prev));
       setBlockTime(extra.blockTime);
       setGenesisVerified(extra.genesisVerified);
       setProgramVerified(extra.programVerified);
@@ -553,6 +558,51 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     void refreshBalances();
   }, [refreshBalances]);
+
+  // S2-36: the quote is driven by its own fast, `processed`-commitment feed so it
+  // is observed within ~1 slot of a commit and its status flips to Expired as
+  // slots advance — never frozen at the value captured by the slow vault poll.
+  useEffect(() => {
+    const { vault, config, quoteState: quoteStateKey } = deriveVaultAddresses();
+    const feed = new LiveQuoteFeed({
+      fetchSlot: () => APP_LIVE_RPC.runKeyed('liveSlot', (c) => c.getSlot('processed')),
+      fetchQuote: () => APP_LIVE_RPC.runKeyed('liveQuote', (c) => fetchQuoteOnly(c)),
+      graceSlots: () =>
+        configDataRef.current ? Number(configDataRef.current.graceSlots.toString()) : 0,
+      intervalMs: 700,
+      onUpdate: (u) => {
+        const synthetic: OnChainProtocolState = {
+          exists: true, vault, config, quoteState: quoteStateKey,
+          quoteData: u.quote ?? undefined, configData: configDataRef.current ?? undefined,
+        };
+        const q = toQuoteState(synthetic, u.currentSlot);
+        setQuoteState(q);
+        setQuoteAvailable(u.executable);
+        setQuoteFresh(u.executable);
+        setCurrentSlot(u.currentSlot);
+        if (q.oraclePrice > 0) {
+          setTokens((prev) => ({ ...prev, SOL: { ...prev.SOL, priceUsd: q.oraclePrice } }));
+        }
+        setStatus((p) => ({
+          ...p,
+          quote: {
+            available: u.executable,
+            expired: u.status === 'Expired',
+            version: u.version,
+            reason:
+              u.status === 'Unavailable'
+                ? 'No quote has been published by the keeper.'
+                : u.executable
+                  ? `Fresh quote v${u.version} (expires slot ${u.expirySlot}).`
+                  : `Quote v${u.version} is ${u.status.toLowerCase()} at slot ${u.currentSlot} (expiry slot ${u.expirySlot}).`,
+          },
+        }));
+        setLastUpdatedAt((t) => t ?? Math.floor(Date.now() / 1000));
+      },
+    });
+    feed.start();
+    return () => feed.stop();
+  }, []);
 
   const connectWallet = () => { void connect().catch(() => undefined); };
   const disconnectWallet = () => { void disconnect().catch(() => undefined); };

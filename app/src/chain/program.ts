@@ -55,7 +55,7 @@ export async function verifyProgram(
 }
 
 /** Read-only Anchor program (no wallet) for account reads. */
-function readOnlyProgram(connection: Connection): Program {
+function readOnlyProgram(connection: Connection, commitment: 'processed' | 'confirmed' = 'confirmed'): Program {
   const readOnlyWallet = {
     publicKey: PublicKey.default,
     signTransaction: async (t: unknown) => t,
@@ -63,8 +63,29 @@ function readOnlyProgram(connection: Connection): Program {
   };
   return new Program(
     idl as never,
-    new AnchorProvider(connection, readOnlyWallet as unknown as Wallet, { commitment: 'confirmed' }),
+    new AnchorProvider(connection, readOnlyWallet as unknown as Wallet, { commitment }),
   );
+}
+
+/** Map a decoded QuoteState account to the typed view (camelCase IDL fields). */
+export function mapQuote(q: Record<string, unknown>): OnChainQuote {
+  return {
+    version: q.version as BN,
+    updateSlot: q.updateSlot as BN,
+    expirySlot: q.expirySlot as BN,
+    halfSpreadBps: q.halfSpreadBps as number,
+    askExtraBps: q.askExtraBps as number,
+    bidExtraBps: q.bidExtraBps as number,
+    depthMultBps: q.depthMultBps as number,
+    oraclePrice: q.oraclePrice as BN,
+    anchorSqrtPrice: q.anchorSqrtPrice as BN,
+    pResSqrt: q.pResSqrt as BN,
+    oraclePublishTime: q.oraclePublishTime as BN,
+    oracleConfBps: q.oracleConfBps as number,
+    keeper: (q.keeper as PublicKey | undefined) ?? PublicKey.default,
+    askLevels: (q.askLevels as OnChainLevel[]) ?? [],
+    bidLevels: (q.bidLevels as OnChainLevel[]) ?? [],
+  };
 }
 
 /** Anchor program bound to a connection + wallet (the wallet-adapter adapter). */
@@ -336,23 +357,7 @@ export async function fetchProtocolState(
   let quoteData: OnChainQuote | undefined;
   try {
     const q = (await accounts(program).quoteState.fetch(quoteState)) as Record<string, unknown>;
-    quoteData = {
-      version: q.version as BN,
-      updateSlot: q.updateSlot as BN,
-      expirySlot: q.expirySlot as BN,
-      halfSpreadBps: q.halfSpreadBps as number,
-      askExtraBps: q.askExtraBps as number,
-      bidExtraBps: q.bidExtraBps as number,
-      depthMultBps: q.depthMultBps as number,
-      oraclePrice: q.oraclePrice as BN,
-      anchorSqrtPrice: q.anchorSqrtPrice as BN,
-      pResSqrt: q.pResSqrt as BN,
-      oraclePublishTime: q.oraclePublishTime as BN,
-      oracleConfBps: q.oracleConfBps as number,
-      keeper: (q.keeper as PublicKey | undefined) ?? PublicKey.default,
-      askLevels: (q.askLevels as OnChainLevel[]) ?? [],
-      bidLevels: (q.bidLevels as OnChainLevel[]) ?? [],
-    };
+    quoteData = mapQuote(q);
   } catch { /* quote_state not written yet */ }
 
   let configData: OnChainConfig | undefined;
@@ -415,7 +420,7 @@ export interface FreshQuote {
 
 export async function fetchFreshQuote(connection: Connection): Promise<FreshQuote | null> {
   const { quoteState } = deriveVaultAddresses();
-  const program = readOnlyProgram(connection);
+  const program = readOnlyProgram(connection, 'processed');
   const [slot, q] = await Promise.all([
     connection.getSlot("processed"),
     accounts(program).quoteState.fetch(quoteState).catch(() => null),
@@ -432,6 +437,23 @@ export async function fetchFreshQuote(connection: Connection): Promise<FreshQuot
     askLevels: (q.askLevels as OnChainLevel[]) ?? [],
     bidLevels: (q.bidLevels as OnChainLevel[]) ?? [],
   };
+}
+
+/**
+ * S2-36: read ONLY the QuoteState account at the `processed` commitment (one
+ * RPC), matching the program's own freshness semantics. Used by the live quote
+ * feed so the frontend observes a newly committed version within ~1 slot instead
+ * of behind the multi-call vault/config read. Returns null when no quote exists
+ * or the read fails (never a fabricated quote).
+ */
+export async function fetchQuoteOnly(connection: Connection): Promise<OnChainQuote | null> {
+  const { quoteState } = deriveVaultAddresses();
+  try {
+    const q = (await accounts(readOnlyProgram(connection, 'processed')).quoteState.fetch(quoteState)) as Record<string, unknown>;
+    return mapQuote(q);
+  } catch {
+    return null;
+  }
 }
 
 /** Address of an ATA, plus an idempotent-create instruction if it is missing. */async function ensureAta(

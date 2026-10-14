@@ -208,3 +208,15 @@ export function createRpcFailover(env: Record<string, string | undefined>): RpcF
 const APP_ENV =
   ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
 export const APP_RPC_FAILOVER = createRpcFailover(APP_ENV);
+
+/**
+ * S2-36: a second app-wide failover whose active connections use the `processed`
+ * commitment, used by the live quote feed. The deployed quote's freshness is
+ * measured against the processed slot by the program, so reading (and slotting)
+ * the quote at `processed` removes the confirmation lag that made the frontend
+ * classify a genuinely fresh quote as already expired.
+ */
+export const APP_LIVE_RPC = new RpcFailover({
+  endpoints: resolveFrontendRpc(APP_ENV).endpoints,
+  commitment: 'processed',
+});
