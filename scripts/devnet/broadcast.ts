@@ -75,6 +75,16 @@ export interface BroadcastResult {
   rateLimited: string[];
 }
 
+/** Strip credentials (query string) so a URL is credential-free to return/log. */
+const redact = (u: string): string => {
+  try {
+    const x = new URL(u);
+    return `${x.protocol}//${x.host}${x.pathname}`;
+  } catch {
+    return "<url>";
+  }
+};
+
 const isLanded = (status?: { confirmationStatus?: string } | null): boolean =>
   status?.confirmationStatus === "processed" ||
   status?.confirmationStatus === "confirmed" ||
@@ -144,7 +154,7 @@ export async function broadcastTransaction(
       buckets.set(ep.url, bucket);
     }
     if (bucket.tryAcquire(now())) sent.push(ep);
-    else rateLimited.push(ep.url);
+    else rateLimited.push(redact(ep.url));
   }
   if (sent.length === 0) {
     throw new Error(`all endpoints rate-limited: ${rateLimited.join(",")}`);
@@ -169,7 +179,7 @@ export async function broadcastTransaction(
   );
   const sendMs = now() - tSend;
   const signature = firstAccepted.sig;
-  const sentTo = sent.map((e) => e.url);
+  const sentTo = sent.map((e) => redact(e.url));
   log(`broadcast ${signature} to ${sentTo.length} endpoint(s); rate-limited ${rateLimited.length}`);
 
   const tConfirm = now();
@@ -187,7 +197,7 @@ export async function broadcastTransaction(
       if (isLanded(v)) {
         return {
           signature,
-          endpoint: sent[i].url,
+          endpoint: redact(sent[i].url),
           sendMs,
           confirmMs: now() - tConfirm,
           sentTo,

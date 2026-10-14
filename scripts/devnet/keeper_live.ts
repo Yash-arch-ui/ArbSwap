@@ -35,7 +35,7 @@ import {
   backoffDelayMs,
   type CommitObservation,
 } from "./keeper_commit";
-import { resolveRpcConfig, RpcPool } from "./rpc";
+import { resolveRpcConfig, redactUrl, RpcPool } from "./rpc";
 import { broadcastTransaction, type RpcEndpoint } from "./broadcast";
 
 const PROGRAM = new PublicKey("2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm");
@@ -232,7 +232,7 @@ async function main() {
   // instead of waiting out a long exponential delay and missing the window.
   const backoffBase = Number(process.env.KEEPER_BACKOFF_BASE_MS ?? 200);
   const backoffCap = Number(process.env.KEEPER_BACKOFF_CAP_MS ?? 1_500);
-  if (dryRun) console.error(`keeper DRY_RUN: no transactions will be sent (rpc=${rpcConfig.endpoints[0]})`);
+  if (dryRun) console.error(`keeper DRY_RUN: no transactions will be sent (rpc=${redactUrl(rpcConfig.endpoints[0])})`);
 
   const feed = Buffer.from(FEED_ID, "hex");
   const priceUpdate = getPriceFeedAccountForProgram(0, feed);
@@ -260,6 +260,7 @@ async function main() {
   for (let attempt = 1; attempt <= attempts && !(success && runSeconds === 0); attempt += 1) {
     if (runSeconds > 0 && Date.now() > deadline) break;
     const tCycle = Date.now();
+    try {
     // 1. Fetch the fresh Hermes update, the current slot and a blockhash
     // concurrently (S2-35). None of these round trips needs the others, so
     // serialising them would spend latency inside the deployed 2 s oracle
@@ -507,6 +508,15 @@ async function main() {
     } else {
       failures += 1;
       await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
+    }
+    } catch (e) {
+      // S2-39: catch-all so a transient RPC/Pyth-SDK error (e.g. a Helius
+      // connect timeout) backs off and retries instead of crashing the process
+      // and stopping quote commits.
+      failures += 1;
+      console.error(`attempt=${attempt} unhandled error: ${(e as Error).message}; backing off`);
+      await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
+      continue;
     }
   }
   if (!success) {

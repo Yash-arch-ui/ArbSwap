@@ -2058,3 +2058,24 @@ Report: [`docs/S2_38_LIVENESS_AND_RELEASE.md`](S2_38_LIVENESS_AND_RELEASE.md).
   host-sensitive). **`demo-freeze-1` NOT tagged** — expiry 120 not verified.
 - **Boundary.** Only the authorized upgrade + one `set_params` proposal sent; no
   other on-chain writes. Secrets/URLs redacted.
+
+## Part 3 / Step 44 — S2-39 frontend cleanup + keeper resilience
+
+- **Frontend pages (per operator request).** Removed `ClaimsPage` and
+  `EvidencePage`; renamed the Demo page to **Simulator** (`SimulatorPage`, nav tab
+  `simulator`, label "Simulator"). The Simulator still replays the deterministic
+  bundled streams offline (no network/wallet/tx). Nav + E2E updated; tests
+  reconciled (app 117).
+- **Keeper resilience (fixes the frozen "Quote expired").** The keeper could crash
+  on an **unhandled Helius connect timeout** (inside the Pyth SDK build / a web3
+  call), after which no quotes were committed and the frontend correctly showed
+  the last quote as expired forever. Wrapped the whole per-attempt body in a
+  catch-all (back off + retry) and added a public Devnet RPC fallback in
+  `demo_up.sh`. The keeper now survives; commits remain the open issue.
+- **Secret hygiene.** `broadcast.ts` returned unredacted endpoint URLs, which
+  leaked `api-key=` into `logs/`; endpoints are now redacted in results/logs and
+  the existing logs were scrubbed. `keeper_live.ts` DRY_RUN line redacted too.
+- **Status.** `expiry_slots=120` still **pending** (`activate_slot 511127388`,
+  ETA ~22:08Z); with `expiry_slots=10` a commit yields only a ~2.5 s fresh window,
+  so the UI is expired most of the time — expected until the apply. `demo-freeze-1`
+  remains **untagged**.

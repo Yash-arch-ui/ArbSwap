@@ -21,7 +21,7 @@ const CAPTIONS: Record<string, string> = {
   malicious: 'Attack: keeper anchors at the max deviation; the edge breaker trips.',
 };
 
-export const DemoPage: React.FC = () => {
+export const SimulatorPage: React.FC = () => {
   const ids = useMemo(() => Object.keys(STREAMS.streams), []);
   const [scenario, setScenario] = useState(ids[0] ?? 'calm');
   const [step, setStep] = useState(0);
@@ -51,9 +51,9 @@ export const DemoPage: React.FC = () => {
 
   return (
     <div style={{ maxWidth: 1040, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <h1 className="uni-headline">Deterministic demo replay</h1>
+      <h1 className="uni-headline">Simulator</h1>
       <p className="uni-subheadline">
-        Seeded, offline simulation — <strong>{STREAMS.meta.label}</strong> (seed {STREAMS.meta.seed}).
+        Simulated, offline — <strong>{STREAMS.meta.label}</strong> (seed {STREAMS.meta.seed}).
         No network calls, no wallet, no transactions. Not on-chain data.
       </p>
       <div className="uni-card" data-testid="demo-scenarios" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>

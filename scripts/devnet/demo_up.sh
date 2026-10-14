@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 set -a; . ../../.env; set +a
 export ARBSWAP_KEYPAIR="${ARBSWAP_KEYPAIR:-$ARBSWAP_DEVNET_KEYPAIR}"
-export ARBSWAP_RPC_FALLBACKS="${ARBSWAP_RPC_FALLBACKS:-}"
+export ARBSWAP_RPC_FALLBACKS="${ARBSWAP_RPC_FALLBACKS:-https://api.devnet.solana.com}"
 
 RUN_SECONDS="${1:-600}"
 SESSION="${2:-${KEEPER_TMUX:-arbswap-keeper}}"

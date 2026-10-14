@@ -9,9 +9,7 @@ import { SwapPage } from './pages/SwapPage';
 import { VaultPage } from './pages/VaultPage';
 import { RiskPage } from './pages/RiskPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
-import { DemoPage } from './pages/DemoPage';
-import { EvidencePage } from './pages/EvidencePage';
-import { ClaimsPage } from './pages/ClaimsPage';
+import { SimulatorPage } from './pages/SimulatorPage';
 import './theme.css';
 
 // Fail loudly if the configured vault addresses do not match the PDAs derived
@@ -34,9 +32,7 @@ export function App() {
             {currentTab === 'vault' && <VaultPage />}
             {currentTab === 'risk' && <RiskPage />}
             {currentTab === 'analytics' && <AnalyticsPage />}
-            {currentTab === 'demo' && <DemoPage />}
-            {currentTab === 'evidence' && <EvidencePage />}
-            {currentTab === 'claims' && <ClaimsPage />}
+            {currentTab === 'simulator' && <SimulatorPage />}
           </main>
         </div>
       </ProtocolProvider>

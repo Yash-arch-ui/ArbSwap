@@ -24,9 +24,7 @@ const TABS = [
   ["Vault", "03-vault"],
   ["Risk", "04-risk"],
   ["Analytics", "05-analytics"],
-  ["Demo", "07-demo"],
-  ["Evidence", "08-evidence"],
-  ["Claims", "09-claims"],
+  ["Simulator", "07-simulator"],
 ];
 
 async function main() {
