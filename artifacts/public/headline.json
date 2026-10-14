@@ -83,13 +83,13 @@
     }
   },
   "meta": {
-    "commit": "56f9dee8512cb48791b3448b6f47ae4a2c3f5982",
+    "commit": "40621b0dd903e6bc31eefc53c02cb353b2335185",
     "data_sha256": {},
     "date": "2026-10-14",
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "56f9dee"
+    "short": "40621b0"
   },
   "routed_world": {
     "rows": [
