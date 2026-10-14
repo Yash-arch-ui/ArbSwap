@@ -2079,3 +2079,27 @@ Report: [`docs/S2_38_LIVENESS_AND_RELEASE.md`](S2_38_LIVENESS_AND_RELEASE.md).
   ETA ~22:08Z); with `expiry_slots=10` a commit yields only a ~2.5 s fresh window,
   so the UI is expired most of the time — expected until the apply. `demo-freeze-1`
   remains **untagged**.
+
+## Part 3 / Step 45 — S2-40 live-market + swap readiness
+
+Report: [`docs/S2_40_LIVE_MARKET_AND_SWAP.md`](S2_40_LIVE_MARKET_AND_SWAP.md).
+
+- **Phase 1.** `expiry_slots` still **10**; proposal pending (`activate_slot`
+  511127388, ETA ~2026-10-14T22:16Z). Runner alive; no duplicate.
+- **Phase 2.** Measured critical path ≈ 3.3 s (fetch age 1.1 s + VAA 1.0 s +
+  push+commit 1.15 s) vs the 2 s rule; cadence ≈ **1 commit / 23 s** (v158→v175).
+  **2–4 s cadence NOT met** (architectural, 3-tx pipeline). Safe reliability work
+  in place (catch-all, backoff, fallback, redaction); a fix needs a protocol change.
+- **Phase 3.** Post-activation liveness **blocked** (expiry not 120).
+- **Phase 4.** Browser↔chain correlation (300 s): versions **158→171**, updated
+  **without reload**; countdown/fresh-expired match the chain; fresh screenshot
+  `10-swap-fresh.png`. Read-only preflight (BuyBase 0.5 USDC/0.5%): v175 fresh,
+  expected_out 4,682,396 / min_out 4,658,984, but simulation **QuoteExpired (6030)**
+  because the build+simulate exceeds the ~2.5 s window → expiry=10 is unusable for
+  a real swap.
+- **Phase 5.** Real wallet swap **not done**: no browser wallet here, and the
+  ~2.5 s window fails before signing.
+- **Phase 6/7.** Gate green (Rust lifecycle 104/keeper 45, pytest 231/2 skipped,
+  keeper TS 17/9/24, app 117 + build, E2E exit 0, docs/bundle/banned/secrets +
+  `api-key=` CLEAN). **`demo-freeze-1` NOT tagged.** `swap_preflight.ts` now waits
+  for a fresh quote and derives the trader's real ATAs (read-only).
