@@ -56,3 +56,14 @@ disabled). The app polls every 4 s and shows the status honestly.
   `apply_params` (216 000 slots ≈ 15 h) but **must not** be changed in this task.
 
 See `docs/EPOCH_CHECK.md` for the full derivation.
+
+## Operator checklist (S2-37 demo)
+
+1. **Start the keeper** (single instance, redacted):
+   `scripts/devnet/demo_up.sh 600` → tmux `arbswap-keeper`; status `tmux attach -t arbswap-keeper`.
+2. **Check fresh**: `scripts/devnet/demo_check.sh` (shows FRESH/EXPIRED, version, author, seconds to expiry, keeper SOL, RPC latency).
+3. **Fund the wallet**: Devnet SOL from `https://faucet.solana.com/`; USDC from `https://faucet.circle.com/` (select Solana Devnet, mint `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`).
+4. **Wrap SOL**: the Swap page creates the WSOL ATA and offers the depth/Use-max controls; wrapping keeps >= 0.05 SOL for fees.
+5. **Live swap**: with a fresh quote, BuyBase <= 0.5 USDC (<= 0.5lippage). The app re-reads the live quote at submit time and refuses after expiry.
+6. **If the keeper stalls** (Hermes auth/rate-limit, RPC outage): use the **Demo** tab (offline, deterministic) and the **Evidence** tab (recorded devnet signatures); do not present those as live.
+7. **After the timelocked apply** (Task 3): re-measure with `scripts/devnet/measure_fresh.sh 1800 400` (30 min, 400 ms) — baseline for expiry=10 is `logs/fresh_baseline.json`.
