@@ -6,7 +6,7 @@ import { useProtocol } from '../context/ProtocolContext';
 import { CLUSTER } from '../chain/config';
 import { ModeBadge } from './ReadOnlyMode';
 
-export type NavTab = 'overview' | 'swap' | 'vault' | 'risk' | 'analytics';
+export type NavTab = 'overview' | 'swap' | 'vault' | 'risk' | 'analytics' | 'demo' | 'evidence';
 
 interface NavbarProps {
   currentTab: NavTab;
@@ -64,6 +64,20 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
             onClick={(e) => { e.preventDefault(); onSelectTab('analytics'); }}
           >
             Analytics
+          </a>
+          <a 
+            href="#demo" 
+            className={currentTab === 'demo' ? 'active' : ''} 
+            onClick={(e) => { e.preventDefault(); onSelectTab('demo'); }}
+          >
+            Demo
+          </a>
+          <a 
+            href="#evidence" 
+            className={currentTab === 'evidence' ? 'active' : ''} 
+            onClick={(e) => { e.preventDefault(); onSelectTab('evidence'); }}
+          >
+            Evidence
           </a>
         </nav>
       </div>
