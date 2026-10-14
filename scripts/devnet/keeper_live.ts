@@ -266,13 +266,26 @@ async function main() {
     // freshness window. The blockhash is valid for ~150 slots; the pipeline
     // lands in a handful.
     const tH = Date.now();
-    const [updates, slot, blockhashRes] = await Promise.all([
-      hermes.getLatestPriceUpdates([`0x${FEED_ID}`], { encoding: "base64" }),
-      connection.getSlot("processed"),
-      connection.getLatestBlockhash("processed"),
-    ]);
+    // S2-37: guard the fetch/read leg. A transient RPC timeout (not an on-chain
+    // rejection) must back off and retry, not crash the whole keeper — otherwise
+    // the quote stops advancing and the frontend correctly shows it as expired.
+    let updates: Awaited<ReturnType<typeof hermes.getLatestPriceUpdates>>;
+    let slot: number;
+    let blockhash: string;
+    try {
+      const [u, s, bh] = await Promise.all([
+        hermes.getLatestPriceUpdates([`0x${FEED_ID}`], { encoding: "base64" }),
+        connection.getSlot("processed"),
+        connection.getLatestBlockhash("processed"),
+      ]);
+      updates = u; slot = s; blockhash = bh.blockhash;
+    } catch (e) {
+      failures += 1;
+      console.error(`attempt=${attempt} fetch/read failed: ${(e as Error).message}; backing off`);
+      await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
+      continue;
+    }
     const hermesMs = Date.now() - tH;
-    const blockhash = blockhashRes.blockhash;
     const parsed = updates.parsed?.[0]?.price;
     if (!parsed) throw new Error("hermes returned no parsed price");
     const publishTime = parsed.publish_time;
@@ -407,8 +420,16 @@ async function main() {
     // S2-18: capture the version we are updating FROM, so success can require a
     // strict version increase (never `version > 0`, which the stale v18 already
     // satisfied and which previously masked every failed commit).
-    const prevVersion =
-      (await connection.getAccountInfo(QUOTE_STATE, "processed"))?.data.readBigUInt64LE(8) ?? 0n;
+    const prevVersion = await connection
+      .getAccountInfo(QUOTE_STATE, "processed")
+      .then((a) => a?.data.readBigUInt64LE(8) ?? 0n)
+      .catch(() => null);
+    if (prevVersion === null) {
+      failures += 1;
+      console.error(`attempt=${attempt} read QuoteState failed; backing off`);
+      await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
+      continue;
+    }
 
     let stageSig: string | null = null;
     let vaaSig: string | null = null;

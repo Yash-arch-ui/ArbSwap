@@ -16,12 +16,14 @@ const headerMap = new Map(
 );
 
 describe('S2-37 hosting security headers', () => {
-  it('sets CSP with frame-ancestors/none and no unsafe script', () => {
+  it('sets CSP with frame-ancestors/none and allows wallet script injection', () => {
     const csp = headerMap.get('content-security-policy') ?? '';
     expect(csp).toMatch(/default-src 'self'/);
     expect(csp).toMatch(/frame-ancestors 'none'/);
     expect(csp).toMatch(/object-src 'none'/);
-    expect(csp).not.toMatch(/script-src[^;]*unsafe/);
+    // Browser wallet extensions inject an inline provider script; a bare
+    // script-src 'self' blocks Phantom/Solflare detection on a deployed origin.
+    expect(csp).toMatch(/script-src 'self' 'unsafe-inline'/);
   });
   it('sets nosniff, frame denial and a referrer policy', () => {
     expect(headerMap.get('x-content-type-options')).toBe('nosniff');

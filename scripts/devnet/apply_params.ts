@@ -178,7 +178,14 @@ async function apply(c: Connection, wait: boolean): Promise<void> {
   }
   const deadline = Date.now() + 24 * 3600 * 1000;
   for (;;) {
-    const slot = BigInt(await c.getSlot("confirmed"));
+    let slot: bigint;
+    try {
+      slot = BigInt(await c.getSlot("confirmed"));
+    } catch (e) {
+      console.error(`wait poll transient error: ${String((e as Error).message ?? e)}`);
+      await sleep(60_000);
+      continue;
+    }
     if (slot >= p.activateSlot) break;
     if (!wait) throw new Error(`TimelockNotElapsed: slot ${slot} < activate_slot ${p.activateSlot}`);
     if (Date.now() > deadline) throw new Error("waited 24h; giving up");
@@ -195,10 +202,23 @@ async function apply(c: Connection, wait: boolean): Promise<void> {
       { pubkey: pendingPda(), isSigner: false, isWritable: true },
     ],
   });
-  const { blockhash } = await c.getLatestBlockhash("confirmed");
-  const tx = new Transaction({ feePayer: kp.publicKey, recentBlockhash: blockhash }).add(ix);
-  tx.sign(kp);
-  const sig = await sendAndPoll(c, tx, kp);
+  // Bounded retry: a transient RPC/confirmation error must not strand the apply.
+  let sig = "";
+  let lastErr = "";
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      const { blockhash } = await c.getLatestBlockhash("confirmed");
+      const tx = new Transaction({ feePayer: kp.publicKey, recentBlockhash: blockhash }).add(ix);
+      sig = await sendAndPoll(c, tx, kp);
+      lastErr = "";
+      break;
+    } catch (e) {
+      lastErr = String((e as Error).message ?? e);
+      console.error(`apply attempt ${attempt}/5 failed: ${lastErr}`);
+      await sleep(5_000);
+    }
+  }
+  if (!sig) throw new Error(`apply failed after 5 attempts: ${lastErr}`);
   const after = readConfig((await c.getAccountInfo(CONFIG, "confirmed"))!.data);
   const keys = Object.keys(before) as (keyof ConfigView)[];
   const changed = keys.filter((k) => before[k] !== after[k]);
