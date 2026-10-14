@@ -49,7 +49,7 @@ Confirmed on-chain (2026-10-14, Helius):
 
 - `Config`: `expiry_slots = 10`, `grace_slots = 0`, `max_staleness_seconds = 2`,
   `max_conf_bps = 10`, `fee_bps = 1`.
-- Program `2mwpYHpZ…` ELF `769984 B sha256=b4df2b0f…` == HEAD build (**MATCH**).
+- Program `2mwpYHpZ…` ELF `772256 B sha256=0cdf9575…` == HEAD build (**MATCH**).
 - `QuoteState` readable and fresh by `processed` **and** `confirmed`
   (e.g. commit → `rem_conf = 10`, `status = Fresh`); a readable quote is distinct
   from a fresh one.

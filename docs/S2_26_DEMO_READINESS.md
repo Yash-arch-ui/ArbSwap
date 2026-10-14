@@ -22,7 +22,7 @@ Status: **local implementation + read-only Devnet verification. No transaction s
 | Item | Value |
 |---|---|
 | Program | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
-| Deployed ELF vs local artifact | **MATCH** — sha256 `b4df2b0f93735c7532871769ec713e92179f6375252a5bad7d8fea9c989f7096`, 769984 B |
+| Deployed ELF vs local artifact | **MATCH** — sha256 `0cdf957593735c7532871769ec713e92179f6375252a5bad7d8fea9c989f7096`, 772256 B |
 | Upgrade authority | `ddGs6hk5E4oPzSnwFfX4pD4DDhDTLTwRddv1VQym7bH` |
 | Vault | `8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt`, status **Active** |
 | Config | `ErVDFAHWSK5SjKqvaNJoqv91r4vNH7VmqteURqdEo2aT`, `min_bond = 0` (permissionless) |

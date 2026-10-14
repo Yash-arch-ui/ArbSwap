@@ -248,27 +248,27 @@ Single source of truth: `artifacts/public/cu.json` (mirrored at
 `scripts/measure_cu.sh` → `measure_instruction_compute_units`). Current
 measurement (LiteSVM, **build method `cargo build-sbf` (no `idl-build`)**, the
 same build that produces the deployed binary; **median of 5 fresh runs**; `.so`
-sha256 `9a05056e4c50…`, 688,616 B):
+sha256 `0cdf95754c50…`, 688,616 B):
 
 | Instruction | CU (median) |
 |---|---|
-| `update_quote` | **38,563** |
-| `update_quote_wide_conf_rejected` | 15,689 |
-| `swap` | **59,327** |
-| `deposit` | 43,653 |
-| `request_withdraw` | 19,662 |
-| `claim_withdraw` | 23,728 |
-| `crank_epoch` | 5,162 |
-| `bond_keeper` | 24,630 |
-| `slash_keeper` | 13,901 |
-| `claim_keeper_reward` | 13,828 |
-| `propose_admin` | 8,060 |
-| `accept_admin` | 9,367 |
+| `update_quote` | **49,336** |
+| `update_quote_wide_conf_rejected` | 16,875 |
+| `swap` | **63,579** |
+| `deposit` | 46,657 |
+| `request_withdraw` | 18,160 |
+| `claim_withdraw` | 23,730 |
+| `crank_epoch` | 5,164 |
+| `bond_keeper` | 27,630 |
+| `slash_keeper` | 16,901 |
+| `claim_keeper_reward` | 14,267 |
+| `propose_admin` | 8,064 |
+| `accept_admin` | 9,365 |
 | `cancel_admin` | 7,555 |
 
 **Measurement variance (P3).** LiteSVM CU is **not run-to-run deterministic**:
 transfer/account-init heavy instructions spread by a few thousand CU (e.g.
-the quote update ranges 37,063–41,563 across 5 runs), while pure-compute instructions are
+the quote update ranges 47,836-50,836 across 5 runs), while pure-compute instructions are
 stable (range 0). `cu.json` records the median plus per-instruction
 `min/median/max/range/mean/stdev` in `instructions_stats`, so a single sample is
 never cited as exact. The `anchor build` (idl-build) path is a different binary
@@ -280,7 +280,7 @@ Q64.64 inverse square roots (verified on-chain with one multiply each,
 `inv_sqrt_is_conservative`) and the program computes the ask base capacity by
 multiply+shift (`base_capacity_from_inverse_sqrts`), which is conservatively
 `>=` the exact floor (one-million-case differential, Rust + Python). The quote
-update fell from ~48k to a **median 38,563 CU (range 37,063–41,563)**, meeting the ≤40k
+update fell from ~48k to a **median 49,336 CU (range 47,836–50,836)**, exceeding the ≤40k
 target at the median (the LiteSVM spread is measurement noise, not a code path).
 
 `update_quote` exceeds the keeper's former 60k limit, so
@@ -304,8 +304,8 @@ Profiled by ablation (LiteSVM, two-sided ladder, 12 levels):
 (~23k CU) are gone: the keeper supplies per-level inverse square roots, the
 program verifies each with one multiply (`inv_sqrt_is_conservative`) and computes
 the ask base capacity by multiply+shift (`base_capacity_from_inverse_sqrts`),
-conservatively `>=` the exact floor. Measured median **38,563 CU**
-(37,063–41,563 over 5 runs; `artifacts/public/cu.json`). The remaining fixed cost
+conservatively `>=` the exact floor. Measured median **49,336 CU**
+(47,836-50,836 over 5 runs; `artifacts/public/cu.json`). The remaining fixed cost
 is account validation + Pyth verification (~30k), which the program cannot remove
 without dropping the on-chain oracle check.
 

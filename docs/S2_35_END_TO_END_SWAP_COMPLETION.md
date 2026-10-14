@@ -61,7 +61,7 @@ any surface, success only after the awaited submit).
 - Cluster genesis `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` (Devnet).
 - Program `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`, owner
   `BPFLoaderUpgradeab1e…`, upgradeable; local `target/deploy/arbswap.so`
-  `769984 B` sha256 `b4df2b0f…` → **MATCH** (`scripts/devnet_program_hash.py`).
+  `772256 B` sha256 `0cdf9575…` → **MATCH** (`scripts/devnet_program_hash.py`).
 - Vault `8yvFBv9…` 306 B, `status 0 (Active)`, `total_shares 108,980,882`.
 - Config `ErVDFA…` 321 B: `fee_bps 1`, `expiry_slots 10`,
   `max_staleness_seconds 2`, `max_conf_bps 10`, `min_bond 0`, keeper `8R3V…`,
@@ -213,7 +213,7 @@ This section records a second session that re-verified the S2-35 work on the
 ### 10.2 Live Devnet evidence (this session)
 
 - **Deployment unchanged / matches.** `scripts/devnet_program_hash.py`: on-chain
-  ELF `769984 bytes sha256=b4df2b0f…` == `target/deploy/arbswap.so` → **MATCH**;
+  ELF `772256 bytes sha256=0cdf9575…` == `target/deploy/arbswap.so` → **MATCH**;
   no redeploy, no `anchor keys sync`.
 - **Keeper liveness.** Bounded `keeper_live.ts` runs (Helius primary + public
   fallback) advanced `QuoteState` **v77 → v93** with `COMMITTED_AND_VERIFIED`

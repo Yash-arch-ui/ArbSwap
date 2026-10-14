@@ -48,7 +48,7 @@ After any ABI change: regenerate the IDL and copy it to the app. Never hand-edit
 | QuoteState | `5MsGbdHv3ouXrHT9f7JVQ6b7eVETTiVCzYSGw5DTYAgG` (897 B current layout) |
 | Pyth feed ID | `ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d` |
 | Token program | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` |
-| Deployed ELF | sha256 `b4df2b0f…f7096` (MATCHES local artifact) |
+| Deployed ELF | sha256 `0cdf9575…f7096` (MATCHES local artifact) |
 
 The older tSOL/tUSDC vault (`52cNnsip…`, config `HhBCf2Xo…`) is **reference only**
 and is not used by the app. `app/src/chain/config.ts` is the app's single source of

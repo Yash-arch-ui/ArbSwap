@@ -3,7 +3,7 @@
 **Status:** assessment only. **No state-changing Devnet transaction was sent.**
 Branch: `main` (tip `5de0ffa`, in sync with `origin/main`). Program:
 `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm`. Deployed byte hash
-`9a05056e…` (688616 bytes) == local `cargo build-sbf` artifact (**MATCH**).
+`0cdf9575…` (688616 bytes) == local `cargo build-sbf` artifact (**MATCH**).
 
 ## Headline
 

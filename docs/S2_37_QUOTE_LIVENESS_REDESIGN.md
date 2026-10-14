@@ -14,7 +14,7 @@ Read-only only (`scripts/devnet/preflight.ts`, `devnet_program_hash.py`):
 
 - Cluster genesis `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` (Devnet).
 - Program `2mwpYHpZ…`, owner `BPFLoaderUpgradeab1e…`; on-chain ELF
-  `769984 B sha256=b4df2b0f…` == HEAD `target/deploy/arbswap.so` (**MATCH**).
+  `772256 B sha256=0cdf9575…` == HEAD `target/deploy/arbswap.so` (**MATCH**).
 - Vault `8yvFBv9…` Active, `total_shares 108,980,882`; reserves `0.313621726`
   WSOL / `37.75` USDC.
 - Config: `fee_bps 1`, `expiry_slots 10`, `grace_slots 0`,

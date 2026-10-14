@@ -9,7 +9,7 @@ exhaustion.** No protocol/config change, no swap/asset movement, no push.
 |---|---|
 | Cluster | Devnet, genesis `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` |
 | Program | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
-| Deployed ELF vs local artifact | **MATCH** (sha256 `b4df2b0f…`, 769984 B) |
+| Deployed ELF vs local artifact | **MATCH** (sha256 `0cdf9575…`, 772256 B) |
 | Upgrade authority | `ddGs6hk5E4oPzSnwFfX4pD4DDhDTLTwRddv1VQym7bH` |
 | Vault | `8yvFBv9…82XPt`, status **Active** |
 | Config | `ErVDFAH…Eo2aT`, **`min_bond = 0`** → permissionless quoting |

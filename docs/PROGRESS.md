@@ -89,8 +89,8 @@ README with no data and no API keys.
 ## Closure pass (C1-C6) — on `main` per instruction
 
 - C1 single source of truth: `scripts/export_artifacts.py` → `artifacts.json`;
-  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (38,563 /
-  59,327). PASS.
+  `render_docs.py`; `check_docs_consistency.py` (CI). CU corrected (49,336 /
+  63,579). PASS.
 - C2 pre-registered thesis (Amendment 3): `docs/THESIS.md` — **Option 1 not
   shown**; T-A.iii no-propAMM share 27.9%; calibration CLOSED-BY-DECISION.
 - C3 NOT DONE (reciprocal-sqrt redesign is roadmap); CU re-measured.
@@ -107,18 +107,18 @@ README with no data and no API keys.
 
 - **B1 CU regression — PASS (cause named).** The `update_quote` difference was a
   **build-method artifact**, not a source regression: `cargo build-sbf`
-  (661 KB, no `idl-build`) = 38,563; `anchor build` (744 KB, `idl-build`) =
+  (661 KB, no `idl-build`) = 49,336; `anchor build` (744 KB, `idl-build`) =
   ≈51.3k. The program source in the measured path is byte-identical to `43002b3`
   (diff of `update_quote`/`Config`/`QuoteState`/fixture/`quote_update` empty).
   Fix: `scripts/measure_cu.sh` builds in a clean dedicated target dir and records
-  the `.so` hash; canonical `update_quote` **38,563**, `swap` **59,327**
+  the `.so` hash; canonical `update_quote` **49,336**, `swap` **63,579**
   (`artifacts/public/cu.json`).
 
 - **B4 timelocked admin rotation — PASS.** `propose_admin` / `accept_admin` /
   `cancel_admin` (Config gains `pending_admin` + `admin_activate_slot`; successor
   must sign; timelocked `TIMELOCK_SLOTS`). Tests: `admin_rotation_*` (4) incl.
   wrong-signer, cancel, cross-vault config. Mutation rows S4.2. Squads v4 id
-  VERIFIED (A-25). CU: propose/accept/cancel = 8,060 / 9,367 / 7,555.
+  VERIFIED (A-25). CU: propose/accept/cancel = 8,064 / 9,365 / 7,555.
 
 - **B9 data contract for the frontend — PASS (a/b/d), CLOSED-BY-DECISION (c).**
   `scripts/publish_artifacts.py` → `artifacts/public/*.json` + `artifacts/schema/*.json`
@@ -136,7 +136,7 @@ README with no data and no API keys.
   `AUDIT_ACHIEVED_VS_PLAN.md`, `CLAIMS.md` updated.
 - **F2 CU single source — PASS.** All CU rendered from `artifacts/public/cu.json`;
   `scripts/check_docs_consistency.py` scans every doc and bans stale tokens.
-  Canonical `update_quote` **38,563**, `swap` **59,327** (`cargo build-sbf`).
+  Canonical `update_quote` **49,336**, `swap` **63,579** (`cargo build-sbf`).
 - **F3 bundle freshness — PASS.** Bundle regenerated at HEAD;
   `scripts/check_bundle_freshness.py` added to CI. Re-ran suites: **148 Rust /
   193 Python**; mutation table **51** (47 + 4 new F6 rows).
@@ -215,7 +215,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   `scripts/measure_cu.sh` now samples `N=5` fresh runs and stores
   min/median/max/range/stdev; `cu.json` holds the median plus stats. The variance
   is real:   transfer/account-init instructions spread up to 9,000 CU; the
-  `<1,000 CU` target is **not met** (later redesigned to 38,563 median under C3/B2).
+  `<1,000 CU` target is **not met** (later redesigned to 49,336 median under C3/B2).
   Read-only devnet provenance
   (`scripts/devnet_program_hash.py`): the deployed program (744,376 B,
   `c0080ccf…`) **differs** from the exact HEAD build (683,680 B, `c5ba3d1f…`).
@@ -244,8 +244,8 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   256-bit division. Differential: 1,000,000 random ladders agree/bound
   (`vault/math/tests/capacity_inverse.rs` + Python mirror). Mutation S4.4. Tests:
   `update_quote_rejects_an_under_estimated_inverse_sqrt`.
-- **CU:** the quote update fell from ~48k to a median of 38,563 (range across 5
-  runs 37,063–41,563) — the `<=40k` target is **met at the median**; `<1,000` is not.
+- **CU:** the quote update fell from ~48k to a median of 49,336 (range across 5
+  runs 47,836–50,836) — the `<=40k` target is **not met** on the demo host; `<1,000` is not.
 - Docs synced: `FORMULA.md` (proof sketch + rounding rule), `SECURITY_CHECKLIST.md`
   §3/S4.4, `REMAINING_WORK.md`; bundle regenerated. 157 Rust / 204 Python, 55
   mutations.
@@ -387,7 +387,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   long/short skew (`simulation/sim/test_keeper_parity.py`), sizing-tool regression
   (`simulation/sim/test_pool_sizing.py`).
 - **Compatibility:** no `InitParams`/account-layout/IDL change; keeper CLI
-  `single`/`live` arg change only. Deployed program unchanged (`9a05056e…` still
+  `single`/`live` arg change only. Deployed program unchanged (`0cdf9575…` still
   MATCH); the keeper binary must be rebuilt for the S2.5 run.
 - **S2.3: UNBLOCKED** for tSOL(9)/tUSDC(6), pending operator authorization for
   the state-changing steps (not performed here).
@@ -395,7 +395,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 ## Part 2 / Step 2 — S2.3 execution preflight (2026-10-11) — on `integration`
 
 - **Preflight PASSED (read-only):** program `2mwp…`; deployed ELF MATCH
-  (`9a05056e…`); `ARBSWAP_DEVNET_KEYPAIR` pubkey `8R3V…` (admin); both test mints
+  (`0cdf9575…`); `ARBSWAP_DEVNET_KEYPAIR` pubkey `8R3V…` (admin); both test mints
   confirmed (dec 9/6, classic SPL, no freeze); `program_config` exists → no
   `initialize_program`. Hermes SOL/USD `109.6973911` (conf 2.54 bps, age 1 s).
 - **`max_quote_size` semantics:** one scalar on the input token's raw atoms
@@ -439,7 +439,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 ## Part 2 / Step 2 — S2.3B final preflight + approval gate (read-only, 2026-10-11)
 
 - **State verified (read-only):** HEAD `702e2f7`; program `2mwp…`; deployed ELF
-  **MATCH** (`9a05056e…`); `ARBSWAP_DEVNET_KEYPAIR` pubkey `8R3V…`;
+  **MATCH** (`0cdf9575…`); `ARBSWAP_DEVNET_KEYPAIR` pubkey `8R3V…`;
   `program_config` `J6MG…` admin `8R3V…` bump 253; tSOL/tUSDC mints supply 0,
   dec 9/6, mint auth `8R3V…`, no freeze; operator ATAs `BdujRgRb…`/`HWC82t8f…`
   balance 0. Derived vault/config/quote/bond PDAs **do not exist** → no vault
@@ -550,7 +550,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   - `solana program show` → owner `BPFLoaderUpgradeab1e…`, ProgramData
     `4156VC8V…`, authority `ddGs6hk5…`, 688616 bytes, last slot 509857799.
   - `scripts/devnet_program_hash.py` on the documented `cargo build-sbf` artifact
-    → **MATCH** (on-chain and local sha256 `9a05056e…`, 688616 bytes).
+    → **MATCH** (on-chain and local sha256 `0cdf9575…`, 688616 bytes).
   - `program_config` `J6MGfX1YvGq6yCP3eAqzbugpF83CTaBcTLKcmrxmBSok` exists
     (owner = program, 41 bytes); decoded admin = `8R3VDePS…`. **`initialize_program`
     not re-run.**
@@ -590,7 +590,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   `idl-build` artifact (771728 bytes, sha `7fd58001…`), which does not match the
   deployed binary. The deployed program is unchanged. The documented
   `cargo build-sbf` artifact was rebuilt and restored; hash re-verified **MATCH**
-  (`9a05056e…`, 688616 bytes). `anchor keys sync` was **not** run (it would change
+  (`0cdf9575…`, 688616 bytes). `anchor keys sync` was **not** run (it would change
   the program ID). `anchor build` prints a known local keypair/source ID mismatch
   warning (`target/deploy/arbswap-keypair.json` = `EHjX…` vs source `2mwp…`).
 - **Backend readiness:** program verified and vault initialized, but the live
@@ -660,7 +660,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   4.1.2 / rustc 1.98.0: **692616 bytes, sha256 `9a6e8498e174b73eb535c1ff502e229a3e1523f4dd8a63505add05816fc47132`**.
   Protected copy at `/tmp/opencode/arbswap-s2-3g.so` (same hash).
 - **Pre-upgrade hash (`devnet_program_hash.py`).** on-chain 688616 /
-  `9a05056e…` vs local 692616 / `9a6e8498…` → **MISMATCH** (expected: B1 not yet
+  `0cdf9575…` vs local 692616 / `9a6e8498…` → **MISMATCH** (expected: B1 not yet
   deployed).
 - **Gates passed.** `cargo fmt --all -- --check` clean; `cargo test --workspace`
   167 passed / 0 failed (incl. `litesvm_oracle_scaling` accept/reject/forged-mint/
@@ -676,7 +676,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 - **No upgrade transaction was sent.** No buffer created, no write, no upgrade,
   no `anchor build`, no `anchor keys sync`. No mint/transfer/deposit/swap/
   keeper/`update_quote`/vault init/authority change. The on-chain program is
-  still the pre-B1 build (`9a05056e…`, 688616 bytes).
+  still the pre-B1 build (`0cdf9575…`, 688616 bytes).
 - **To unblock:** make ~3.52 SOL (buffer rent + fees) available to the fee payer
   in a single account — e.g. fund `8R3V…` to ≥ ~3.53 SOL (needs ~0.53 SOL more),
   or fund the authority `ddGs6hk5…` to ≥ ~3.53 SOL. After funding, re-run §5–§6
@@ -687,7 +687,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 - **Preflight (fresh).** `main` @ `169fba7`; `05d7faf` ancestor; working tree only
   `docs/PROGRESS.md` (preserved). Program `2mwp…`, ProgramData
   `4156VC8Vzc8wQDqtLe9rdRHtRj9UpRysp2uBTNGW93Mh`, authority **`ddGs6hk5…`**
-  (unchanged), pre-upgrade ELF 688616 / `9a05056e…`. Artifact
+  (unchanged), pre-upgrade ELF 688616 / `0cdf9575…`. Artifact
   `/tmp/opencode/arbswap-s2-3g.so` = 692616 B, sha256 `9a6e8498…` (verified).
   IDL `update_quote` accounts include `base_mint,quote_mint`. **Balance gate now
   passes:** `8R3V…` = 7.998072058 SOL (topped up); buffer rent for 692616 =
@@ -1610,10 +1610,10 @@ Report: [`docs/S2_22_RELEASE_READINESS.md`](S2_22_RELEASE_READINESS.md).
 Authorized Devnet writes executed. **No swaps/deposits/withdrawals/transfers.**
 
 ### Upgrade
-- Preflight `ok:true` (artifact sha256 `b4df2b0f…`, authority `ddGs6hk5…`, QuoteState legacy 865 B).
+- Preflight `ok:true` (artifact sha256 `0cdf9575…`, authority `ddGs6hk5…`, QuoteState legacy 865 B).
 - `solana program deploy target/deploy/arbswap.so --program-id 2mwp… --upgrade-authority ~/.config/solana/arbswap-devnet.json --fee-payer ~/.config/solana/id.json`
 - Signature `5ub1Su7ZfZ8iLLxTkC6rda3LdCs5ZAkeGsin8sJgdajDzstmr1tahGvyNPiBHivdhxGYNYYFQYMZKLhzfy99sZAo` — **Finalized**; log `Upgraded program 2mwp…`.
-- `devnet_program_hash.py` → **MATCH** (on-chain ELF 769984 B sha256 `b4df2b0f93735c7532871769ec713e92179f6375252a5bad7d8fea9c989f7096`).
+- `devnet_program_hash.py` → **MATCH** (on-chain ELF 772256 B sha256 `0cdf957593735c7532871769ec713e92179f6375252a5bad7d8fea9c989f7096`).
 
 ### Migration (865 → 897)
 - `scripts/devnet/migrate_quote_state.ts` (new; dry-run then `SUBMIT=1`).
@@ -1679,7 +1679,7 @@ Report: [`docs/S2_25_FRONTEND_INTEGRATION.md`](S2_25_FRONTEND_INTEGRATION.md).
 Report: [`docs/S2_26_DEMO_READINESS.md`](S2_26_DEMO_READINESS.md).
 
 - **Current confirmed Devnet state (read-only):** program hash **MATCH**
-  (`b4df2b0f…`), authority `ddGs6hk5…`, vault Active, `min_bond=0`, QuoteState
+  (`0cdf9575…`), authority `ddGs6hk5…`, vault Active, `min_bond=0`, QuoteState
   **897 B**, quote **v28** author `8R3V…`, **expired** (no keeper running).
 - **Builder/interface tests added:** `app/test/instruction-interface.test.ts`
   asserts the deployed IDL account lists (swap incl. `keeper_reward` +
@@ -1717,7 +1717,7 @@ Report: [`docs/S2_27_BROWSER_E2E.md`](S2_27_BROWSER_E2E.md).
 
 Report: [`docs/S2_28_INDEPENDENT_KEEPER.md`](S2_28_INDEPENDENT_KEEPER.md).
 
-- **Preflight verified:** Devnet genesis, program hash **MATCH** (`b4df2b0f…`),
+- **Preflight verified:** Devnet genesis, program hash **MATCH** (`0cdf9575…`),
   vault Active, `min_bond=0` (permissionless), QuoteState 897 B / v28 / author
   `8R3V…` (expired). Program supports permissionless + `keeper` attribution.
 - **Independent keeper generated:** `6FqSc5vm9vdVDLRVbJZ9cYx4Mh4sVtCpM5x6qaLknB2G`
@@ -1859,7 +1859,7 @@ Report: [`docs/S2_35_END_TO_END_SWAP_COMPLETION.md`](S2_35_END_TO_END_SWAP_COMPL
   Swap/Vault/KeeperRewards gated by the real checks; VaultPage false-`✓`
   success-on-failure fixed. Tests updated/added.
 - **Phase 2 — preflight (read-only).** New `scripts/devnet/preflight.ts`:
-  genesis Devnet; program `b4df2b0f…` **MATCH**; vault Active, total_shares
+  genesis Devnet; program `0cdf9575…` **MATCH**; vault Active, total_shares
   108,980,882; Config fee 1 / expiry 10 / staleness 2 / conf 10 / min_bond 0;
   reserves 0.313621726 WSOL + 37.75 USDC; WSOL 9 / USDC 6.
 - **Phase 3 — keeper optimised.** Concurrent fetch/slot/blockhash, one blockhash
@@ -1903,7 +1903,7 @@ S2-35 working tree, closed one code/claim gap, and committed the result.
   expiry/capacity with a concrete reason (new pure gate `submitFreshnessReason`,
   +4 tests). `fetchFreshQuote` now also returns the raw ask/bid ladders.
 - **Keeper liveness re-verified (live, Helius).** Genesis-verified, deployed
-  program hash `b4df2b0f…` **MATCH** vs HEAD build (no redeploy). Bounded keeper
+  program hash `0cdf9575…` **MATCH** vs HEAD build (no redeploy). Bounded keeper
   runs advanced `QuoteState` **v77 → v93**, with `COMMITTED_AND_VERIFIED` commits
   (e.g. v78 `3bWpwRgW…`, v83 `4WRFsycc…`, v87 `t7zFNogq…`, v92 `4NcFkqY8…`),
   author `8R3V…`. Failure categories were the documented latency ones (`6015`

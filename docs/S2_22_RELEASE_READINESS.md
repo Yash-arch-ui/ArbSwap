@@ -72,7 +72,7 @@ local artifact and IDL presence; IDL contains `migrate_quote_state`.
 
 Live run (read-only) against Devnet returned `ok: true`:
 `QuoteState` legacy **865 B**, `migration_required: true`, rent shortfall
-162,560 lamports, payer funded, artifact sha256 `b4df2b0f…`, IDL has the migration
+162,560 lamports, payer funded, artifact sha256 `0cdf9575…`, IDL has the migration
 instruction. No transaction was sent.
 
 `keeper_inspect.ts` prints the live quote (version/expiry/keeper/attributed state),
@@ -158,7 +158,7 @@ cargo test --workspace
 
 ## S2-23 executed on Devnet (verified)
 
-- **Upgrade:** sig `5ub1Su7Z…`, finalized; deployed ELF sha256 `b4df2b0f…` **MATCH**.
+- **Upgrade:** sig `5ub1Su7Z…`, finalized; deployed ELF sha256 `0cdf9575…` **MATCH**.
 - **Migration:** sig `qmTocoCx…`; QuoteState 865 → **897**, keeper sentinel `1111…`, version/expiry preserved.
 - **Fresh quote:** push+commit `4ABgziXU…`; QuoteState **v19**, author `8R3V…` (correct), conf 9 bps.
 - **Keeper robustness fixes (local, uncommitted):** inspect a signature before treating a confirm timeout as failure; fetch a fresh blockhash for the push tx.

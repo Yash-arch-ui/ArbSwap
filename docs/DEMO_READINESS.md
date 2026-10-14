@@ -10,7 +10,7 @@ task. Canonical runbook: `docs/INTEGRATION.md`.
 | Item | Evidence | What it establishes |
 |---|---|---|
 | Program deployed/upgraded | deploy `58izq9Fm…`; S2-9 `29zPYqTK…`; S2-23 upgrade `5ub1Su7ZfZ8iLLxTkC6rda3LdCs5ZAkeGsin8sJgdajDzstmr1tahGvyNPiBHivdhxGYNYYFQYMZKLhzfy99sZAo` | The deployed program is the tested artifact |
-| Deployed ELF == local build | `scripts/devnet_program_hash.py` → **MATCH** (sha256 `b4df2b0f…f7096`, 769984 B) | Reproducible build identity |
+| Deployed ELF == local build | `scripts/devnet_program_hash.py` → **MATCH** (sha256 `0cdf9575…f7096`, 772256 B) | Reproducible build identity |
 | Deposit executed | `N6XoMGrpp84wCQvCvqsLV89wnwhmQjvLNRcc4nwwimXHAuniLCupZaJzCPoSfPst83c4Rk9ErXUnkUsQ7PX3voq` (S2-14) | LP deposit path works on-chain |
 | Swap executed | `51TkKqfi9bt8QqpKKxJZnN2nyFv1HAMnSGW2mjctDYDEpuDi4Roch43RJapj3poz8H8DqYCfmE8QFSrbxVHx9TUC` (S2-15, BuyBase 1.75 USDC → 0.016290295 SOL) | End-to-end swap path works on-chain |
 | QuoteState migration 865→897 | `qmTocoCx36EpQL6qTdTE4GAWhuW8vztXJouGuCyah76PEcC66sLdhsdpFP7pPCeTYem8Akfx8nhduefTSpV5qrh` (S2-23) | Migration is permissionless |
