@@ -130,7 +130,7 @@ export class RpcFailover {
     return this.conns[this.index];
   }
 
-  /** Redacted identifier of the active endpoint (safe to render/log). */
+  /** Redacted identifier of the active endpoint (credential-free; render/log ok). */
   get activeEndpoint(): string {
     return redactRpcUrl(this.urls[this.index]);
   }

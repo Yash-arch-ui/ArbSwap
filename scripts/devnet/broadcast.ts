@@ -1,7 +1,7 @@
 // S2-31 (Task T1): dual-endpoint broadcast + per-endpoint rate limiting.
 //
 // A signed transaction has one signature regardless of which RPC receives it, so
-// sending the same bytes to several endpoints concurrently is safe: the first
+// sending the same bytes to several endpoints concurrently is sound: the first
 // endpoint to land it wins and duplicate submissions collapse to the same
 // signature. This module never weakens an on-chain guard — it only changes *how*
 // the same signed bytes reach the cluster. It also enforces a per-endpoint
