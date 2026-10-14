@@ -21,7 +21,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 tmux new-session -d -s "$SESSION" \
-  "cd '$PWD' && flock -n '$LOCK' env RUN_SECONDS=$RUN_SECONDS ATTEMPTS=100000 MAX_FETCH_AGE_MS=1500 npx tsx keeper_live.ts >> ../../logs/keeper_\$(date -u +%Y%m%dT%H%M%SZ).log 2>&1"
+  "cd '$PWD' && set -a && . ../../.env && set +a && export ARBSWAP_KEYPAIR='$ARBSWAP_KEYPAIR' && export ARBSWAP_RPC_FALLBACKS='$ARBSWAP_RPC_FALLBACKS' && flock -n '$LOCK' env RUN_SECONDS=$RUN_SECONDS ATTEMPTS=100000 MAX_FETCH_AGE_MS=1500 npx tsx keeper_live.ts >> ../../logs/keeper_\$(date -u +%Y%m%dT%H%M%SZ).log 2>&1"
 
 echo "keeper started: tmux '$SESSION' (RUN_SECONDS=$RUN_SECONDS, lock=$LOCK)"
 echo "status: tmux attach -t $SESSION ; logs: logs/keeper_*.log ; scripts/devnet/demo_check.sh"

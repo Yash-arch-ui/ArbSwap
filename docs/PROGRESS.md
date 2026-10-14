@@ -1989,3 +1989,44 @@ No program/keeper/config/IDL change; no deploy; not pushed.
   quote — the gate holds. No swap submitted.
 - **Boundary.** No deploy/upgrade, no `anchor keys sync`, no authority/config/
   oracle change, no mint/deposit/withdraw/claim/transfer, no swap, no push.
+
+## Part 3 / Step 42 — S2-37 Tasks 2–7 (upgrade, expiry proposal, pages, tooling)
+
+Program upgraded and `expiry_slots` made admin-tunable (Step 41). This step:
+
+- **Upgrade (Task 2) DONE.** New ELF 772,256 B sha256 `0cdf9575…` (old `b4df2b0f…`);
+  `solana program deploy` sig `31Aa7GZX…` slot 510905181; on-chain MATCH (loader
+  padding 7,968 B); rollback saved at `~/arbswap-rollback/arbswap_b4df2b0f.so`.
+  Smoke clean: Config field-by-field unchanged, 6 verified commits in 5 min, swap
+  preflight only `QuoteExpired` when expired. No rollback needed.
+- **expiry_slots=120 (Task 3) PROPOSED, NOT YET APPLIED.** `set_params` sig
+  `5rDWeiun…` (slot 510911388); `activate_slot` 511127388; ETA ≈2026-10-14T22:18Z
+  (~14.8 h at 0.248 s/slot). `scripts/devnet/apply_params.ts` (idempotent, `--wait`,
+  post-apply verify) + flock-guarded tmux `apply-expiry` (`scripts/devnet/apply_expiry.sh`,
+  logs `logs/apply_expiry.log`) apply automatically at eligibility. Config is still
+  `expiry_slots=10` until then.
+- **Swap page (Task 4) DONE.** Depth-exceeded (both directions) with exact
+  `maxGrossInput`, Use-max, per-side depth, no partial output as the estimate;
+  WSOL wrap/unwrap builders (+0.05 SOL buffer); zero-balance funding panel
+  (verified faucets); live countdown; price regression (~$107 = on-chain anchor,
+  the `$186.98` was stale). App 118 tests; depth-exceeded screenshot captured.
+- **Demo + evidence (Task 5) DONE.** Offline deterministic `DemoPage` (8 scenarios
+  incl. freeze/kill/bot/malicious; same seed ⇒ identical frames; no network) and
+  `EvidencePage` (recorded devnet history + explorer links + limits; Option 1 not
+  shown). Nav + E2E extended.
+- **Keeper tooling + baseline (Task 6) DONE.** `demo_up.sh`/`demo_check.sh`/
+  `measure_fresh.sh`, `fresh_monitor.ts`/`demo_status.ts`, `scripts/devnet/vm/`,
+  `docs/VM_KEEPER.md`. **Baseline while `expiry_slots=10`: 1605 samples, 0 fresh
+  (fresh fraction 0.000), longest stale 1200 s, 0 commits, decision RED**
+  (failure codes 6015×7, 6037×3, 6039×4) — the exact failure Option C addresses.
+  Post-change command: `scripts/devnet/measure_fresh.sh 1800 400`.
+- **Release (Task 7) DONE except the tag.** `app/vercel.json` headers + test;
+  CU re-measured on the new binary (5 runs; update_quote 49,336, swap 63,579;
+  docs reconciled honestly — ≤40k not met on this host); program hash/size
+  reconciled; runbooks updated. Full gate green: fmt/clippy/workspace (lifecycle
+  104), pytest 228/2, keeper TS 17/9/24, app 118 + build, E2E exit 0,
+  docs-consistency, bundle-freshness, banned, secrets, `api-key=` scan. **`demo-freeze-1`
+  is NOT tagged**: it must wait until `expiry_slots=120` is verified on-chain.
+- **Boundary.** Only the authorized program upgrade + the one `set_params`
+  proposal were sent. No swap/deposit/withdraw/claim/transfer, no other config or
+  authority change. Secrets/URLs redacted.
