@@ -184,26 +184,47 @@ export async function broadcastTransaction(
 
   const tConfirm = now();
   const deadline = tConfirm + timeoutMs;
-  for (;;) {
-    const statuses = await Promise.allSettled(
-      sent.map((ep) => ep.connection.getSignatureStatuses([signature], { searchTransactionHistory: false })),
-    );
-    for (let i = 0; i < statuses.length; i += 1) {
-      const r = statuses[i];
-      if (r.status !== "fulfilled") continue;
-      if (!accepted.has(sent[i].url)) continue;
-      const v = r.value?.value?.[0] as { err?: unknown; confirmationStatus?: string } | null | undefined;
-      if (v?.err) throw new Error(`tx ${signature} failed: ${JSON.stringify(v.err)}`);
-      if (isLanded(v)) {
-        return {
-          signature,
-          endpoint: redact(sent[i].url),
-          sendMs,
-          confirmMs: now() - tConfirm,
-          sentTo,
-          rateLimited,
-        };
+  // Poll every endpoint that accepted the send, but resolve on the FIRST outcome
+  // (landed or program error) without waiting for slower endpoints. Waiting on
+  // `Promise.allSettled` adds the slowest endpoint's latency to every poll — with
+  // a slow fallback in the set that materially delays confirmation inside the
+  // deployed 2 s freshness window.
+  const trusted = sent.filter((ep) => accepted.has(ep.url));
+  const pollOnce = (): Promise<{ landed: true; endpoint: string } | { landed: false } | { error: string }> =>
+    new Promise((resolve) => {
+      let pending = trusted.length;
+      let settled = false;
+      const finish = (r: { landed: true; endpoint: string } | { landed: false } | { error: string }) => {
+        if (!settled) { settled = true; resolve(r); }
+      };
+      for (const ep of trusted) {
+        ep.connection
+          .getSignatureStatuses([signature], { searchTransactionHistory: false })
+          .then((s) => {
+            const v = s?.value?.[0] as { err?: unknown; confirmationStatus?: string } | null | undefined;
+            if (v?.err) return finish({ error: JSON.stringify(v.err) });
+            if (isLanded(v)) return finish({ landed: true, endpoint: redact(ep.url) });
+            pending -= 1;
+            if (pending === 0) finish({ landed: false });
+          })
+          .catch(() => {
+            pending -= 1;
+            if (pending === 0) finish({ landed: false });
+          });
       }
+    });
+  for (;;) {
+    const outcome = await pollOnce();
+    if ("error" in outcome) throw new Error(`tx ${signature} failed: ${outcome.error}`);
+    if (outcome.landed) {
+      return {
+        signature,
+        endpoint: outcome.endpoint,
+        sendMs,
+        confirmMs: now() - tConfirm,
+        sentTo,
+        rateLimited,
+      };
     }
     if (now() > deadline) throw new Error(`tx ${signature} not confirmed within ${timeoutMs}ms`);
     await sleep(pollIntervalMs);

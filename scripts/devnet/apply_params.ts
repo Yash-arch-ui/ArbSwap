@@ -38,6 +38,13 @@ const disc = (name: string): Buffer => {
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Bound any RPC promise so a hung connection cannot stall the runner forever. */
+const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+  Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
+  ]);
+
 const pendingPda = (): PublicKey =>
   PublicKey.findProgramAddressSync([Buffer.from("pending"), VAULT.toBuffer()], PROGRAM)[0];
 
@@ -113,7 +120,7 @@ async function connection(): Promise<Connection> {
 }
 
 async function readPending(c: Connection): Promise<{ activateSlot: bigint; admin: string } | null> {
-  const info = await c.getAccountInfo(pendingPda(), "confirmed");
+  const info = await withTimeout(c.getAccountInfo(pendingPda(), "confirmed"), 20_000, "getAccountInfo(pending)");
   if (!info) return null;
   return { admin: new PublicKey(info.data.subarray(8, 40)).toBase58(), activateSlot: info.data.readBigUInt64LE(40) };
 }
@@ -180,7 +187,7 @@ async function apply(c: Connection, wait: boolean): Promise<void> {
   for (;;) {
     let slot: bigint;
     try {
-      slot = BigInt(await c.getSlot("confirmed"));
+      slot = BigInt(await withTimeout(c.getSlot("confirmed"), 20_000, "getSlot"));
     } catch (e) {
       console.error(`wait poll transient error: ${String((e as Error).message ?? e)}`);
       await sleep(60_000);

@@ -2103,3 +2103,21 @@ Report: [`docs/S2_40_LIVE_MARKET_AND_SWAP.md`](S2_40_LIVE_MARKET_AND_SWAP.md).
   keeper TS 17/9/24, app 117 + build, E2E exit 0, docs/bundle/banned/secrets +
   `api-key=` CLEAN). **`demo-freeze-1` NOT tagged.** `swap_preflight.ts` now waits
   for a fresh quote and derives the trader's real ATAs (read-only).
+
+## Part 3 / Step 46 — S2-39-confirm: confirmation-race fix + apply-runner recovery
+
+- **Apply runner was hung** since ~10:19Z (a `getSlot` with no timeout never
+  returned), which would have missed the 22:06Z activation. Added 20 s timeouts to
+  the poll/read (`apply_params.ts`) and restarted the runner; it is polling again
+  (ETA ~22:06Z). No apply was in flight; the proposal is unchanged.
+- **Confirmation bottleneck fixed.** `broadcast.ts` waited on
+  `Promise.allSettled` across endpoints, so a slow public fallback added its
+  latency to every poll inside the 2 s window. It now resolves on the **first**
+  endpoint to land (or error). Bounded 5-min diagnostic (expiry=10): fresh
+  fraction **0.137 → 0.252**, commits **19 → 34 / 5 min** (≈1/8.8 s), longest
+  stale **64.8 s → 38.3 s**; verdict still RED (expiry=10 caps validity ~2.5 s).
+- **Keeper fetch gate** tightened to `MAX_FETCH_AGE_MS=1000` (don't pay fees on an
+  update already too old).
+- **Remaining fix = the pending `expiry_slots=120` apply** (~22:06Z): at the new
+  ~1/9 s commit rate a 30 s window yields near-continuous freshness. No protocol
+  change; no push.
