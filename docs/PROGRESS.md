@@ -734,7 +734,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   `share_lock`); both tokens pulled; `user_shares` must pre-exist; ticket
   `activate_slot = slot + warmup_slots`.
 - **Sizing (gitignored asset admin authorized option 1: CEX reference for
-  sizing only).** The configured `PYTH_API_KEY` (`.ENV`) authenticates but is
+  sizing only).** The configured `PYTH_API_KEY` (`.env`) authenticates but is
   **not entitled** to the crypto-spot SOL/USD feed (`HTTP 403 Not entitled …`),
   and no on-chain `PriceUpdateV2` exists to read. Per explicit operator approval,
   a **fresh live Binance SOL/USDT** reference (`109.12` at deposit time) was used
@@ -778,12 +778,12 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   `rec5EKMGg6…`) and does not post one; the project posts/refreshes it via
   `scripts/devnet/{post_pyth,update_feed,post_feed_loop}.ts` using
   `@pythnetwork/hermes-client` + `PYTH_API_KEY`.
-- **Diagnosis (auth vs entitlement).** `PYTH_API_KEY` in `.ENV` (len 44) is
+- **Diagnosis (auth vs entitlement).** `PYTH_API_KEY` in `.env` (len 44) is
   loaded and **authenticates** (HTTP 403, not 401), but is **not entitled**:
   Hermes and Benchmarks both return
   `Not entitled: feed ef0d8b6f… (no grant accepts this feed (asset type
   'crypto', instrument type 'spot'))`. No other Pyth credential exists
-  (shell env unset; only `.ENV`). **Option A fails.**
+  (shell env unset; only `.env`). **Option A fails.**
 - **Option B fails.** No existing `PriceUpdateV2` account for the feed: the
   standard (`rec5EKMGg6…`) and pro (`rec2HHDD…`) receiver PDAs for shards 0 and
   1 are all absent; no cached update-account json exists; the receiver builder
@@ -896,9 +896,9 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
   mocks); `yarn lint` (oxlint) clean; `yarn build` (tsc + vite) OK. No backend
   code changed this step.
 - **Pyth unblock (setup note).** Store the entitled credential server-side as
-  `PYTH_API_KEY` in `.ENV` (never in the client bundle). Verify entitlement
+  `PYTH_API_KEY` in `.env` (never in the client bundle). Verify entitlement
   WITHOUT printing the key, e.g.
-  `set -a; . ./.ENV; set +a; curl -s -o /dev/null -w '%{http_code}\n'
+  `set -a; . ./.env; set +a; curl -s -o /dev/null -w '%{http_code}\n'
   -H "Authorization: Bearer $PYTH_API_KEY"
   "https://hermes.pyth.network/v2/updates/price/latest?ids[]=ef0d8b6f…b56d"`
   → `200` means the grant includes the crypto-spot SOL/USD feed. Then run
@@ -925,7 +925,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 
 ## Part 3 / Step 11 — Pyth entitlement recheck + app deposit integrity fix
 
-- **Swap blocker rechecked (read-only).** `.ENV` `PYTH_API_KEY` authenticates but
+- **Swap blocker rechecked (read-only).** `.env` `PYTH_API_KEY` authenticates but
   still returns `HTTP 403 Not entitled: feed ef0d8b6f… (no grant accepts this feed
   (asset type 'crypto', instrument type 'spot'))`. Canonical vault `8yvFBv9…`
   remains funded (`QuoteState.version = 0`). **No quote/swap/withdraw/claim tx was
@@ -973,7 +973,7 @@ Baseline at start: `7e1cc07`, **154 Rust / 198 Python** passing (now 202 Python)
 
 ## Part 3 / Step 13 — S2-8 Pyth entitlement UNBLOCKED, but keeper tx-too-large
 
-- **Pyth entitlement: FIXED (verified).** With the current `.ENV` `PYTH_API_KEY`
+- **Pyth entitlement: FIXED (verified).** With the current `.env` `PYTH_API_KEY`
   all three hosts return **HTTP 200** for the exact configured SOL/USD feed:
   `hermes.pyth.network`, `benchmarks.pyth.network`, and
   `pyth.dourolabs.app/v1/fixed_rate@1000ms/price?ids=6` (SOL/USD ≈ $107.42,

@@ -10,7 +10,7 @@
 //     `slot('confirmed') < expiry_slot`, with the UI `Aging` grace band.
 // Never signs, never sends. No credentials printed.
 //
-//   set -a; . ./.ENV; set +a
+//   set -a; . ./.env; set +a
 //   DURATION_MS=90000 INTERVAL_MS=250 npx tsx fresh_quote_probe.ts
 import { Connection, PublicKey } from "@solana/web3.js";
 import { resolveRpcConfig, redactUrl } from "./rpc";

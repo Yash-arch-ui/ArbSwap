@@ -9,7 +9,7 @@ __pycache__/
 *.log
 # Raw market data never enters git (Build Plan §4: data/ holds scripts only)
 simulation/data/raw/
-.ENV
+.env
 *.csv
 *.parquet
 *.json.gz

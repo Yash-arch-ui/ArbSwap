@@ -36,7 +36,7 @@ QuoteState is **still version 18**; the last two tasks did not change it.
 
 > The two keeper paths and the frontend do not share a private backend: there is
 > **no hosted service in the repository**. The only secret is a gitignored
-> `PYTH_API_KEY` in `.ENV` plus operator keypair *paths* outside the repo.
+> `PYTH_API_KEY` in `.env` plus operator keypair *paths* outside the repo.
 
 ---
 
@@ -383,7 +383,7 @@ admin.
   (`app/src/chain/config.ts:35`); the keeper defaults to the same
   (`keeper_live.ts:161`). No key, but a single dependency. Add a provider
   fallback list; it is pure availability, not trust.
-- **Hermes** (`hermes.pyth.network`, key-gated `.ENV`): used by the TS keeper to
+- **Hermes** (`hermes.pyth.network`, key-gated `.env`): used by the TS keeper to
   fetch updates. Replaceable by any Pyth access path; the on-chain receiver is
   the source of truth.
 - **No hosted backend / database**: the indexer is a local CLI writing SQLite

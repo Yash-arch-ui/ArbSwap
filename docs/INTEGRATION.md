@@ -66,7 +66,7 @@ The app and keeper read RPC config from the environment (no secrets in the brows
 | `ARBSWAP_CLUSTER` / `VITE_ARBSWAP_CLUSTER` | `devnet` (default) \| `mainnet-beta` |
 | `ARBSWAP_RPC_URL` / `VITE_SOLANA_RPC_URL` | primary endpoint |
 | `ARBSWAP_RPC_FALLBACKS` / `VITE_SOLANA_RPC_FALLBACKS` | comma-separated fallbacks |
-| `PYTH_API_KEY` | Hermes access token (keeper only; `.ENV`, gitignored) |
+| `PYTH_API_KEY` | Hermes access token (keeper only; `.env`, gitignored) |
 | `ARBSWAP_KEYPAIR` | keeper signer path (default `~/.config/solana/id.json`) |
 
 - Node tooling: `scripts/devnet/rpc.ts` (`RpcPool`: cluster-guarded, redaction,
@@ -218,7 +218,7 @@ cargo fmt --all --check && cargo test --workspace
 cd app && yarn install && yarn test && yarn lint && yarn build && yarn dev
 
 # keeper (operator)
-cd scripts/devnet && set -a; . ../../.ENV; set +a
+cd scripts/devnet && set -a; . ../../.env; set +a
 NODE_OPTIONS=--no-network-family-autoselection npx tsx keeper_inspect.ts   # read-only
 DRY_RUN=1 npx tsx keeper_live.ts                                           # dry-run
 npx tsx keeper_loop.sh                                                      # bounded runner

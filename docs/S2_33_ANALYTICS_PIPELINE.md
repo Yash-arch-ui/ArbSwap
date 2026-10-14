@@ -182,6 +182,6 @@ to the browser (verified by test + `secrets_scan.py`).
 
 - Serving `onchain.json` or a read-only JSON API requires an operator host; not
   claimed here. Regenerate with
-  `set -a; . ./.ENV; set +a; python -m simulation.analytics sync`.
+  `set -a; . ./.env; set +a; python -m simulation.analytics sync`.
 - Markouts/quote-age remain `pending`: no historical Pyth observations are
   indexed. Do not present model charts as realized performance.

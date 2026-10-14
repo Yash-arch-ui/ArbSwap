@@ -13,7 +13,7 @@ before push. Devnet only; no swaps/asset movement; no protocol rule changes.
 | P3 | Keeper `8R3V…` balance ≥ 1 SOL; no running keeper | 11.492523307 SOL; none running ✔ |
 | P4 | Hermes entitlement for SOL/USD feed | HTTP 200; latency 1063 ms ✔ |
 
-Secret hygiene: `.ENV` gitignored ✔; no `api-key` in tracked files ✔ (test
+Secret hygiene: `.env` gitignored ✔; no `api-key` in tracked files ✔ (test
 fixtures use `key=SECRET`); `logs/` now gitignored ✔.
 
 ## Task status

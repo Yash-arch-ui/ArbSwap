@@ -23,7 +23,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCK="${TMPDIR:-/tmp}/arbswap-keeper.$(printf '%s' "$RPC" | cksum | awk '{print $1}').lock"
 
 if [[ -z "${PYTH_API_KEY:-}" ]]; then
-  echo "PYTH_API_KEY is not set; load .ENV first (set -a; . ./.ENV; set +a)" >&2
+  echo "PYTH_API_KEY is not set; load .env first (set -a; . ./.env; set +a)" >&2
   exit 2
 fi
 

@@ -3,7 +3,7 @@
 The Benchmarks endpoint returns 1-second-spaced points inside each requested
 window (window width <= 60 s), so a range is paged in 60 s windows. Since the
 2026-08-26 upgrade every request needs an API key; we read ``PYTH_API_KEY``
-from the environment (see ``.ENV`` and ``simulation/data/README.md``).
+from the environment (see ``.env`` and ``simulation/data/README.md``).
 
 Output columns: ``timestamp,price,conf,publish_time`` where ``price`` is the
 human-scaled oracle price (``raw * 10**expo``), ``conf`` the absolute
@@ -39,13 +39,13 @@ def _api_key(explicit: str | None = None) -> str:
     key = explicit or os.environ.get("PYTH_API_KEY")
     if key:
         return key.strip()
-    env_file = Path(".ENV")
+    env_file = Path(".env")
     if env_file.exists():
         for line in env_file.read_text().splitlines():
             line = line.strip()
             if line.startswith("PYTH_API_KEY="):
                 return line.split("=", 1)[1].strip()
-    raise RuntimeError("PYTH_API_KEY not set and not found in .ENV")
+    raise RuntimeError("PYTH_API_KEY not set and not found in .env")
 
 
 def _get(url: str, key: str, *, retries: int = 5, backoff: float = 1.5):

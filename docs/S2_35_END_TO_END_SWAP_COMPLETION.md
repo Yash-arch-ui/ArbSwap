@@ -179,8 +179,8 @@ claim, transfer, mint or config change was made.
 
 1. Open `app/` in a browser with a wallet extension (Phantom/Solflare) holding
    the operator devnet key `8R3V…` (which holds ≈2.25 USDC and devnet SOL).
-2. Load `.ENV` into the environment and run the keeper continuously:
-   `set -a; . ./.ENV; set +a; export ARBSWAP_RPC_FALLBACKS=https://api.devnet.solana.com; scripts/devnet/keeper_loop.sh "$ARBSWAP_RPC_URL" 600`.
+2. Load `.env` into the environment and run the keeper continuously:
+   `set -a; . ./.env; set +a; export ARBSWAP_RPC_FALLBACKS=https://api.devnet.solana.com; scripts/devnet/keeper_loop.sh "$ARBSWAP_RPC_URL" 600`.
 3. In the app (mode badge shows `trading`), BuyBase 0.5 USDC (≤0.5 % slippage).
    The quote is fresh only for ~2.4 s; submit when the Swap page shows the
    Fresh/ACTIVE book. The app re-reads the live quote at submit time.

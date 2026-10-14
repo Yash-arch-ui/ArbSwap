@@ -13,9 +13,9 @@
 | Pyth Hermes (live/history) | feed metadata + updates | `https://hermes.pyth.network/v2/…` | ✅ **200 with API key**; metadata works keyless |
 
 **Pyth auth:** since the 2026-08-26 upgrade every Hermes/Benchmarks request
-needs `Authorization: Bearer $PYTH_API_KEY`. A working free key is in `.ENV`
+needs `Authorization: Bearer $PYTH_API_KEY`. A working free key is in `.env`
 at the repo root (`PYTH_API_KEY=<44-char key>`, **gitignored — .gitignore:12**);
-load with `set -a; source .ENV; set +a` or `KEY=$(awk -F= '{print $2}' .ENV)`.
+load with `set -a; source .env; set +a` or `KEY=$(awk -F= '{print $2}' .env)`.
 Verified 2026-10-06: `latest` 200; historical 200 at 1/2/3/5/7/14/30/60/75
 days ago, 404 at 80+ days → **history depth ≈ 75–80 days** (plan backtests
 around this; CEX archives below cover the longer horizon). Sample: SOL/USD

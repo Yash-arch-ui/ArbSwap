@@ -65,7 +65,7 @@ unfunded.
 
 1. Fund `6FqSc5vm9vdVDLRVbJZ9cYx4Mh4sVtCpM5x6qaLknB2G` from the official Devnet
    faucet (or a separately authorized transfer).
-2. `cd scripts/devnet && set -a; . ../../.ENV; set +a; \
+2. `cd scripts/devnet && set -a; . ../../.env; set +a; \
    ARBSWAP_KEYPAIR=$HOME/.config/solana/arbswap-independent-keeper.json \
    NODE_OPTIONS=--no-network-family-autoselection ATTEMPTS=100000 RUN_SECONDS=240 \
    SIMULATE_SWAP=0 npx tsx keeper_live.ts`
@@ -121,7 +121,7 @@ decentralization or authorization defect (permissionless `min_bond=0` and
 ## S2-29 — RPC latency optimization + bounded live attempt
 
 ### Configured endpoints
-Only **one** RPC is configured: `.ENV` contains `PYTH_API_KEY` only (no
+Only **one** RPC is configured: `.env` contains `PYTH_API_KEY` only (no
 `ARBSWAP_RPC_URL`/`ARBSWAP_RPC_FALLBACKS`), so the keeper uses the default
 `https://api.devnet.solana.com` (genesis verified `EtWTRABZ…pkrZBG`). No other
 authorized endpoint is available; no credentials were invented.

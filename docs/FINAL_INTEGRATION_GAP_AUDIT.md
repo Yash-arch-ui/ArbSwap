@@ -126,7 +126,7 @@ Estimates are **judgment**, not measured time. Ordered by demo impact/dependency
 
 | # | Pri | Task | Why | Files | Dep | Est | Acceptance | Blocks demo |
 |---|---|---|---|---|---|---|---|---|
-| 1 | **External** | Obtain **entitled Pyth** crypto-spot SOL/USD access; post a fresh `PriceUpdateV2`; run keeper `live` | only path to a live quote → swaps | `.ENV`, `scripts/devnet/update_feed.ts`, `vault/keeper` | credential | small (once cred) | `QuoteState.version>0`, unexpired; `keeper live` lands updates | **yes** |
+| 1 | **External** | Obtain **entitled Pyth** crypto-spot SOL/USD access; post a fresh `PriceUpdateV2`; run keeper `live` | only path to a live quote → swaps | `.env`, `scripts/devnet/update_feed.ts`, `vault/keeper` | credential | small (once cred) | `QuoteState.version>0`, unexpired; `keeper live` lands updates | **yes** |
 | 2 | P0 | Re-prove **post-B1** live `update_quote` → `swap` → `withdraw`/`claim` on the funded canonical vault (operator-run, not auto) | P2 gate re-open; swaps unproven on B1 | `vault/program`, app builders | #1 | small | signatures for update+swap+withdraw+claim | yes |
 | 3 | P1 | Add an **in-app replay/demo mode** (labeled) reading `app/public/artifacts/*` | judges need analytics without the oracle | `app/src/pages/AnalyticsPage.tsx`, `app/src/data/backend.ts` | none | medium | charts render from artifacts with provenance labels | no (high value) |
 | 4 | P1 | Surface **withdraw claim** UI + epoch/eligibility state | completes LP lifecycle | `app/pages/VaultPage.tsx`, `app/src/chain/program.ts` | none | small | claim button gated on ticket epoch; confirmed refresh | no |

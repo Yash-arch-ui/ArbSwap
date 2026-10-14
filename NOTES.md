@@ -36,7 +36,7 @@ Known pending:
   smoke-tested locally in a throwaway copy 2026-10-06 — green CI needs the
   pending commit pushed
 - Pyth Hermes/Benchmarks require an API key (2026-08-26 upgrade) — working
-  free key stored in .ENV (gitignored), verified 2026-10-06; history depth
+  free key stored in .env (gitignored), verified 2026-10-06; history depth
   ≈75-80 days (details in research/data/README.md)
 
 P1-P3 delivery pass (2026-10-07):

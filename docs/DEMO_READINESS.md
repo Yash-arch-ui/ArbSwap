@@ -140,6 +140,6 @@ APP_URL=http://localhost:5173/ node app/e2e/browser-smoke.mjs
 - [ ] Quote the **current** on-chain state (reread; do not present v28 as active).
 - [ ] Label historical txs, replay/model output, and mock UI states clearly.
 - [ ] Do not claim independent-keeper success or economic superiority.
-- [ ] Secrets/`.ENV`/keypairs never in slides, screenshots, or the bundle.
+- [ ] Secrets/`.env`/keypairs never in slides, screenshots, or the bundle.
 - [ ] (Optional) regenerate the artifact bundle to clear the freshness gate.
 - [ ] Have the demo fallback (recording/HTML) ready in case RPC is unavailable.

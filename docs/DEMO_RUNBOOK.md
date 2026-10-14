@@ -1,13 +1,13 @@
 # DEMO_RUNBOOK.md — operator steps (Devnet)
 
-Read-only unless explicitly marked. No secrets. RPC URLs come from `.ENV`
+Read-only unless explicitly marked. No secrets. RPC URLs come from `.env`
 (`ARBSWAP_RPC_URL`, gitignored) or `ARBSWAP_RPC_FALLBACKS`; never printed.
 
 ## Start / stop the keeper (bounded, single instance)
 
 ```bash
 cd scripts/devnet
-set -a; . ../../.ENV; set +a            # loads ARBSWAP_RPC_URL + PYTH_API_KEY (not echoed)
+set -a; . ../../.env; set +a            # loads ARBSWAP_RPC_URL + PYTH_API_KEY (not echoed)
 export ARBSWAP_KEYPAIR="$HOME/.config/solana/id.json"
 export NODE_OPTIONS=--no-network-family-autoselection
 
