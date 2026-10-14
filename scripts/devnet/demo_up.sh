@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# S2-37 Task 6: start the keeper under tmux, single-instance (flock), redacted.
+# S2-41: start the keeper SUPERVISED under tmux (single-instance via flock,
+# restart-on-exit) so the market stays fresh through the timelocked activation.
 #
-#   scripts/devnet/demo_up.sh [run_seconds] [tmux_session]
+#   scripts/devnet/demo_up.sh [per_window_seconds] [tmux_session]
 #
-# Status:  tmux attach -t <session>      Logs: logs/keeper_*.log
+# Status: tmux attach -t <session>   |   scripts/devnet/demo_check.sh
+# Logs:   logs/keeper_supervised.log  |   logs/keeper_<ts>.log
+# Stop:   tmux kill-session -t <session>
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 set -a; . ../../.env; set +a
 export ARBSWAP_KEYPAIR="${ARBSWAP_KEYPAIR:-$ARBSWAP_DEVNET_KEYPAIR}"
 export ARBSWAP_RPC_FALLBACKS="${ARBSWAP_RPC_FALLBACKS:-https://api.devnet.solana.com}"
 
-RUN_SECONDS="${1:-600}"
+RUN_SECONDS="${1:-1800}"
 SESSION="${2:-${KEEPER_TMUX:-arbswap-keeper}}"
 LOCK="${TMPDIR:-/tmp}/arbswap-demo-keeper.lock"
 mkdir -p ../../logs
@@ -21,7 +24,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 tmux new-session -d -s "$SESSION" \
-  "cd '$PWD' && set -a && . ../../.env && set +a && export ARBSWAP_KEYPAIR='$ARBSWAP_KEYPAIR' && export ARBSWAP_RPC_FALLBACKS='$ARBSWAP_RPC_FALLBACKS' && flock -n '$LOCK' env RUN_SECONDS=$RUN_SECONDS ATTEMPTS=100000 MAX_FETCH_AGE_MS=1000 npx tsx keeper_live.ts >> ../../logs/keeper_\$(date -u +%Y%m%dT%H%M%SZ).log 2>&1"
+  "cd '$PWD' && set -a && . ../../.env && set +a && export ARBSWAP_KEYPAIR='$ARBSWAP_KEYPAIR' ARBSWAP_RPC_FALLBACKS='$ARBSWAP_RPC_FALLBACKS' RUN_SECONDS='$RUN_SECONDS' && exec flock -n '$LOCK' bash keeper_supervisor.sh >> ../../logs/keeper_supervised.log 2>&1"
 
-echo "keeper started: tmux '$SESSION' (RUN_SECONDS=$RUN_SECONDS, lock=$LOCK)"
-echo "status: tmux attach -t $SESSION ; logs: logs/keeper_*.log ; scripts/devnet/demo_check.sh"
+echo "supervised keeper started: tmux '$SESSION' (window ${RUN_SECONDS}s, lock=$LOCK)"
+echo "status: tmux attach -t $SESSION ; scripts/devnet/demo_check.sh ; logs: logs/keeper_supervised.log"

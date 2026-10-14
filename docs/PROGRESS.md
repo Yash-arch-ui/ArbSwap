@@ -2142,3 +2142,21 @@ Report: [`docs/S2_41_BROWSER_SWAP_GATE.md`](S2_41_BROWSER_SWAP_GATE.md).
   keeper TS 17/9/24, app 122 + build, browser E2E exit 0, docs/bundle/banned/
   secrets CLEAN. Committed locally (**ahead of origin, not pushed**). `demo-freeze-1`
   NOT tagged. Status: `BLOCKED: CONFIGURATION OR LIVENESS`.
+
+## Part 3 / Step 48 — S2-41 supervisor hardening (blockers fixable now)
+
+- **Keeper is now continuously supervised** (`scripts/devnet/keeper_supervisor.sh`,
+  launched by `demo_up.sh`): it re-invokes `keeper_live.ts` in bounded windows and
+  restarts on exit, so the market stays fresh **through and after the ~22:00Z
+  activation** instead of ending with a fixed window. Single-instance via the demo
+  `flock`; logs to `logs/keeper_supervised.log`.
+- **Apply runner is now auto-restart supervised**
+  (`scripts/devnet/apply_expiry_supervisor.sh`): it restarts `apply_expiry.sh` if
+  the process ever exits before applying, and stops once applied. Still the single
+  authorized proposal; no duplicate.
+- Bounded 5-min diagnostic with the supervised keeper: 408 samples, 12 confirmed
+  commits (v...→603), fresh fraction 0.093 on this window (environment-sensitive;
+  earlier window 0.252) — verdict RED while `expiry_slots=10`. Not a code fix;
+  the longer expiry is the enabler.
+- Residual blockers unchanged: the **timelock** (~03:30 IST) and the **browser
+  wallet** (operator action; no extension here).
