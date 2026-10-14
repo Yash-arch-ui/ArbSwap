@@ -5,11 +5,12 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
 import { swap as swapOnChain, fetchFreshQuote } from '../chain/program';
 import { parseUnits, formatUnits } from '../chain/amounts';
-import { swapAmountsFromLadder, type SwapSideName, type LadderLevel } from '../chain/swapMath';
+import { swapAmountsFromLadder, maxGrossInput, quoteCountdown, type SwapSideName, type LadderLevel } from '../chain/swapMath';
 import { liveSwapGateReason, submitFreshnessReason } from '../chain/gating';
 import { isTransportError } from '../chain/dataState';
 import { ACTIVE_VAULT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON } from '../chain/config';
 import { ReadOnlyBanner } from '../components/ReadOnlyMode';
+import { FundingPanel } from '../components/FundingPanel';
 import './SwapPage.css';
 
 export const SwapPage: React.FC = () => {
@@ -58,6 +59,20 @@ export const SwapPage: React.FC = () => {
       return [];
     }
   })();
+  // Per-side capacity (S2-37/4.1): the largest input each committed ladder can
+  // fully absorb, so a partial fill is never presented as the full estimate.
+  const sideLevels = (sell: boolean): LadderLevel[] => {
+    try {
+      return (sell ? quoteState.bidLevelsRaw : quoteState.askLevelsRaw).map((l) => ({
+        sqrtLo: BigInt(l.sqrtLo), sqrtHi: BigInt(l.sqrtHi), liquidity: BigInt(l.liquidity),
+      }));
+    } catch {
+      return [];
+    }
+  };
+  const maxSellInput = maxGrossInput(sideLevels(true), 'sellBase', feeBps);
+  const maxBuyInput = maxGrossInput(sideLevels(false), 'buyBase', feeBps);
+  const maxInputForSide = isSellingSol ? maxSellInput : maxBuyInput;
   const amountInAtoms = (() => {
     try {
       return parseUnits(inAmount || '0', inToken.decimals);
@@ -66,6 +81,15 @@ export const SwapPage: React.FC = () => {
     }
   })();
   const amounts = swapAmountsFromLadder({ side, amountInAtoms, feeBps, slippageBps, levels: ladderLevels });
+  // Depth exceeded: the ladder cannot absorb the whole input (program reverts
+  // with CapacityExceeded). Surface the true max instead of a partial estimate.
+  const depthExceeded = amountInAtoms > 0n && maxInputForSide > 0n && amountInAtoms > maxInputForSide;
+  const maxOutAtMax = swapAmountsFromLadder({
+    side, amountInAtoms: maxInputForSide, feeBps, slippageBps,
+    levels: isSellingSol ? sideLevels(true) : sideLevels(false),
+  });
+  const maxInputHuman = formatUnits(maxInputForSide, inToken.decimals, 6);
+  const maxOutHuman = formatUnits(maxOutAtMax.expectedOut, outToken.decimals, 6);
   const expectedOutHuman = formatUnits(amounts.expectedOut, outToken.decimals, 6);
   const minOutHuman = formatUnits(amounts.minOut, outToken.decimals, 6);
 
@@ -75,8 +99,8 @@ export const SwapPage: React.FC = () => {
   // is WSOL, so selling SOL requires wrapped SOL: we say so explicitly rather
   // than letting the transaction fail on-chain.
   const capacityReason =
-    amountInAtoms > 0n && amounts.capacityExceeded
-      ? 'Swaps unavailable: the committed ladder cannot fill this size (on-chain capacity cap).'
+    depthExceeded
+      ? `Exceeds quoted depth. Max now: ${maxInputHuman} ${inTokenSymbol} (~${maxOutHuman} ${outTokenSymbol}).`
       : null;
   const balanceReason = (() => {
     if (!connected || amountInAtoms <= 0n) return null;
@@ -256,6 +280,10 @@ export const SwapPage: React.FC = () => {
 
       <ReadOnlyBanner detail="Live quote, depth, and balances are read from Devnet, but this build cannot sign or submit swaps." />
 
+      {connected && walletAtoms && walletAtoms.base === 0n && walletAtoms.quote === 0n && (
+        <FundingPanel baseSymbol="WSOL" quoteSymbol="USDC" />
+      )}
+
       {primaryStatus && (
         <div
           className="uni-card"
@@ -402,6 +430,12 @@ export const SwapPage: React.FC = () => {
             </span>
           </div>
 
+          {quoteState.hasQuote && (
+            <p className="mono" style={{ fontSize: 11, color: quoteState.status === 'Fresh' ? 'var(--uni-accent1)' : 'var(--uni-warning)', margin: '4px 0 0' }}>
+              {quoteCountdown(quoteState.expirySlot, quoteState.currentSlot).label}
+            </p>
+          )}
+
           <div className="uni-panel-foot" style={{ justifyContent: 'flex-end', paddingTop: 0 }}>
             <span className="mono" style={{ fontSize: 11, color: 'var(--uni-neutral2)' }}>
               {connected && publicKey
@@ -460,7 +494,7 @@ export const SwapPage: React.FC = () => {
                 className="uni-amount"
                 readOnly
                 placeholder="0"
-                value={parsedInAmount > 0 ? expectedOutHuman : ''}
+                value={parsedInAmount > 0 && !depthExceeded ? expectedOutHuman : ''}
               />
               <div className="uni-token-pill">
                 {outToken.logo && <img src={outToken.logo} alt={outToken.symbol} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
@@ -512,7 +546,7 @@ export const SwapPage: React.FC = () => {
           )}
 
           {/* Details toggle */}
-          {parsedInAmount > 0 && (
+          {parsedInAmount > 0 && !depthExceeded && (
             <div className="uni-details">
               <button
                 type="button"
@@ -542,6 +576,26 @@ export const SwapPage: React.FC = () => {
               )}
             </div>
           )}
+
+          {depthExceeded && (
+            <div className="uni-card" style={{ marginTop: 8, borderColor: 'var(--uni-warning)' }} role="alert">
+              <strong>Exceeds quoted depth.</strong>{' '}
+              Max now: {maxInputHuman} {inTokenSymbol} (~{maxOutHuman} {outTokenSymbol}).
+              <button
+                type="button"
+                className="uni-max"
+                style={{ marginLeft: 8 }}
+                onClick={() => setInAmount(maxInputHuman)}
+              >
+                Use max
+              </button>
+            </div>
+          )}
+
+          <p className="mono" style={{ fontSize: 11, color: 'var(--uni-neutral2)', marginTop: 6 }}>
+            Available depth — Buy ≤ {formatUnits(maxBuyInput, ACTIVE_VAULT.quoteDecimals, 6)} USDC ·
+            Sell ≤ {formatUnits(maxSellInput, ACTIVE_VAULT.baseDecimals, 6)} WSOL
+          </p>
 
           <p className="swap-footer-note">
             Zero quote-versus-fill gap by construction. Swaps revert rather than fill at a worse price.

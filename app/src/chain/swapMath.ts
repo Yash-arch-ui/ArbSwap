@@ -194,3 +194,47 @@ export function swapAmountsFromLadder(args: {
     capacityExceeded: result.remaining > 0n,
   };
 }
+
+/** Human-readable remaining quote validity (pure; ~0.248 s/slot on Devnet). */
+export function quoteCountdown(
+  expirySlot: number,
+  currentSlot: number,
+  secPerSlot = 0.248,
+): { slots: number; seconds: number; label: string } {
+  const slots = Math.max(0, expirySlot - currentSlot);
+  const seconds = slots * secPerSlot;
+  return {
+    slots,
+    seconds,
+    label: slots > 0 ? `valid for ${slots} more slots (~${seconds.toFixed(1)}s)` : 'quote expired — swaps disabled',
+  };
+}
+
+/**
+ * Largest gross input the committed ladder can fully absorb for a side, in
+ * input atoms (mirrors the program's per-level `max_input` sum, inverted for the
+ * fee). `0n` when the ladder is empty. Used to show an accurate "Max" and to
+ * refuse a partial fill rather than presenting it as a full-swap estimate.
+ */
+export function maxGrossInput(levels: LadderLevel[], side: SwapSideName, feeBps: number): bigint {
+  if (levels.length === 0) return 0n;
+  const mathSide: 'ask' | 'bid' = side === 'buyBase' ? 'ask' : 'bid';
+  let maxNet = 0n;
+  for (const level of levels) {
+    try {
+      maxNet += maxInput(level, mathSide);
+    } catch {
+      return 0n; // malformed level -> no guaranteed capacity
+    }
+  }
+  const bps = BigInt(Math.max(0, Math.min(10_000, feeBps)));
+  if (bps >= 10_000n) return 0n;
+  // Largest gross whose net (gross - fee) is <= maxNet.
+  let gross = maxNet >= (1n << 200n) ? maxNet : (maxNet * 10_000n) / (10_000n - bps);
+  let guard = 0n;
+  while (gross > 0n && gross - feeAtoms(gross, feeBps) > maxNet && guard < 1_000_000n) {
+    gross -= 1n;
+    guard += 1n;
+  }
+  return gross;
+}
