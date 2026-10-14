@@ -1,38 +1,38 @@
 {
   "build_method": "cargo build-sbf (no idl-build)",
   "instructions": {
-    "accept_admin": 9367,
-    "bond_keeper": 24630,
+    "accept_admin": 9365,
+    "bond_keeper": 27630,
     "cancel_admin": 7555,
-    "claim_keeper_reward": 13828,
-    "claim_withdraw": 23728,
-    "crank_epoch": 5162,
-    "deposit": 43653,
-    "propose_admin": 8060,
-    "request_withdraw": 19662,
-    "slash_keeper": 13901,
-    "swap": 59327,
-    "update_quote": 38563,
-    "update_quote_wide_conf_rejected": 15689
+    "claim_keeper_reward": 14267,
+    "claim_withdraw": 23730,
+    "crank_epoch": 5164,
+    "deposit": 46657,
+    "propose_admin": 8064,
+    "request_withdraw": 18160,
+    "slash_keeper": 16901,
+    "swap": 63579,
+    "update_quote": 49336,
+    "update_quote_wide_conf_rejected": 16875
   },
   "instructions_stats": {
     "accept_admin": {
-      "max": 9367,
-      "mean": 9367.0,
-      "median": 9367,
-      "min": 9367,
+      "max": 9365,
+      "mean": 9365.0,
+      "median": 9365,
+      "min": 9365,
       "n": 5,
       "range": 0,
       "stdev": 0.0
     },
     "bond_keeper": {
-      "max": 27630,
-      "mean": 24930.0,
-      "median": 24630,
-      "min": 23130,
+      "max": 29130,
+      "mean": 27630.0,
+      "median": 27630,
+      "min": 26130,
       "n": 5,
-      "range": 4500,
-      "stdev": 1749.3
+      "range": 3000,
+      "stdev": 948.7
     },
     "cancel_admin": {
       "max": 7555,
@@ -44,99 +44,99 @@
       "stdev": 0.0
     },
     "claim_keeper_reward": {
-      "max": 13828,
-      "mean": 13828.0,
-      "median": 13828,
-      "min": 13828,
+      "max": 14267,
+      "mean": 14267.0,
+      "median": 14267,
+      "min": 14267,
       "n": 5,
       "range": 0,
       "stdev": 0.0
     },
     "claim_withdraw": {
-      "max": 23749,
-      "mean": 23732.2,
-      "median": 23728,
-      "min": 23728,
+      "max": 23751,
+      "mean": 23734.2,
+      "median": 23730,
+      "min": 23730,
       "n": 5,
       "range": 21,
       "stdev": 8.4
     },
     "crank_epoch": {
-      "max": 5162,
-      "mean": 5162.0,
-      "median": 5162,
-      "min": 5162,
+      "max": 5164,
+      "mean": 5164.0,
+      "median": 5164,
+      "min": 5164,
       "n": 5,
       "range": 0,
       "stdev": 0.0
     },
     "deposit": {
-      "max": 48153,
-      "mean": 44557.2,
-      "median": 43653,
-      "min": 43653,
+      "max": 49657,
+      "mean": 46657.0,
+      "median": 46657,
+      "min": 43657,
       "n": 5,
-      "range": 4500,
-      "stdev": 1797.9
+      "range": 6000,
+      "stdev": 2121.3
     },
     "propose_admin": {
-      "max": 8060,
-      "mean": 8060.0,
-      "median": 8060,
-      "min": 8060,
+      "max": 8064,
+      "mean": 8064.0,
+      "median": 8064,
+      "min": 8064,
       "n": 5,
       "range": 0,
       "stdev": 0.0
     },
     "request_withdraw": {
-      "max": 24162,
-      "mean": 19962.0,
-      "median": 19662,
-      "min": 18162,
+      "max": 22660,
+      "mean": 19360.0,
+      "median": 18160,
+      "min": 18160,
       "n": 5,
-      "range": 6000,
-      "stdev": 2204.5
+      "range": 4500,
+      "stdev": 1749.3
     },
     "slash_keeper": {
-      "max": 13901,
-      "mean": 13901.0,
-      "median": 13901,
-      "min": 13901,
-      "n": 5,
-      "range": 0,
-      "stdev": 0.0
-    },
-    "swap": {
-      "max": 59348,
-      "mean": 59334.6,
-      "median": 59327,
-      "min": 59327,
+      "max": 16922,
+      "mean": 16905.2,
+      "median": 16901,
+      "min": 16901,
       "n": 5,
       "range": 21,
-      "stdev": 9.4
+      "stdev": 8.4
+    },
+    "swap": {
+      "max": 65079,
+      "mean": 63879.0,
+      "median": 63579,
+      "min": 63579,
+      "n": 5,
+      "range": 1500,
+      "stdev": 600.0
     },
     "update_quote": {
-      "max": 41563,
-      "mean": 38863.0,
-      "median": 38563,
-      "min": 37063,
+      "max": 50836,
+      "mean": 49336.0,
+      "median": 49336,
+      "min": 47836,
       "n": 5,
-      "range": 4500,
-      "stdev": 1749.3
+      "range": 3000,
+      "stdev": 948.7
     },
     "update_quote_wide_conf_rejected": {
-      "max": 18689,
-      "mean": 15989.0,
-      "median": 15689,
-      "min": 14189,
+      "max": 18375,
+      "mean": 16875.0,
+      "median": 16875,
+      "min": 15375,
       "n": 5,
-      "range": 4500,
-      "stdev": 1749.3
+      "range": 3000,
+      "stdev": 948.7
     }
   },
-  "note": "LiteSVM CU varies run-to-run; `instructions` is the per-instruction median. The program id (declare_id) changed to a fresh devnet id after this measurement; the id is a compile-time constant and does not affect CU. `so_sha256`/`so_bytes` are the deployed HEAD build.",
+  "note": "LiteSVM CU varies run-to-run (transfer-heavy instructions up to a few thousand CU); `instructions` is the per-instruction median over `samples_per_instruction` fresh runs. See docs/SECURITY_CHECKLIST.md \u00a73.",
   "samples_per_instruction": 5,
-  "so_bytes": 688616,
-  "so_sha256": "9a05056e4c50630f6618c975d0ecec931b421159f7d3c813383ad5670677730a",
+  "so_bytes": 772256,
+  "so_sha256": "0cdf9575bc91c4829706f6b1886341877625174f3d46c50b83c306c8904826c1",
   "source": "cargo build-sbf + litesvm_lifecycle.rs::measure_instruction_compute_units"
 }

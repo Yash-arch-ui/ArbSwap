@@ -1,10 +1,10 @@
 {
-  "commit": "ef10871e9e6ecacdfd176b13774ae2e9a2be48e6",
+  "commit": "604252da968f70ddd63e5e00a8cbce68522111f6",
   "data_sha256": {},
   "files": {
     "cu.json": {
       "schema": "../schema/cu.json",
-      "sha256": "552b7775b4baa7f8613d514d4037192aa6a15489fa09a4f6ffa042956297fa2d"
+      "sha256": "5f6f2f7eb15df1759499f7599ba2e8457317c51b4b8010883c703dbb6dabb275"
     },
     "e8_proxy.json": {
       "schema": "../schema/e8_proxy.json",
@@ -16,7 +16,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "f8b7a4157a9d7ed732740273068f1404e11dff913d3d171e2b804155d5cc28e9"
+      "sha256": "56b68b515564686111c2625c8e2f2022ca07367924e21dcd2c84b860a82d6296"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -43,5 +43,5 @@
   "generated": "2026-10-14",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "ef10871"
+  "short": "604252d"
 }
