@@ -28,6 +28,13 @@ if [[ -z "${PYTH_API_KEY:-}" ]]; then
 fi
 
 export ARBSWAP_KEYPAIR="${ARBSWAP_KEYPAIR:-$HOME/.config/solana/id.json}"
+# The driver reads the endpoint from `ARBSWAP_RPC_URL`; without this export the
+# positional `rpc` argument would only name the lock file and the driver would
+# silently fall back to the default provider.
+export ARBSWAP_RPC_URL="$RPC"
+# Optional comma-separated fallbacks (e.g. a public endpoint alongside Helius).
+export ARBSWAP_RPC_FALLBACKS="${ARBSWAP_RPC_FALLBACKS:-}"
+export MAX_FETCH_AGE_MS="${MAX_FETCH_AGE_MS:-1000}"
 
 # Single-instance guard for the whole lifetime of this runner.
 exec 9>"$LOCK"

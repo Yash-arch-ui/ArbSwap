@@ -4,6 +4,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { ArbLogo } from '../ui/Orbs';
 import { useProtocol } from '../context/ProtocolContext';
 import { CLUSTER } from '../chain/config';
+import { ModeBadge } from './ReadOnlyMode';
 
 export type NavTab = 'overview' | 'swap' | 'vault' | 'risk' | 'analytics';
 
@@ -74,6 +75,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
           <span>{CLUSTER === 'mainnet-beta' ? 'Mainnet' : CLUSTER === 'devnet' ? 'Devnet' : 'Localnet'}</span>
           <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>Slot {quoteState.currentSlot}</span>
           <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>quote v{quoteState.version}</span>
+          <ModeBadge />
           <span
             style={{ color: genesisVerified && programVerified ? 'var(--uni-accent1)' : 'var(--uni-warning)', fontSize: 11 }}
             title="Devnet genesis hash and deployed program account verified before data is trusted"

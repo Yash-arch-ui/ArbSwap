@@ -1844,3 +1844,90 @@ Report: [`docs/S2_33_ANALYTICS_PIPELINE.md`](S2_33_ANALYTICS_PIPELINE.md).
   true); `cargo fmt` clean; docs-consistency pass; secrets CLEAN.
 - **No blockchain transaction, signing, program or config change.** Markouts remain
   `pending` (no historical Pyth observations indexed).
+
+## Part 3 / Step 38 — S2-35 end-to-end swap completion
+
+Report: [`docs/S2_35_END_TO_END_SWAP_COMPLETION.md`](S2_35_END_TO_END_SWAP_COMPLETION.md).
+
+- **Working tree note.** A second agent had left uncommitted S2-36 work
+  (`ProtocolContext`/`SwapPage`/`rpcFailover`/`dataState`/`vaultRead` + tests).
+  It was preserved and integrated, not discarded; only the execution-mode/gating,
+  keeper tooling, preflight tooling and docs were changed by this step.
+- **Phase 1 — blanket read-only removed.** `APP_MODE` (`trade` default,
+  `read-only` diagnostic) + `TRANSACTIONS_ENABLED` (trade on Devnet only) +
+  `TRANSACTION_DISABLED_REASON`; state-aware `liveSwapGateReason`; `ModeBadge`;
+  Swap/Vault/KeeperRewards gated by the real checks; VaultPage false-`✓`
+  success-on-failure fixed. Tests updated/added.
+- **Phase 2 — preflight (read-only).** New `scripts/devnet/preflight.ts`:
+  genesis Devnet; program `b4df2b0f…` **MATCH**; vault Active, total_shares
+  108,980,882; Config fee 1 / expiry 10 / staleness 2 / conf 10 / min_bond 0;
+  reserves 0.313621726 WSOL + 37.75 USDC; WSOL 9 / USDC 6.
+- **Phase 3 — keeper optimised.** Concurrent fetch/slot/blockhash, one blockhash
+  per pipeline, first-accepted multi-endpoint broadcast (17 tests), `processed`
+  staging waits, bounded short backoff; `keeper_loop.sh` now exports its RPC arg
+  (it was silently ignored). Liveness **v28 → v73** with `COMMITTED_AND_VERIFIED`
+  commits (e.g. v37 `5HLsz3DW…`, v47 `3RdDLi5s…`, v73 `yTk9ZWPc…`), author
+  `8R3V…`.
+- **Phase 4 — liveness measured, no rule weakened.** 3-tx pipeline ≈3 s wall vs
+  the 2 s oracle rule; commits happen but not continuously; a single-packet
+  program change would be required and was **not** made (no redeploy).
+- **Phase 5/6 — frontend + browser.** Integer-exact amounts, idempotent ATAs,
+  connected-wallet signer, confirm-then-success, submit-time `fetchFreshQuote`;
+  poll tightened to 1.5 s (10-slot expiry). Browser E2E **exit 0**, 0
+  exceptions/console errors, `modeBadge: trading`, no read-only banner. Focused
+  probe observed a **Fresh** quote **11/120** samples while the keeper ran.
+- **Phase 7 — live swap NOT submitted.** No browser wallet in this environment;
+  signing through a CLI/operator key would not be the acceptance test and
+  injecting a key into the page is prohibited. No asset-moving tx.
+- **Phase 8 — validation (actual).** fmt clean; CI-scoped clippy clean; workspace
+  tests green (program 100 + recovery 8 + oracle 3 + security 3 + breaker 2 +
+  fixtures 1; keeper 45); Python 228 passed/2 skipped; keeper TS 17/9/24; app
+  lint+tsc clean, **88 tests**, build clean (no secrets in a public-RPC build);
+  browser E2E pass; secrets CLEAN; docs-consistency pass.
+- **Boundary.** No deploy/upgrade, keys sync, authority/config/oracle change,
+  mint/deposit/withdraw/claim/transfer, swap, or push. Operator action for the
+  live swap is in the report §9.
+
+## Part 3 / Step 39 — S2-35 completion pass (verification + submit-time freshness)
+
+Report addendum: [`docs/S2_35_END_TO_END_SWAP_COMPLETION.md`](S2_35_END_TO_END_SWAP_COMPLETION.md) §10.
+
+This pass re-ran the full verification suite on the (previously uncommitted)
+S2-35 working tree, closed one code/claim gap, and committed the result.
+
+- **Gap closed — submit-time fresh quote.** `fetchFreshQuote` existed but was not
+  called by `SwapPage`; the swap submitted the *polled* `quoteState.version` and
+  `min_out`. `SwapPage.handleSwap` now re-reads the live committed quote at submit
+  time, rebuilds the integer ladder plan from the *current* committed levels,
+  derives `min_out` from it, and submits against the live `version`; it refuses on
+  expiry/capacity with a concrete reason (new pure gate `submitFreshnessReason`,
+  +4 tests). `fetchFreshQuote` now also returns the raw ask/bid ladders.
+- **Keeper liveness re-verified (live, Helius).** Genesis-verified, deployed
+  program hash `b4df2b0f…` **MATCH** vs HEAD build (no redeploy). Bounded keeper
+  runs advanced `QuoteState` **v77 → v93**, with `COMMITTED_AND_VERIFIED` commits
+  (e.g. v78 `3bWpwRgW…`, v83 `4WRFsycc…`, v87 `t7zFNogq…`, v92 `4NcFkqY8…`),
+  author `8R3V…`. Failure categories were the documented latency ones (`6015`
+  InvalidOracle ×3, `6037` UpdateSlotTooOld ×1) — no rule was weakened.
+- **Fresh-quote observation (honest).** Focused browser probe this run observed
+  **0 / 85** fresh samples: most commits landed already expired at confirmation
+  because the 3-tx stage→VAA→push+commit pipeline cannot reliably beat the
+  deployed 2 s oracle rule on the available RPC. The app rendered the expired
+  book honestly (`swapHonestState`, `expiredQuoteLabelled` true) and never offered
+  a stale fill.
+- **Browser E2E.** `app/e2e/browser-smoke.mjs` **exit 0**: 0 exceptions, 0 console
+  errors, `modeBadge: true`, `readOnlyBanner: false`, `swapHonestState: true`,
+  `analyticsHistory: true`. Added optional focused fresh-quote sampling
+  (`FRESH_SAMPLE_MS`, recorded not gated).
+- **Phase 7 — live swap still NOT submitted.** No browser wallet extension in this
+  headless environment; injecting a signing key into the page is prohibited and a
+  CLI swap is not the acceptance test. No asset-moving transaction was sent.
+- **Phase 8 — validation (actual, this session).** `cargo fmt` clean; CI-scoped
+  clippy clean; `cargo test --workspace` green (lifecycle 100, recovery 8, oracle
+  3, security 3, breaker 2, fixtures 1, keeper 45, math/aggregator suites); Python
+  `pytest simulation` 228 passed / 2 skipped; keeper TS 17/9/24; app `yarn lint` +
+  `tsc -b` clean, **92 tests**, `yarn build` clean with no `helius`/`api-key`
+  string in `dist`; browser E2E pass; secrets CLEAN; docs-consistency pass.
+- **Boundary.** No deploy/upgrade, no `anchor keys sync`, no authority/config/
+  oracle change, no mint/deposit/withdraw/claim/transfer, no swap. This pass
+  commits the S2-35 work; operator action for the live browser swap is in the
+  report §9/§10.

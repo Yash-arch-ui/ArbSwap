@@ -36,6 +36,7 @@ import {
   type CommitObservation,
 } from "./keeper_commit";
 import { resolveRpcConfig, RpcPool } from "./rpc";
+import { broadcastTransaction, type RpcEndpoint } from "./broadcast";
 
 const PROGRAM = new PublicKey("2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm");
 const VAULT = new PublicKey("8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt");
@@ -168,14 +169,14 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 async function getTransactionWithRetry(
   connection: Connection,
   sig: string,
-  attempts = 6,
+  attempts = 3,
 ): Promise<Awaited<ReturnType<Connection["getTransaction"]>>> {
   for (let i = 1; i <= attempts; i += 1) {
     const tx = await connection
       .getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 })
       .catch(() => null);
     if (tx) return tx;
-    await sleep(backoffDelayMs(i, 300, 3_000));
+    await sleep(backoffDelayMs(i, 200, 1_000));
   }
   return null;
 }
@@ -213,10 +214,24 @@ async function main() {
   const pool = new RpcPool({ endpoints: rpcConfig.endpoints, cluster: rpcConfig.cluster });
   await pool.assertCluster();
   const connection = pool.connection;
+  // S2-35: the same signed bytes are broadcast to every configured endpoint
+  // concurrently; the first to land wins and duplicate submissions collapse to
+  // the one signature. This removes a single-provider send bottleneck without
+  // changing what is sent or relaxing any on-chain guard.
+  const endpoints: RpcEndpoint[] = rpcConfig.endpoints.map((url) => ({
+    url,
+    connection: new Connection(url, "processed"),
+  }));
+  const broadcastBuckets = new Map();
   const wallet = new Wallet(keeper);
   const hermes = new HermesClient(process.env.HERMES_URL ?? "https://hermes.pyth.network", process.env.PYTH_API_KEY ? { accessToken: process.env.PYTH_API_KEY } : {});
   const receiver = new PythSolanaReceiver({ connection, wallet });
   const dryRun = process.env.DRY_RUN === "1";
+  // S2-35: bounded, short backoff so a transient timing failure (freshness /
+  // stage-age) is retried while the current Hermes update is still usable,
+  // instead of waiting out a long exponential delay and missing the window.
+  const backoffBase = Number(process.env.KEEPER_BACKOFF_BASE_MS ?? 200);
+  const backoffCap = Number(process.env.KEEPER_BACKOFF_CAP_MS ?? 1_500);
   if (dryRun) console.error(`keeper DRY_RUN: no transactions will be sent (rpc=${rpcConfig.endpoints[0]})`);
 
   const feed = Buffer.from(FEED_ID, "hex");
@@ -245,15 +260,23 @@ async function main() {
   for (let attempt = 1; attempt <= attempts && !(success && runSeconds === 0); attempt += 1) {
     if (runSeconds > 0 && Date.now() > deadline) break;
     const tCycle = Date.now();
-    // 1. Fresh Hermes update (fetched immediately before staging/posting).
+    // 1. Fetch the fresh Hermes update, the current slot and a blockhash
+    // concurrently (S2-35). None of these round trips needs the others, so
+    // serialising them would spend latency inside the deployed 2 s oracle
+    // freshness window. The blockhash is valid for ~150 slots; the pipeline
+    // lands in a handful.
     const tH = Date.now();
-    const updates = await hermes.getLatestPriceUpdates([`0x${FEED_ID}`], { encoding: "base64" });
+    const [updates, slot, blockhashRes] = await Promise.all([
+      hermes.getLatestPriceUpdates([`0x${FEED_ID}`], { encoding: "base64" }),
+      connection.getSlot("processed"),
+      connection.getLatestBlockhash("processed"),
+    ]);
     const hermesMs = Date.now() - tH;
+    const blockhash = blockhashRes.blockhash;
     const parsed = updates.parsed?.[0]?.price;
     if (!parsed) throw new Error("hermes returned no parsed price");
     const publishTime = parsed.publish_time;
     const conf = confBps(String(parsed.conf), String(parsed.price));
-    const slot = await connection.getSlot("processed");
     const q64 = priceQ64(String(parsed.price), parsed.expo);
     console.log(`attempt=${attempt} publish_time=${publishTime} age_ms=${Date.now() - publishTime * 1000} slot=${slot} price_q64=${q64} conf_bps=${conf}`);
 
@@ -322,13 +345,20 @@ async function main() {
     const pushItems = postInstructions.filter((p: any) => p.instruction.programId.toBase58() === PUSH_ORACLE);
     if (pushItems.length !== 1) throw new Error(`expected 1 push instruction, got ${pushItems.length}`);
 
-    const { blockhash } = await connection.getLatestBlockhash("processed");
+    // S2-35: one blockhash for the whole pipeline (fetched concurrently with
+    // the Hermes update above). A blockhash is valid for ~150 slots while the
+    // pipeline lands in a handful, so re-fetching before the push only injects
+    // an extra RPC round trip inside the deployed 2 s oracle-freshness window.
+    // The program — not the blockhash — is the safety gate, so this removes
+    // latency without weakening any check.
     const stageTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
     stageTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
+    stageTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }));
     stageTx.add(stageIx);
     stageTx.sign(keeper);
 
     const vaaTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
+    vaaTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
     vaaTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }));
     const vaaSigners: any[] = [];
     for (const item of vaaItems) {
@@ -337,10 +367,7 @@ async function main() {
     }
     vaaTx.sign(keeper, ...vaaSigners);
 
-    // S2-23: the push+commit tx is sent after stage/vaa confirm, so it gets its
-    // own fresh blockhash to avoid a stale blockhash/lastValidBlockHeight.
-    const { blockhash: pushBlockhash } = await connection.getLatestBlockhash("processed");
-    const pushTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: pushBlockhash });
+    const pushTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
     pushTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
     pushTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }));
     pushTx.add(pushItems[0].instruction);
@@ -354,30 +381,27 @@ async function main() {
       continue;
     }
 
-    const txTimes: Record<string, { sendMs: number; confirmMs: number }> = {};
-    const send = async (tx: Transaction, _bh: string, label: string): Promise<string> => {
-      const ts = Date.now();
-      const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 2, preflightCommitment: "processed" });
-      const sendMs = Date.now() - ts;
-      const tc = Date.now();
-      // S2-29: confirm by fast bounded `getSignatureStatuses` polling rather than
-      // `confirmTransaction` (which relies on the websocket and fell back to slow
-      // polling, pushing the staged pipeline past the 2 s freshness window). A
-      // program error is surfaced; a missing status is never treated as success.
-      const deadline = Date.now() + 12_000;
-      for (;;) {
-        const status = await connection
-          .getSignatureStatuses([sig], { searchTransactionHistory: false })
-          .catch(() => null);
-        const v = status?.value?.[0];
-        if (v?.err) throw new Error(`tx ${sig} failed: ${JSON.stringify(v.err)}`);
-        if (v && (v.confirmationStatus === "confirmed" || v.confirmationStatus === "finalized")) {
-          txTimes[label] = { sendMs, confirmMs: Date.now() - tc };
-          return sig;
-        }
-        if (Date.now() > deadline) throw new Error(`tx ${sig} not confirmed within 12s`);
-        await sleep(150);
-      }
+    const txTimes: Record<string, { sendMs: number; confirmMs: number; endpoint?: string }> = {};
+    // S2-35: broadcast the same signed bytes to every configured endpoint
+    // concurrently; the first to land wins and duplicate submissions collapse
+    // to one signature. `processed` ordering is enough for the staging legs (the
+    // push must simply be scheduled after them); the push+commit leg is
+    // additionally re-verified at `confirmed` via `getTransaction` below before
+    // any success is reported. A program error is surfaced; a missing status is
+    // never treated as success.
+    const send = async (tx: Transaction, label: string): Promise<string> => {
+      const res = await broadcastTransaction(
+        endpoints,
+        tx.serialize(),
+        { pollIntervalMs: 50, timeoutMs: 12_000, rpcPerMinuteCap: 900, now: Date.now },
+        broadcastBuckets,
+      );
+      txTimes[label] = {
+        sendMs: Math.round(res.sendMs),
+        confirmMs: Math.round(res.confirmMs),
+        endpoint: res.endpoint,
+      };
+      return res.signature;
     };
 
     // S2-18: capture the version we are updating FROM, so success can require a
@@ -390,17 +414,17 @@ async function main() {
     let vaaSig: string | null = null;
     let pushSig: string | null = null;
     try {
-      [stageSig, vaaSig] = await Promise.all([send(stageTx, blockhash, "stage"), send(vaaTx, blockhash, "vaa")]);
-      console.log(`stage_sig=${stageSig}`);
-      console.log(`vaa_sig=${vaaSig}`);
-      pushSig = await send(pushTx, pushBlockhash, "push");
+      [stageSig, vaaSig] = await Promise.all([send(stageTx, "stage"), send(vaaTx, "vaa")]);
+      console.log(`stage_sig=${stageSig} stage_ms=${JSON.stringify(txTimes.stage)}`);
+      console.log(`vaa_sig=${vaaSig} vaa_ms=${JSON.stringify(txTimes.vaa)}`);
+      pushSig = await send(pushTx, "push");
     } catch (e) {
       // Ambiguous submit/confirm: inspect whatever landed before doing anything
       // else, then back off. Never blindly resubmit the same transaction.
       await inspectAmbiguous(connection, [stageSig, vaaSig, pushSig].filter((s): s is string => !!s));
       failures += 1;
       console.error(`attempt=${attempt} submit/confirm failed:`, (e as Error).message);
-      await sleep(backoffDelayMs(failures));
+      await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
       continue;
     }
 
@@ -461,7 +485,7 @@ async function main() {
       }
     } else {
       failures += 1;
-      await sleep(backoffDelayMs(failures));
+      await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
     }
   }
   if (!success) {

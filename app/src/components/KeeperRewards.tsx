@@ -3,7 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 import { fetchKeeperReward, claimKeeperReward } from '../chain/program';
 import { useProtocol } from '../context/ProtocolContext';
-import { READ_ONLY_MODE } from '../chain/config';
+import { TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON } from '../chain/config';
 
 /**
  * S2-24: keeper reward surface. Shows the *connected* wallet's own claimable
@@ -17,7 +17,7 @@ export const KeeperRewards: React.FC = () => {
   const { refreshBalances } = useProtocol();
   const [reward, setReward] = useState<{ base: bigint; quote: bigint } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
 
   const load = useCallback(async () => {
     if (!publicKey) {
@@ -36,17 +36,17 @@ export const KeeperRewards: React.FC = () => {
   }, [load]);
 
   const claim = async () => {
-    if (READ_ONLY_MODE) { setNote('Read-only mode: claiming is disabled.'); return; }
+    if (!TRANSACTIONS_ENABLED) { setNote({ text: TRANSACTION_DISABLED_REASON ?? 'Transactions are disabled in this build.', ok: false }); return; }
     if (!connected || !wallet) return;
     setLoading(true);
     setNote(null);
     try {
       const sig = await claimKeeperReward(connection, wallet);
-      setNote(`Claimed: ${sig.slice(0, 8)}…`);
+      setNote({ text: `Claimed: ${sig.slice(0, 8)}…`, ok: true });
       await load();
       await refreshBalances();
     } catch (error) {
-      setNote(`Claim failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+      setNote({ text: `Claim failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`, ok: false });
     } finally {
       setLoading(false);
     }
@@ -72,15 +72,15 @@ export const KeeperRewards: React.FC = () => {
           type="button"
           className="uni-main-button"
           style={{ width: 'auto', padding: '8px 16px' }}
-          disabled={READ_ONLY_MODE || !connected || !hasReward || loading}
+          disabled={!TRANSACTIONS_ENABLED || !connected || !hasReward || loading}
           onClick={claim}
         >
-          {READ_ONLY_MODE ? 'Read-only mode' : loading ? 'Claiming…' : hasReward ? 'Claim keeper reward' : 'Nothing to claim'}
+          {!TRANSACTIONS_ENABLED ? 'Transactions disabled' : loading ? 'Claiming…' : hasReward ? 'Claim keeper reward' : 'Nothing to claim'}
         </button>
       </div>
       {note && (
-        <p className="mono" style={{ fontSize: 12, margin: '8px 0 0' }}>
-          {note}
+        <p className="mono" style={{ fontSize: 12, margin: '8px 0 0', color: note.ok ? 'var(--uni-success)' : 'var(--uni-warning)' }} role={note.ok ? 'status' : 'alert'}>
+          {note.ok ? '✓' : '⚠'} {note.text}
         </p>
       )}
     </div>

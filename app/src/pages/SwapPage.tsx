@@ -3,16 +3,22 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
-import { swap as swapOnChain } from '../chain/program';
+import { swap as swapOnChain, fetchFreshQuote } from '../chain/program';
 import { parseUnits, formatUnits } from '../chain/amounts';
 import { swapAmountsFromLadder, type SwapSideName, type LadderLevel } from '../chain/swapMath';
-import { swapUnavailableReason } from '../chain/gating';
-import { ACTIVE_VAULT, READ_ONLY_MODE } from '../chain/config';
-import { ReadOnlyBanner, READ_ONLY_NOTICE } from '../components/ReadOnlyMode';
+import { liveSwapGateReason, submitFreshnessReason } from '../chain/gating';
+import { isTransportError } from '../chain/dataState';
+import { ACTIVE_VAULT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON } from '../chain/config';
+import { ReadOnlyBanner } from '../components/ReadOnlyMode';
 import './SwapPage.css';
 
 export const SwapPage: React.FC = () => {
-  const { quoteState, tokens, riskBreakers, protocolParams, refreshBalances, refreshProtocol, walletAtoms, vaultInitialized, quoteAvailable, liveError } = useProtocol();
+  const {
+    quoteState, tokens, riskBreakers, protocolParams,
+    refreshBalances, refreshProtocol, retryNow,
+    walletAtoms, vaultSource, vaultExists, rpcStatus, balancesSource,
+    quoteAvailable, lastUpdatedAt, genesisVerified,
+  } = useProtocol();
   const connection = APP_RPC_FAILOVER.connection;
   const { connected, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
@@ -83,16 +89,85 @@ export const SwapPage: React.FC = () => {
     }
     return null;
   })();
+  const transportError = isTransportError(vaultSource.errorKind);
+  const vaultUninitialized = vaultExists === false;
+  const rpcRateLimited = vaultSource.errorKind === 'rate_limited';
+  const balancesAvailable = balancesSource.state === 'live';
+  const priceAvailable = quoteState.hasQuote && quoteState.oraclePrice > 0;
+  const stale = vaultSource.state === 'stale';
+
   const swapBlockedReason =
     balanceReason ??
     capacityReason ??
-    swapUnavailableReason({
-      vaultInitialized,
+    liveSwapGateReason({
+      vaultState: vaultSource.state,
+      vaultExists,
+      errorKind: vaultSource.errorKind,
+      genesisVerified,
       circuitBreakerTripped: riskBreakers.circuitBreakerTripped,
       quoteAvailable,
+      quoteStatus: quoteState.status,
     });
-  // S2-32: in read-only mode nothing can be submitted, regardless of quote state.
-  const submitBlockedReason = READ_ONLY_MODE ? READ_ONLY_NOTICE : swapBlockedReason;
+  // S2-35/S2-36: submission is gated by the resolved execution mode (the main
+  // agent's `TRANSACTIONS_ENABLED`); the state-aware gate governs the rest.
+  const submitBlockedReason = !TRANSACTIONS_ENABLED
+    ? (TRANSACTION_DISABLED_REASON ?? 'Transactions are disabled in this build.')
+    : swapBlockedReason;
+
+  // A single, state-aware liquidity-book heading (never "ACTIVE" unless fresh).
+  const bookHeading = (() => {
+    if (rpcRateLimited) return 'RPC RATE LIMITED';
+    if (transportError) return 'RPC UNAVAILABLE';
+    if (vaultSource.state === 'loading') return 'LOADING BOOK';
+    if (vaultUninitialized) return 'VAULT UNINITIALIZED';
+    if (vaultSource.state === 'invalid') return 'BOOK INVALID';
+    if (!quoteState.hasQuote) return 'QUOTE UNAVAILABLE';
+    if (quoteState.status === 'Fresh') return '6-LEVEL ACTIVE BOOK';
+    return `LAST-KNOWN BOOK — ${quoteState.status.toUpperCase()}`;
+  })();
+
+  // Exactly one primary status message (no duplicated error paragraphs).
+  const primaryStatus = (() => {
+    if (rpcRateLimited) {
+      return {
+        tone: 'warning',
+        title: 'Devnet RPC is rate-limiting requests (HTTP 429).',
+        body: 'Live vault and quote data could not be refreshed. Trading remains unavailable until the data read succeeds.',
+      };
+    }
+    if (transportError) {
+      return {
+        tone: 'warning',
+        title: 'Live data read failed.',
+        body: `${vaultSource.reason ?? 'The Devnet read failed.'} Trading remains unavailable until the read succeeds.`,
+      };
+    }
+    if (vaultSource.state === 'invalid') {
+      return { tone: 'critical', title: 'Vault account failed validation.', body: vaultSource.reason ?? 'Owner/layout mismatch.' };
+    }
+    if (vaultUninitialized) {
+      return {
+        tone: 'neutral',
+        title: 'Vault not initialized.',
+        body: 'A successful account lookup found no vault for the configured WSOL/USDC mints on Devnet, so swaps are disabled.',
+      };
+    }
+    if (stale) {
+      return {
+        tone: 'warning',
+        title: 'Showing last-known data (stale).',
+        body: vaultSource.reason ?? 'The latest refresh failed; values are not fresh.',
+      };
+    }
+    if (quoteState.hasQuote && quoteState.status !== 'Fresh') {
+      return {
+        tone: 'warning',
+        title: `Quote ${quoteState.status.toLowerCase()}.`,
+        body: `Version v${quoteState.version}, expiry slot ${quoteState.expirySlot} (current slot ${quoteState.currentSlot}). Swaps stay disabled until the keeper commits a new staged quote.`,
+      };
+    }
+    return null;
+  })();
 
   const flip = () => {
     setInTokenSymbol(outTokenSymbol);
@@ -100,9 +175,9 @@ export const SwapPage: React.FC = () => {
   };
 
   const handleSwap = async () => {
-    // Hard guard: this build is read-only and never signs or submits.
-    if (READ_ONLY_MODE) {
-      setSwapNote({ text: READ_ONLY_NOTICE, ok: false });
+    // Hard guard: never sign/submit unless this build is transaction-enabled.
+    if (!TRANSACTIONS_ENABLED) {
+      setSwapNote({ text: TRANSACTION_DISABLED_REASON ?? 'Transactions are disabled in this build.', ok: false });
       return;
     }
     if (!connected || !publicKey || !wallet) {
@@ -116,6 +191,34 @@ export const SwapPage: React.FC = () => {
     setIsSwapping(true);
     setSwapNote(null);
     try {
+      // S2-35: re-read the live committed quote at submission time. The polled
+      // ladder can be up to one poll interval older than the on-chain account,
+      // and the deployed quote expires after only `Config.expiry_slots` (10
+      // slots ≈2.4 s). Build `min_out` from the *current* committed ladder and
+      // submit against its version; refuse on expiry without submitting, so the
+      // app can never present a submission the program would reject.
+      const fresh = await fetchFreshQuote(connection);
+      const freshReason = submitFreshnessReason(fresh);
+      if (!fresh || freshReason) {
+        setSwapNote({ text: freshReason ?? 'Swaps unavailable: no live on-chain quote.', ok: false });
+        return;
+      }
+      const submitLevels: LadderLevel[] = (isSellingSol ? fresh.bidLevels : fresh.askLevels).map((l) => ({
+        sqrtLo: BigInt(l.sqrtLo.toString()),
+        sqrtHi: BigInt(l.sqrtHi.toString()),
+        liquidity: BigInt(l.liquidity.toString()),
+      }));
+      const submitAmounts = swapAmountsFromLadder({
+        side, amountInAtoms, feeBps, slippageBps, levels: submitLevels,
+      });
+      if (submitAmounts.capacityExceeded) {
+        setSwapNote({
+          text: 'Swaps unavailable: the committed ladder cannot fill this size (on-chain capacity cap). Not submitted.',
+          ok: false,
+        });
+        return;
+      }
+      const submitMinOutHuman = formatUnits(submitAmounts.minOut, outToken.decimals, 6);
       // SOL in = trader sells base; USDC in = trader buys base.
       const ixSide = isSellingSol ? { sellBase: {} } : { buyBase: {} };
       const signature = await swapOnChain(
@@ -123,14 +226,14 @@ export const SwapPage: React.FC = () => {
         wallet,
         ixSide as never,
         amountInAtoms,
-        amounts.minOut,
-        BigInt(quoteState.version),
+        submitAmounts.minOut,
+        fresh.version,
       );
       // Only report success after the transaction confirmed (the builder awaits
       // confirmation) and then refresh both the wallet balances and vault/quote
       // state so the UI reflects the new on-chain reality.
       setSwapNote({
-        text: `Swap confirmed ${signature.slice(0, 8)}… — minimum received enforced on-chain (${minOutHuman} ${outTokenSymbol}).`,
+        text: `Swap confirmed ${signature.slice(0, 8)}… — minimum received enforced on-chain (${submitMinOutHuman} ${outTokenSymbol}).`,
         ok: true,
       });
       await Promise.all([refreshBalances(), refreshProtocol()]);
@@ -153,27 +256,44 @@ export const SwapPage: React.FC = () => {
 
       <ReadOnlyBanner detail="Live quote, depth, and balances are read from Devnet, but this build cannot sign or submit swaps." />
 
-      {!vaultInitialized && (
-        <div className="uni-card" style={{ marginBottom: 12 }}>
-          <strong>Vault not initialized.</strong> No on-chain vault was read for the
-          configured WSOL/USDC vault, so swaps are disabled and no live price is shown.
+      {primaryStatus && (
+        <div
+          className="uni-card"
+          style={{ marginBottom: 12, borderColor: primaryStatus.tone === 'critical' ? 'var(--uni-critical)' : primaryStatus.tone === 'warning' ? 'var(--uni-warning)' : undefined }}
+          role={primaryStatus.tone === 'neutral' ? 'status' : 'alert'}
+        >
+          <strong>{primaryStatus.title}</strong> {primaryStatus.body}
+          {lastUpdatedAt && (
+            <span className="mono" style={{ fontSize: 11, color: 'var(--uni-neutral2)', marginLeft: 6 }}>
+              last read {new Date(lastUpdatedAt * 1000).toLocaleTimeString()} · {stale || transportError ? 'stale' : 'live'}
+            </span>
+          )}
+          {(transportError || stale) && (
+            <div style={{ marginTop: 8 }}>
+              <button type="button" onClick={() => retryNow()}>Retry now</button>
+              <details style={{ marginTop: 6 }}>
+                <summary className="mono" style={{ fontSize: 11, cursor: 'pointer' }}>diagnostics</summary>
+                <pre className="mono" style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: '6px 0 0' }}>
+{JSON.stringify({
+  vaultState: vaultSource.state,
+  errorKind: vaultSource.errorKind,
+  endpoint: rpcStatus.endpoint,
+  consecutiveFailures: rpcStatus.consecutiveFailures,
+  failuresByKind: rpcStatus.failuresByKind,
+  lastSuccessAt: rpcStatus.lastSuccessAt ? new Date(rpcStatus.lastSuccessAt).toISOString() : null,
+  pollDelayMs: rpcStatus.pollDelayMs,
+  autoRetryPaused: rpcStatus.autoRetryPaused,
+}, null, 2)}
+                </pre>
+              </details>
+            </div>
+          )}
         </div>
       )}
 
-      {liveError && (
-        <div className="uni-card" style={{ marginBottom: 12, borderColor: 'var(--uni-warning)' }} role="alert">
-          <strong>Chain read error:</strong> {liveError}. Last known values are
-          retained; the app retries every 4&nbsp;s.{' '}
-          <button type="button" onClick={() => { void refreshProtocol(); }}>Retry now</button>
-        </div>
-      )}
-
-      {quoteState.hasQuote && quoteState.status !== 'Fresh' && (
+      {rpcStatus.autoRetryPaused && (
         <div className="uni-card" style={{ marginBottom: 12 }} role="status">
-          <strong>Quote {quoteState.status.toLowerCase()}.</strong>{' '}
-          Version v{quoteState.version}, expiry slot {quoteState.expirySlot} (current slot{' '}
-          {quoteState.currentSlot}). Swaps stay disabled until the keeper commits a new
-          staged quote.
+          Background retries are paused to avoid hammering the rate-limited provider. Use <strong>Retry now</strong> above to try again.
         </div>
       )}
 
@@ -181,40 +301,27 @@ export const SwapPage: React.FC = () => {
         {/* ---- Left: Depth Ladder ---- */}
         <div className="depth-ladder-panel">
           <div className="depth-ladder-header">
-            <span className="mono depth-ladder-title">
-              {quoteState.hasQuote && quoteState.status !== 'Fresh'
-                ? `6-LEVEL LAST-KNOWN BOOK (${quoteState.status.toUpperCase()})`
-                : '6-LEVEL ACTIVE BOOK'}
-            </span>
+            <span className="mono depth-ladder-title">{bookHeading}</span>
             <span className="mono depth-ladder-subtitle">
-              SOL/USDC · {quoteState.hasQuote
+              SOL/USDC · {priceAvailable
                 ? `Half-spread: ${quoteState.halfSpreadBps.toFixed(2)} bps${quoteState.status !== 'Fresh' ? ' (last-known)' : ''}`
-                : 'Half-spread: unavailable'}
+                : 'Half-spread: N/A'}
             </span>
           </div>
 
-          {!quoteState.hasQuote ? (
-            liveError ? (
-              <div className="depth-unavailable" role="alert" aria-live="polite">
-                <strong>Could not read on-chain state</strong>
-                <p className="mono">
-                  The Devnet RPC read failed ({liveError}), so no price, spread, or
-                  depth can be shown. This is an endpoint/availability error — not an
-                  absent quote.{' '}
-                  <button type="button" onClick={() => { void refreshProtocol(); }}>Retry now</button>
-                </p>
-              </div>
-            ) : (
-              <div className="depth-unavailable" role="status" aria-live="polite">
-                <strong>Quote unavailable</strong>
-                <p className="mono">
-                  No committed on-chain quote was read for this vault, so no
-                  price, spread, or depth is shown. The keeper must publish a fresh
-                  staged quote (Pyth push + <code>commit_quote</code>) before this
-                  book can display real values.
-                </p>
-              </div>
-            )
+          {!quoteState.hasQuote || !priceAvailable ? (
+            <div className="depth-unavailable" role="status" aria-live="polite">
+              <strong>
+                {rpcRateLimited ? 'RPC rate limited' : transportError ? 'RPC unavailable' : vaultUninitialized ? 'Vault uninitialized' : 'Quote unavailable'}
+              </strong>
+              <p className="mono">
+                {rpcRateLimited || transportError
+                  ? 'The quote account could not be read, so no price, spread, or depth is shown. This is an endpoint error — not proof that the vault or quote is absent.'
+                  : vaultUninitialized
+                    ? 'No vault account exists for the configured mints, so there is nothing to quote.'
+                    : 'No readable on-chain quote was found for this vault, so no price, spread, or depth is shown.'}
+              </p>
+            </div>
           ) : (
             <>
               <div className="depth-cols">
@@ -325,10 +432,10 @@ export const SwapPage: React.FC = () => {
               </div>
             </div>
             <div className="uni-panel-foot">
-              <span>~${(parsedInAmount * (inTokenSymbol === 'SOL' ? quoteState.oraclePrice : 1)).toFixed(2)} USD</span>
+              <span>{inTokenSymbol === 'SOL' ? (priceAvailable ? `~$${(parsedInAmount * quoteState.oraclePrice).toFixed(2)} USD` : 'N/A') : `~$${parsedInAmount.toFixed(2)} USD`}</span>
               <span>
-                Balance: {connected ? `${inToken.balance} ${inToken.symbol}` : 'connect wallet'}
-                {connected && (
+                Balance: {!connected ? 'connect wallet' : balancesAvailable ? `${inToken.balance} ${inToken.symbol}` : 'Balance unavailable'}
+                {connected && balancesAvailable && (
                   <button type="button" className="uni-max" onClick={() => setInAmount(inToken.balance.toString())}>
                     Max
                   </button>
@@ -361,20 +468,20 @@ export const SwapPage: React.FC = () => {
               </div>
             </div>
             <div className="uni-panel-foot">
-              <span>~${(Number(expectedOutHuman) * (outTokenSymbol === 'SOL' ? quoteState.oraclePrice : 1)).toFixed(2)} USD (estimate)</span>
-              <span>Balance: {connected ? `${outToken.balance} ${outToken.symbol}` : 'connect wallet'}</span>
+              <span>{outTokenSymbol === 'SOL' ? (priceAvailable && expectedOutHuman !== '' ? `~$${(Number(expectedOutHuman) * quoteState.oraclePrice).toFixed(2)} USD (estimate)` : 'N/A') : `~$${Number(expectedOutHuman || 0).toFixed(2)} USD (estimate)`}</span>
+              <span>Balance: {!connected ? 'connect wallet' : balancesAvailable ? `${outToken.balance} ${outToken.symbol}` : 'Balance unavailable'}</span>
             </div>
           </div>
 
-          {/* Main CTA — disabled in read-only mode */}
+          {/* Main CTA — gated by the resolved execution mode + state gate */}
           <button
             type="button"
             className={`uni-main-button ${parsedInAmount > 0 && !submitBlockedReason && connected ? 'accent' : 'disabled'}`}
-            disabled={READ_ONLY_MODE || parsedInAmount <= 0 || isSwapping || (connected && !!swapBlockedReason)}
+            disabled={!TRANSACTIONS_ENABLED || parsedInAmount <= 0 || isSwapping || (connected && !!swapBlockedReason)}
             onClick={handleSwap}
           >
-            {READ_ONLY_MODE ? (
-              'Read-only mode'
+            {!TRANSACTIONS_ENABLED ? (
+              'Transactions disabled'
             ) : !connected ? (
               'Connect Wallet'
             ) : swapBlockedReason ? (

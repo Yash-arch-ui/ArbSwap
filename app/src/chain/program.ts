@@ -5,6 +5,7 @@ import {
   Connection,
   PublicKey,
   SystemProgram,
+  type AccountInfo,
 } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
@@ -277,6 +278,7 @@ export async function fetchProtocolState(
   connection: Connection,
   baseMint = BASE_MINT,
   quoteMint = QUOTE_MINT,
+  vaultInfo?: AccountInfo<Buffer> | null,
 ): Promise<OnChainProtocolState> {
   const { vault, config, quoteState } = deriveVaultAddresses(baseMint, quoteMint);
   const readOnlyWallet = {
@@ -286,7 +288,9 @@ export async function fetchProtocolState(
   };
   const program = new Program(idl as never, new AnchorProvider(
     connection, readOnlyWallet as unknown as Wallet, { commitment: 'confirmed' }));
-  const info = await connection.getAccountInfo(vault);
+  // Accept a pre-read vault account so callers can classify a single
+  // authoritative read (RPC error vs missing vs invalid) without a second fetch.
+  const info = vaultInfo !== undefined ? vaultInfo : await connection.getAccountInfo(vault);
   if (!info) return { exists: false, vault, config, quoteState };
 
   // NOTE: `program.account.*.fetch` returns Anchor-normalised **camelCase**
@@ -389,8 +393,48 @@ export async function fetchProtocolState(
   return { exists: true, vault, config, quoteState, vaultData, quoteData, configData };
 }
 
-/** Address of an ATA, plus an idempotent-create instruction if it is missing. */
-async function ensureAta(
+/**
+ * S2-35: read the *current* on-chain quote at submission time. The deployed
+ * quote expires after only `Config.expiry_slots` slots, so the cached poll state
+ * can be older than the live quote. Returns the live version/expiry and whether
+ * it is still fresh at `processed`; the swap uses this version and refuses to
+ * submit against an expired quote with a precise reason.
+ */
+export interface FreshQuote {
+  version: bigint;
+  expirySlot: bigint;
+  currentSlot: bigint;
+  /** Strictly `version > 0` and `current_slot < expiry_slot`, as the program requires. */
+  fresh: boolean;
+  keeper: PublicKey;
+  /** The committed ask ladder (buy base) at this version, for an exact min_out. */
+  askLevels: OnChainLevel[];
+  /** The committed bid ladder (sell base) at this version, for an exact min_out. */
+  bidLevels: OnChainLevel[];
+}
+
+export async function fetchFreshQuote(connection: Connection): Promise<FreshQuote | null> {
+  const { quoteState } = deriveVaultAddresses();
+  const program = readOnlyProgram(connection);
+  const [slot, q] = await Promise.all([
+    connection.getSlot("processed"),
+    accounts(program).quoteState.fetch(quoteState).catch(() => null),
+  ]);
+  if (!q) return null;
+  const version = BigInt((q.version as BN).toString());
+  const expirySlot = BigInt((q.expirySlot as BN).toString());
+  return {
+    version,
+    expirySlot,
+    currentSlot: BigInt(slot),
+    fresh: version > 0n && BigInt(slot) < expirySlot,
+    keeper: (q.keeper as PublicKey | undefined) ?? PublicKey.default,
+    askLevels: (q.askLevels as OnChainLevel[]) ?? [],
+    bidLevels: (q.bidLevels as OnChainLevel[]) ?? [],
+  };
+}
+
+/** Address of an ATA, plus an idempotent-create instruction if it is missing. */async function ensureAta(
   connection: Connection,
   mint: PublicKey,
   owner: PublicKey,

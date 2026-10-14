@@ -1,8 +1,8 @@
-// S2-24: browser-side RPC failover. The Node tooling has `scripts/devnet/rpc.ts`;
-// this is the equivalent for the app so a failing primary endpoint actually
-// falls back to an eligible secondary instead of only validating the env.
+// S2-24/S2-36: browser-side RPC failover with request deduplication, bounded
+// retry/backoff, `Retry-After` honoring, and provider health diagnostics.
 //
-// Availability only — on-chain account state remains the source of truth.
+// Availability only — on-chain account state remains the source of truth. This
+// layer NEVER submits transactions and never logs credentials.
 import { Connection, type Commitment } from '@solana/web3.js';
 import { resolveFrontendRpc, redactRpcUrl } from './rpcConfig';
 
@@ -43,6 +43,40 @@ export function backoffDelayMs(attempt: number, baseMs = 250, capMs = 4_000): nu
   return Math.min(capMs, exp + Math.floor(Math.random() * baseMs));
 }
 
+/** Parse `Retry-After` (seconds or HTTP-date) from a thrown error, bounded. */
+export function retryAfterMs(err: unknown, capMs = 30_000): number | null {
+  const e = err as { retryAfterSeconds?: number; headers?: Record<string, string>; response?: { headers?: { get?: (k: string) => string | null } } };
+  let raw: string | number | null | undefined = e?.retryAfterSeconds;
+  if (raw == null && typeof e?.response?.headers?.get === 'function') {
+    raw = e.response.headers.get('retry-after');
+  }
+  if (raw == null && e?.headers) raw = e.headers['retry-after'] ?? e.headers['Retry-After'];
+  if (raw == null) return null;
+  let ms: number;
+  if (typeof raw === 'number' || /^\d+$/.test(String(raw))) {
+    ms = Number(raw) * 1000;
+  } else {
+    const when = Date.parse(String(raw));
+    if (Number.isNaN(when)) return null;
+    ms = when - Date.now();
+  }
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return Math.min(ms, capMs);
+}
+
+export interface RpcHealthSnapshot {
+  endpoint: string;
+  attempts: number;
+  successes: number;
+  failures: number;
+  failuresByKind: Record<RpcFailure, number>;
+  consecutiveFailures: number;
+  lastErrorKind: RpcFailure | null;
+  lastErrorAt: number | null;
+  lastSuccessAt: number | null;
+  inflight: number;
+}
+
 export interface RpcFailoverOptions {
   endpoints: string[];
   commitment?: Commitment;
@@ -50,13 +84,14 @@ export interface RpcFailoverOptions {
   makeConnection?: (url: string, commitment: Commitment) => Connection;
   sleep?: (ms: number) => Promise<void>;
   onFailover?: (from: string, to: string, failure: RpcFailure) => void;
+  now?: () => number;
 }
 
 /**
- * Ordered endpoint failover for the app's read path. Retries transport failures
- * with bounded backoff and moves to the next endpoint; a program/unknown error
- * is rethrown immediately so it is never masked. Never switches endpoints from
- * different clusters (the config layer guarantees this).
+ * Ordered endpoint failover for the app's read path. Retries transient failures
+ * with bounded, jittered backoff (honoring `Retry-After`), moves to the next
+ * endpoint, and never masks a program/unknown error. Concurrent identical reads
+ * share one in-flight request via {@link runKeyed}.
  */
 export class RpcFailover {
   private readonly conns: Connection[];
@@ -65,6 +100,19 @@ export class RpcFailover {
   private readonly per: number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly onFailover?: (from: string, to: string, failure: RpcFailure) => void;
+  private readonly now: () => number;
+  private readonly inflight = new Map<string, Promise<unknown>>();
+
+  private stats = {
+    attempts: 0,
+    successes: 0,
+    failures: 0,
+    failuresByKind: { rate_limited: 0, timeout: 0, http: 0, network: 0, unknown: 0 } as Record<RpcFailure, number>,
+    consecutiveFailures: 0,
+    lastErrorKind: null as RpcFailure | null,
+    lastErrorAt: null as number | null,
+    lastSuccessAt: null as number | null,
+  };
 
   constructor(opts: RpcFailoverOptions) {
     if (opts.endpoints.length === 0) throw new Error('RpcFailover requires at least one endpoint');
@@ -75,15 +123,40 @@ export class RpcFailover {
     this.per = opts.maxAttemptsPerEndpoint ?? 2;
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.onFailover = opts.onFailover;
+    this.now = opts.now ?? (() => Date.now());
   }
 
   get connection(): Connection {
     return this.conns[this.index];
   }
 
-  /** Redacted identifier of the active endpoint (for render/log). */
+  /** Redacted identifier of the active endpoint (safe to render/log). */
   get activeEndpoint(): string {
     return redactRpcUrl(this.urls[this.index]);
+  }
+
+  health(): RpcHealthSnapshot {
+    return { endpoint: this.activeEndpoint, inflight: this.inflight.size, ...this.stats };
+  }
+
+  resetHealth(): void {
+    this.stats = {
+      attempts: 0, successes: 0, failures: 0,
+      failuresByKind: { rate_limited: 0, timeout: 0, http: 0, network: 0, unknown: 0 },
+      consecutiveFailures: 0, lastErrorKind: null, lastErrorAt: null, lastSuccessAt: null,
+    };
+  }
+
+  /**
+   * Deduplicated read: concurrent calls with the same key share one in-flight
+   * request, so a parent and its child components never issue identical loads.
+   */
+  runKeyed<T>(key: string, fn: (conn: Connection) => Promise<T>): Promise<T> {
+    const existing = this.inflight.get(key);
+    if (existing) return existing as Promise<T>;
+    const promise = this.run(fn).finally(() => this.inflight.delete(key));
+    this.inflight.set(key, promise);
+    return promise;
   }
 
   async run<T>(fn: (conn: Connection) => Promise<T>): Promise<T> {
@@ -93,13 +166,24 @@ export class RpcFailover {
       this.index = e;
       for (let a = 1; a <= this.per; a += 1) {
         attempt += 1;
+        this.stats.attempts += 1;
         try {
-          return await fn(this.connection);
+          const result = await fn(this.connection);
+          this.stats.successes += 1;
+          this.stats.consecutiveFailures = 0;
+          this.stats.lastSuccessAt = this.now();
+          return result;
         } catch (err) {
           lastErr = err;
           const failure = classifyRpcError(err);
+          this.stats.failures += 1;
+          this.stats.failuresByKind[failure] += 1;
+          this.stats.consecutiveFailures += 1;
+          this.stats.lastErrorKind = failure;
+          this.stats.lastErrorAt = this.now();
           if (!isRetryable(failure)) throw err;
-          await this.sleep(backoffDelayMs(attempt));
+          const retryAfter = failure === 'rate_limited' ? retryAfterMs(err) : null;
+          await this.sleep(retryAfter ?? backoffDelayMs(attempt));
         }
       }
       if (e + 1 < this.conns.length) {

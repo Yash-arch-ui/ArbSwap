@@ -39,7 +39,11 @@ async function main() {
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
-    if (m.method === "Runtime.exceptionThrown") exceptions.push(m.params.exceptionDetails?.text ?? "exception");
+    if (m.method === "Runtime.exceptionThrown") {
+      const d = m.params.exceptionDetails ?? {};
+      const desc = d.exception?.description ?? d.text ?? "exception";
+      exceptions.push(String(desc).split("\n").slice(0, 3).join(" | "));
+    }
     if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") {
       const msg = (m.params.args ?? []).map((a) => a.value ?? a.description).join(" ");
       // Public-RPC 429 retry notices from @solana/web3.js are transport noise,
@@ -80,6 +84,30 @@ async function main() {
   await sleep(1200);
   states["06-narrow"] = await capture("06-narrow");
 
+  // Optional focused fresh-quote sampling (S2-35). With a live keeper committing
+  // quotes, click back to the Swap tab and sample the rendered book over a
+  // window, counting samples that show the fresh/active book. This is recorded
+  // evidence of the app reading a *fresh* on-chain quote — it is intentionally
+  // NOT part of the deterministic gate (a quote is fresh for only ~2.4 s).
+  let freshSamples = 0;
+  let freshSampleTotal = 0;
+  const freshSampleMs = Number(process.env.FRESH_SAMPLE_MS ?? 0);
+  if (freshSampleMs > 0) {
+    await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await send("Runtime.evaluate", {
+      expression: `(() => { const a=[...document.querySelectorAll('a,button')].find(x=>x.textContent.trim().startsWith('Swap')); if(a) a.click(); })()`,
+    });
+    await sleep(1500);
+    const until = Date.now() + freshSampleMs;
+    while (Date.now() < until) {
+      const t = await send("Runtime.evaluate", { expression: "document.body.innerText", returnByValue: true });
+      const txt = t?.result?.value ?? "";
+      freshSampleTotal += 1;
+      if (/6-LEVEL ACTIVE BOOK|quote v\d+ · Fresh|Pyth Mid/.test(txt)) freshSamples += 1;
+      await sleep(500);
+    }
+  }
+
   const summary = {
     app: APP,
     screenshots: OUT,
@@ -87,13 +115,25 @@ async function main() {
     consoleErrors,
     rpcRetryNotices: rpcRetryNotices.length,
     hasKeeperRewardsPanel: /Keeper rewards/.test(states["04-risk"] ?? ""),
-    swapExpiredHonest: /Quote expired|Swaps stay disabled|EXPIRED|Quote unavailable|Read-only/i.test(states["02-swap"] ?? ""),
-    analyticsHonest: /INDEXED HISTORY|RESEARCH artifacts|analytics (export|unavailable)|historical only/i.test(states["05-analytics"] ?? ""),
-    // S2-32 read-only integration checks.
-    readOnlyBanner: /Read-only integration mode/i.test(
+    // S2-35: the normal Devnet build is transaction-enabled. The read-only
+    // diagnostic banner must NOT render, the mode badge must say `trading`, and
+    // the swap page must present a real on-chain state honestly (a fresh quote
+    // enables submission; an expired/unavailable quote shows the concrete
+    // reason) rather than a blanket "read-only" block.
+    modeBadge: /trading/i.test(states["01-overview"] ?? ""),
+    readOnlyBanner: /Read-only diagnostic mode|Read-only integration mode/i.test(
       `${states["02-swap"] ?? ""}${states["03-vault"] ?? ""}${states["04-risk"] ?? ""}${states["05-analytics"] ?? ""}`,
     ),
-    swapReadOnly: /Read-only mode/i.test(states["02-swap"] ?? ""),
+    walletNotConnectedHonest: /Connect Wallet|connect wallet|Wallet not connected/i.test(states["02-swap"] ?? ""),
+    swapHonestState:
+      /6-LEVEL ACTIVE BOOK|LAST-KNOWN BOOK|Quote expired|quote expired|Quote unavailable|no fresh Pyth quote|Vault not initialized|RPC (rate limited|unavailable)|Swaps unavailable/i.test(
+        states["02-swap"] ?? "",
+      ),
+    vaultLive: /\d/.test(states["03-vault"] ?? ""),
+    // Observed fresh quote (requires a live keeper during the run); recorded but
+    // not part of the deterministic gate.
+    freshQuoteObserved: /6-LEVEL ACTIVE BOOK|quote v\d+ · Fresh|Pyth Mid/i.test(states["02-swap"] ?? ""),
+    analyticsHonest: /INDEXED HISTORY|RESEARCH artifacts|analytics (export|unavailable)|historical only/i.test(states["05-analytics"] ?? ""),
     modelLabelled: /model/i.test(states["01-overview"] ?? ""),
     noFabricatedMarkout: !/\+0\.38 bps/.test(states["01-overview"] ?? ""),
     // S2-33: indexed history panel renders with explicit provenance.
@@ -105,14 +145,19 @@ async function main() {
     expiredQuoteLabelled: /EXPIRED|Quote expired|last-known/i.test(
       `${states["01-overview"] ?? ""}${states["02-swap"] ?? ""}${states["05-analytics"] ?? ""}`,
     ),
+    // S2-35 focused live evidence (recorded, not gated): how many samples of the
+    // Swap page showed the fresh/active book while the keeper was committing.
+    freshSamples,
+    freshSampleTotal,
   };
   console.log(JSON.stringify(summary, null, 2));
   ws.close();
   const ok =
     exceptions.length === 0 &&
     consoleErrors.length === 0 &&
-    summary.readOnlyBanner &&
-    summary.swapReadOnly &&
+    summary.modeBadge &&
+    !summary.readOnlyBanner &&
+    summary.swapHonestState &&
     summary.noFabricatedMarkout &&
     summary.analyticsHistory &&
     summary.expiredQuoteLabelled;

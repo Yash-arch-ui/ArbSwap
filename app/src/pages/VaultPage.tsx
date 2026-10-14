@@ -6,8 +6,8 @@ import { useProtocol } from '../context/ProtocolContext';
 import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, claimWithdraw as claimWithdrawOnChain, withdrawTicket as deriveWithdrawTicket, expectedDepositShares } from '../chain/program';
 import { parseUnits, formatUnits } from '../chain/amounts';
 import { claimWithdrawState } from '../chain/gating';
-import { ACTIVE_VAULT, READ_ONLY_MODE, explorerTxUrl } from '../chain/config';
-import { ReadOnlyBanner, READ_ONLY_NOTICE } from '../components/ReadOnlyMode';
+import { ACTIVE_VAULT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON, explorerTxUrl } from '../chain/config';
+import { ReadOnlyBanner } from '../components/ReadOnlyMode';
 
 export const VaultPage: React.FC = () => {
   const {
@@ -30,8 +30,18 @@ export const VaultPage: React.FC = () => {
   const [depositSol, setDepositSol] = useState<string>('0.1');
   const [depositUsdc, setDepositUsdc] = useState<string>('11.00');
   const [withdrawShares, setWithdrawShares] = useState<string>('0');
-  const [notice, setNotice] = useState<string | null>(null);
+  // Notice carries a severity so the UI never shows a success check on a failure.
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
+
+  const disabledReason = TRANSACTION_DISABLED_REASON;
+  const blocked = (): boolean => {
+    if (!TRANSACTIONS_ENABLED) {
+      setNotice({ text: disabledReason ?? 'Transactions are disabled in this build.', ok: false });
+      return true;
+    }
+    return false;
+  };
 
   const claimState = claimWithdrawState({
     walletConnected: connected,
@@ -67,12 +77,12 @@ export const VaultPage: React.FC = () => {
       : 0;
 
   const handleDeposit = async () => {
-    if (READ_ONLY_MODE) { setNotice(READ_ONLY_NOTICE); return; }
+    if (blocked()) return;
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
     }
-    setNotice('Submitting deposit…');
+    setNotice({ text: 'Submitting deposit…', ok: false });
     try {
       const base = parseUnits(depositSol, tokens.SOL.decimals);
       const quote = parseUnits(depositUsdc, tokens.USDC.decimals);
@@ -85,50 +95,50 @@ export const VaultPage: React.FC = () => {
       if (expected <= 0n) throw new Error('deposit too small for the current vault');
       const minShares = (expected * 9950n) / 10000n; // 0.5% slippage floor
       const signature = await depositOnChain(connection, wallet, base, quote, minShares);
-      setNotice(`Deposit confirmed ${signature.slice(0, 8)}… — ${explorerTxUrl(signature)} (shares activate after warm-up).`);
+      setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}… — ${explorerTxUrl(signature)} (shares activate after warm-up).`, ok: true });
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
-      setNotice(`Deposit failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+      setNotice({ text: `Deposit failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`, ok: false });
     }
   };
 
   const handleWithdraw = async () => {
-    if (READ_ONLY_MODE) { setNotice(READ_ONLY_NOTICE); return; }
+    if (blocked()) return;
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
     }
-    setNotice('Queueing withdrawal…');
+    setNotice({ text: 'Queueing withdrawal…', ok: false });
     try {
       const signature = await requestWithdrawOnChain(connection, wallet, sharesToWithdrawAtoms);
-      setNotice(`Withdrawal queued ${signature.slice(0, 8)}… for Epoch ${vaultState.epoch + 1}.`);
+      setNotice({ text: `Withdrawal queued ${signature.slice(0, 8)}… for Epoch ${vaultState.epoch + 1}.`, ok: true });
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
-      setNotice(`Withdraw request failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+      setNotice({ text: `Withdraw request failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`, ok: false });
     }
   };
 
   const handleClaim = async () => {
-    if (READ_ONLY_MODE) { setNotice(READ_ONLY_NOTICE); return; }
+    if (blocked()) return;
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
     }
     if (!claimState.allowed) {
-      setNotice(claimState.reason);
+      setNotice({ text: claimState.reason, ok: false });
       return;
     }
     setIsClaiming(true);
-    setNotice('Claiming settled withdrawal…');
+    setNotice({ text: 'Claiming settled withdrawal…', ok: false });
     try {
       const signature = await claimWithdrawOnChain(connection, wallet);
-      setNotice(`Claim confirmed ${signature.slice(0, 8)}… — ${explorerTxUrl(signature)}`);
+      setNotice({ text: `Claim confirmed ${signature.slice(0, 8)}… — ${explorerTxUrl(signature)}`, ok: true });
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
-      setNotice(`Claim failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`);
+      setNotice({ text: `Claim failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`, ok: false });
     } finally {
       setIsClaiming(false);
     }
@@ -247,8 +257,8 @@ export const VaultPage: React.FC = () => {
                 <span className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>~{estimatedShares.toLocaleString()} shares</span>
               </div>
 
-              <button type="button" className="uni-main-button accent" onClick={handleDeposit} disabled={READ_ONLY_MODE || !vaultInitialized}>
-                {READ_ONLY_MODE ? 'Read-only mode' : !vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Deposit pro-rata'}
+              <button type="button" className="uni-main-button accent" onClick={handleDeposit} disabled={!TRANSACTIONS_ENABLED || !vaultInitialized}>
+                {!TRANSACTIONS_ENABLED ? 'Transactions disabled' : !vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Deposit pro-rata'}
               </button>
             </div>
           ) : (
@@ -282,8 +292,8 @@ export const VaultPage: React.FC = () => {
                 </div>
               </div>
 
-              <button type="button" className="uni-main-button accent" onClick={handleWithdraw} disabled={READ_ONLY_MODE || !vaultInitialized}>
-                {READ_ONLY_MODE ? 'Read-only mode' : !vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Queue withdrawal for next epoch'}
+              <button type="button" className="uni-main-button accent" onClick={handleWithdraw} disabled={!TRANSACTIONS_ENABLED || !vaultInitialized}>
+                {!TRANSACTIONS_ENABLED ? 'Transactions disabled' : !vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Queue withdrawal for next epoch'}
               </button>
 
               <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
@@ -295,17 +305,21 @@ export const VaultPage: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  className={`uni-main-button ${claimState.allowed && !READ_ONLY_MODE ? 'accent' : 'disabled'}`}
+                  className={`uni-main-button ${claimState.allowed && TRANSACTIONS_ENABLED ? 'accent' : 'disabled'}`}
                   onClick={handleClaim}
-                  disabled={READ_ONLY_MODE || !claimState.allowed || isClaiming}
+                  disabled={!TRANSACTIONS_ENABLED || !claimState.allowed || isClaiming}
                 >
-                  {READ_ONLY_MODE ? 'Read-only mode' : isClaiming ? 'Claiming…' : claimState.allowed ? 'Claim settled withdrawal' : 'Claim unavailable'}
+                  {!TRANSACTIONS_ENABLED ? 'Transactions disabled' : isClaiming ? 'Claiming…' : claimState.allowed ? 'Claim settled withdrawal' : 'Claim unavailable'}
                 </button>
               </div>
             </div>
           )}
 
-          {notice && <p style={{ color: 'var(--uni-success)', fontSize: 13, textAlign: 'center' }}>✓ {notice}</p>}
+          {notice && (
+            <p style={{ color: notice.ok ? 'var(--uni-success)' : 'var(--uni-warning)', fontSize: 13, textAlign: 'center' }} role={notice.ok ? 'status' : 'alert'}>
+              {notice.ok ? '✓' : '⚠'} {notice.text}
+            </p>
+          )}
         </div>
 
         {/* Right: Inventory & Queue */}

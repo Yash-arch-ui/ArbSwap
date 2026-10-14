@@ -6,7 +6,7 @@ import { BN } from '@coral-xyz/anchor';
 import { deriveModelMetrics, meanVenueMetric, type HeldOutWindow } from '../src/data/backend';
 import { interpretExport } from '../src/data/onchainAnalytics';
 import { toVaultState, toRiskBreakers } from '../src/chain/live';
-import { READ_ONLY_MODE, EXPECTED_GENESIS_HASH, ACTIVE_VAULT } from '../src/chain/config';
+import { READ_ONLY_MODE, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON, EXPECTED_GENESIS_HASH, ACTIVE_VAULT } from '../src/chain/config';
 import { verifyCluster, verifyProgram } from '../src/chain/program';
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -91,9 +91,11 @@ describe('S2-32 live protocol mapping is honest', () => {
   });
 });
 
-describe('S2-32 read-only invariants', () => {
-  it('READ_ONLY_MODE is on by default and points at the canonical vault', () => {
-    expect(READ_ONLY_MODE).toBe(true);
+describe('S2-35 execution mode is explicit and transaction-enabled on Devnet', () => {
+  it('the normal Devnet build is transaction-enabled; read-only is not forced', () => {
+    expect(READ_ONLY_MODE).toBe(false);
+    expect(TRANSACTIONS_ENABLED).toBe(true);
+    expect(TRANSACTION_DISABLED_REASON).toBeNull();
     expect(ACTIVE_VAULT.canonical).toBe(true);
     expect(EXPECTED_GENESIS_HASH).toBe('EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG');
   });
@@ -112,14 +114,33 @@ describe('S2-32 read-only invariants', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('every action surface is gated by READ_ONLY_MODE', () => {
+  it('every action surface is gated by the resolved execution mode, not a blanket flag', () => {
     const swap = readFileSync(here('../src/pages/SwapPage.tsx'), 'utf8');
     const vault = readFileSync(here('../src/pages/VaultPage.tsx'), 'utf8');
     const risk = readFileSync(here('../src/components/KeeperRewards.tsx'), 'utf8');
     for (const src of [swap, vault, risk]) {
-      expect(src).toMatch(/READ_ONLY_MODE/);
-      expect(src).toMatch(/disabled=\{READ_ONLY_MODE/);
+      expect(src).toMatch(/TRANSACTIONS_ENABLED/);
+      expect(src).toMatch(/disabled=\{!TRANSACTIONS_ENABLED/);
     }
+    // The obsolete blanket read-only blocker must not survive on any surface.
+    for (const src of [swap, vault, risk]) {
+      expect(src).not.toMatch(/disabled=\{READ_ONLY_MODE/);
+    }
+  });
+
+  it('success is only reported after the awaited submit call (never pre-confirmation)', () => {
+    const swap = readFileSync(here('../src/pages/SwapPage.tsx'), 'utf8');
+    const vault = readFileSync(here('../src/pages/VaultPage.tsx'), 'utf8');
+    // SwapPage: the `ok: true` note must follow the awaited on-chain submit.
+    const swapSubmit = swap.indexOf('await swapOnChain(');
+    const swapSuccess = swap.indexOf('ok: true');
+    expect(swapSubmit).toBeGreaterThan(-1);
+    expect(swapSuccess).toBeGreaterThan(swapSubmit);
+    // VaultPage: the success notes follow their awaited submits.
+    expect(vault.indexOf('ok: true')).toBeGreaterThan(vault.indexOf('await depositOnChain('));
+    // The old unconditional "✓" render (success on any notice) must be gone.
+    expect(vault).not.toMatch(/>✓ \{notice\}/);
+    expect(swap).not.toMatch(/disabled=\{READ_ONLY_MODE/);
   });
 
   it('no secrets are present in the built bundle', () => {

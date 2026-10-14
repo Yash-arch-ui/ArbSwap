@@ -32,10 +32,12 @@ export interface VaultDeployment {
   pythFeedId: string;
 }
 
+/** Build-time environment (Vite `import.meta.env`), read once. */
+const ENV =
+  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
+
 /** RPC endpoints resolved from env (`VITE_SOLANA_RPC_URL[_FALLBACKS]`). */
-const RPC = resolveFrontendRpc(
-  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {},
-);
+const RPC = resolveFrontendRpc(ENV);
 
 /** Primary Devnet RPC used by the app and the wallet adapter. */
 export const SOLANA_DEVNET_RPC = RPC.endpoints[0];
@@ -60,14 +62,42 @@ export const SOL_USD_FEED_ID =
 export const MAX_STALENESS_SECONDS = 2;
 
 /**
- * S2-32 read-only integration mode. The frontend is connected to real on-chain
- * and artifact data but must NOT submit transactions. Every action surface is
- * disabled and labelled. Set `VITE_ARBSWAP_READ_ONLY=0` only for a future,
- * explicitly-approved transaction-enabled build.
+ * Explicit application mode.
+ *
+ * `trade` (default) is the normal Devnet application: when the user connects a
+ * compatible wallet the swap/deposit/withdraw path signs and submits real
+ * transactions. `read-only` is a deliberate diagnostic/demo mode that renders
+ * live data but never signs or submits.
+ *
+ * Configured explicitly with `VITE_ARBSWAP_MODE=trade|read-only`; the legacy
+ * `VITE_ARBSWAP_READ_ONLY=1` is accepted as an alias for `read-only`. The
+ * resolved mode is surfaced in the UI (see `ModeBadge`) so it is never implicit.
  */
-export const READ_ONLY_MODE =
-  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env
-    ?.VITE_ARBSWAP_READ_ONLY ?? '1') !== '0';
+export type AppMode = 'trade' | 'read-only';
+
+const RAW_MODE = (ENV.VITE_ARBSWAP_MODE ?? (ENV.VITE_ARBSWAP_READ_ONLY === '1' ? 'read-only' : 'trade'))
+  .toLowerCase();
+export const APP_MODE: AppMode = RAW_MODE === 'read-only' ? 'read-only' : 'trade';
+
+/** True only in the deliberate diagnostic/demo mode. */
+export const READ_ONLY_MODE = APP_MODE === 'read-only';
+
+/**
+ * Whether this build may submit asset-moving transactions. Trading is only
+ * permitted in `trade` mode on the explicitly configured Devnet cluster; any
+ * other cluster (mainnet/testnet/localnet) stays transaction-disabled by this
+ * task. The on-chain genesis hash is additionally verified at runtime before a
+ * swap is allowed, so a custom RPC pointed at the wrong cluster cannot enable
+ * trading silently.
+ */
+export const TRANSACTIONS_ENABLED = !READ_ONLY_MODE && CLUSTER === 'devnet';
+
+/** Concrete, user-facing reason transactions are unavailable, or null. */
+export const TRANSACTION_DISABLED_REASON: string | null = READ_ONLY_MODE
+  ? 'Read-only diagnostic mode is active (VITE_ARBSWAP_MODE=read-only). Transactions are disabled in this build.'
+  : CLUSTER !== 'devnet'
+    ? `Transactions are disabled: this build only permits trading on Devnet (configured cluster: ${CLUSTER}).`
+    : null;
 
 /** Canonical Devnet genesis hash — verified before on-chain data is trusted. */
 export const EXPECTED_GENESIS_HASH =

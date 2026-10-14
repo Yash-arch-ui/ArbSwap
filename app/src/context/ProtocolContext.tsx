@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import type {
   QuoteState,
   VaultState,
@@ -11,15 +11,26 @@ import type {
 } from '../types/protocol';
 import { ACTIVE_VAULT, BASE_MINT, QUOTE_MINT, loadWalletBalances } from '../chain/solana';
 import {
-  fetchProtocolState,
   fetchShareBalance,
   fetchDepositTicket,
   fetchWithdrawTicket,
   verifyCluster,
   verifyProgram,
+  type OnChainProtocolState,
 } from '../chain/program';
+import { readVault } from '../chain/vaultRead';
 import { toQuoteState, toVaultState, toRiskBreakers } from '../chain/live';
-import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
+import { APP_RPC_FAILOVER, type RpcHealthSnapshot } from '../chain/rpcFailover';
+import {
+  liveSource,
+  loadingSource,
+  sourceErrorFromException,
+  staleSource,
+  unavailableSource,
+  type SourceError,
+  type SourceState,
+  type Sourced,
+} from '../chain/dataState';
 
 const RPC_FAILOVER = APP_RPC_FAILOVER;
 
@@ -95,6 +106,20 @@ const EMPTY_STATUS: ProtocolStatus = {
   keeperConfigured: null,
 };
 
+export interface WalletBalances {
+  base: bigint;
+  quote: bigint;
+  sol: number;
+}
+
+export interface RpcStatus extends RpcHealthSnapshot {
+  state: SourceState;
+  /** Current adaptive poll delay (ms); larger when the provider is unhealthy. */
+  pollDelayMs: number;
+  /** True when background auto-retry is paused to avoid a retry storm. */
+  autoRetryPaused: boolean;
+}
+
 interface ProtocolContextType {
   quoteState: QuoteState;
   vaultState: VaultState;
@@ -108,6 +133,21 @@ interface ProtocolContextType {
   balancesLoading: boolean;
   /** Exact atom balances of the connected wallet's base/quote ATAs (null until read). */
   walletAtoms: { base: bigint; quote: bigint } | null;
+  /** Full classified wallet-balance source (state/value/asOf/error). */
+  balancesSource: Sourced<WalletBalances>;
+  /** Classified protocol account source (the authoritative vault/quote/config read). */
+  vaultSource: Sourced<OnChainProtocolState>;
+  /**
+   * true = a successful authoritative read found the account; false = a
+   * successful read proved it is absent; null = not yet established (e.g. an
+   * RPC failure). NEVER false because of a transport error.
+   */
+  vaultExists: boolean | null;
+  rpcStatus: RpcStatus;
+  /**
+   * true only when a vault account was successfully decoded AND the derived
+   * config/quote are present. Distinct from "the latest read succeeded".
+   */
   vaultInitialized: boolean;
   quoteAvailable: boolean;
   quoteFresh: boolean;
@@ -118,6 +158,7 @@ interface ProtocolContextType {
   withdrawTicket: WithdrawTicketView | null;
   currentSlot: number;
   lastUpdatedAt: number | null;
+  /** Single, sanitized, classified error message (never a raw RPC object). */
   liveError: string | null;
   /** Devnet genesis + deployed program verified before on-chain data is trusted. */
   genesisVerified: boolean;
@@ -127,14 +168,29 @@ interface ProtocolContextType {
   activeVaultLabel: string;
   refreshBalances: () => Promise<void>;
   refreshProtocol: () => Promise<void>;
+  /** Manual retry: resets backoff/pause and performs one refresh now. */
+  retryNow: () => void;
   connectWallet: () => void;
   disconnectWallet: () => void;
 }
 
 const ProtocolContext = createContext<ProtocolContextType | undefined>(undefined);
 
+// The deployed quote expires after only `Config.expiry_slots` (10 slots, ~2.4 s
+// on Devnet), so a 4 s poll would almost never observe a fresh quote. Poll
+// slightly faster than the expiry window; concurrent identical reads are
+// deduplicated by the failover layer and back off on provider failures, so this
+// does not add RPC chatter beyond what a fresh-quote UI needs.
+const POLL_BASE_MS = 1_500;
+const POLL_CAP_MS = 30_000;
+const PAUSE_AFTER_FAILURES = 4;
+
+function delayForFailures(base: number, failures: number): number {
+  if (failures <= 0) return base;
+  return Math.min(POLL_CAP_MS, base * 2 ** (failures - 1));
+}
+
 export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { connection } = useConnection();
   const { connected, publicKey, connect, disconnect } = useWallet();
   const [quoteState, setQuoteState] = useState<QuoteState>(EMPTY_QUOTE_STATE);
   const [vaultState, setVaultState] = useState<VaultState>(EMPTY_VAULT_STATE);
@@ -144,6 +200,13 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [status, setStatus] = useState<ProtocolStatus>(EMPTY_STATUS);
   const [balancesLoading, setBalancesLoading] = useState(false);
   const [walletAtoms, setWalletAtoms] = useState<{ base: bigint; quote: bigint } | null>(null);
+  const [balancesSource, setBalancesSource] = useState<Sourced<WalletBalances>>(
+    loadingSource('Wallet balances have not been read.'),
+  );
+  const [vaultSource, setVaultSource] = useState<Sourced<OnChainProtocolState>>(
+    loadingSource('The vault account has not been read.'),
+  );
+  const [vaultExists, setVaultExists] = useState<boolean | null>(null);
   const [vaultInitialized, setVaultInitialized] = useState(false);
   const [quoteAvailable, setQuoteAvailable] = useState(false);
   const [quoteFresh, setQuoteFresh] = useState(false);
@@ -157,62 +220,73 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [genesisVerified, setGenesisVerified] = useState(false);
   const [programVerified, setProgramVerified] = useState(false);
   const [blockTime, setBlockTime] = useState<number | null>(null);
+  const [rpcState, setRpcState] = useState<SourceState>('loading');
+  const [rpcSnapshot, setRpcSnapshot] = useState<RpcHealthSnapshot>(() => RPC_FAILOVER.health());
+  const [pollDelayMs, setPollDelayMs] = useState(POLL_BASE_MS);
+  const [autoRetryPaused, setAutoRetryPaused] = useState(false);
+
   const shareMintRef = useRef<string | null>(null);
-  // Guards against a slow, stale refresh overwriting newer state (e.g. after a
-  // wallet account change): only the latest refresh is allowed to commit.
   const refreshSeqRef = useRef(0);
+  const lastGoodRef = useRef<{ state: OnChainProtocolState; slot: number } | null>(null);
+  const failureStreakRef = useRef(0);
+  const pollDelayRef = useRef(POLL_BASE_MS);
+  const pausedRef = useRef(false);
+  const lastSuccessMsRef = useRef<number | null>(null);
 
   const refreshBalances = useCallback(async () => {
     if (!publicKey) {
       setTokens(INITIAL_TOKENS);
       setShareBalanceAtoms(null);
       setWalletAtoms(null);
+      setBalancesSource(loadingSource('Connect a wallet to read balances.'));
       return;
     }
     setBalancesLoading(true);
     try {
-      const { base, quote, baseAtoms, quoteAtoms } = await RPC_FAILOVER.run((c) => loadWalletBalances(c, publicKey));
-      const shares = await RPC_FAILOVER.run((c) => fetchShareBalance(c, publicKey)).catch(() => null);
+      const balances = await RPC_FAILOVER.runKeyed(`walletBalances:${publicKey.toBase58()}`, (c) =>
+        loadWalletBalances(c, publicKey),
+      );
+      const shares = await RPC_FAILOVER
+        .runKeyed(`shareBalance:${publicKey.toBase58()}`, (c) => fetchShareBalance(c, publicKey))
+        .catch(() => null);
       setTokens((prev) => ({
-        SOL: { ...prev.SOL, balance: Number(base.toFixed(4)) },
-        USDC: { ...prev.USDC, balance: Number(quote.toFixed(2)) },
+        SOL: { ...prev.SOL, balance: Number(balances.base.toFixed(4)) },
+        USDC: { ...prev.USDC, balance: Number(balances.quote.toFixed(2)) },
       }));
-      setWalletAtoms({ base: baseAtoms, quote: quoteAtoms });
+      setWalletAtoms({ base: balances.baseAtoms, quote: balances.quoteAtoms });
       setShareBalanceAtoms(shares);
-    } catch {
-      // RPC hiccup: keep the last known balances.
+      setBalancesSource(
+        liveSource<WalletBalances>(
+          { base: balances.baseAtoms, quote: balances.quoteAtoms, sol: balances.sol },
+          Date.now(),
+        ),
+      );
+    } catch (error) {
+      const { kind, reason } = sourceErrorFromException(error);
+      setBalancesSource((prev) =>
+        prev.value
+          ? staleSource(prev, `${reason} Showing last-known balances.`, kind)
+          : unavailableSource(`Balances unavailable: ${reason}`, kind),
+      );
     } finally {
       setBalancesLoading(false);
     }
-  }, [connection, publicKey]);
+  }, [publicKey]);
 
-  const refreshProtocol = useCallback(async () => {
-    const seq = ++refreshSeqRef.current;
-    try {
-      const [state, slot, cluster, program] = await Promise.all([
-        RPC_FAILOVER.run((c) => fetchProtocolState(c, ACTIVE_VAULT.baseMint, ACTIVE_VAULT.quoteMint)),
-        RPC_FAILOVER.run((c) => c.getSlot()).catch(() => 0),
-        RPC_FAILOVER.run((c) => verifyCluster(c)).catch(() => ({ verified: false, genesisHash: null })),
-        RPC_FAILOVER.run((c) => verifyProgram(c)).catch(() => ({ verified: false, owner: null, executable: false })),
-      ]);
-      // Discard this result if a newer refresh already started (e.g. account change).
-      if (seq !== refreshSeqRef.current) return;
-      const now = Math.floor(Date.now() / 1000);
-      setGenesisVerified(cluster.verified);
-      setProgramVerified(program.verified);
-      setVaultInitialized(state.exists);
-      setCurrentSlot(slot);
-      setLastUpdatedAt(now);
-      setLiveError(null);
-      if (state.vaultData) shareMintRef.current = state.vaultData.shareMint.toBase58();
-
+  /** Apply a successfully-read protocol snapshot to all derived UI state. */
+  const applySnapshot = useCallback(
+    (state: OnChainProtocolState, slot: number, nowMs: number, extra: {
+      genesisVerified: boolean; programVerified: boolean; blockTime: number | null;
+      shares: bigint | null; dep: DepositTicketView | null; wd: WithdrawTicketView | null;
+      sourceState: 'live' | 'stale'; reason: string | null; errorKind: SourceError | null;
+    }) => {
       const quote = toQuoteState(state, slot);
       const hasQuote = state.quoteData !== undefined && Number(state.quoteData.version) > 0;
       const isFresh = hasQuote && slot < Number(state.quoteData?.expirySlot ?? 0);
       setQuoteState(quote);
       setQuoteAvailable(isFresh);
       setQuoteFresh(isFresh);
-      const risk = toRiskBreakers(state, now);
+      const risk = toRiskBreakers(state, nowMs / 1000);
       risk.circuitBreakerTripped = state.vaultData ? state.vaultData.status !== 0 : false;
       risk.activeBreakerReason = risk.circuitBreakerTripped ? 'Vault status is not Active' : null;
       risk.keeperActiveAddress = state.configData ? state.configData.keeper.toBase58() : '';
@@ -233,44 +307,20 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           maxStalenessSeconds: Number(c.maxStalenessSeconds.toString()),
           maxConfBps: c.maxConfBps,
         });
-      } else {
-        setProtocolParams(null);
       }
+      setCurrentSlot(slot);
+      setBlockTime(extra.blockTime);
+      setGenesisVerified(extra.genesisVerified);
+      setProgramVerified(extra.programVerified);
+      setShareBalanceAtoms(extra.shares);
+      setDepositTicket(extra.dep);
+      setWithdrawTicket(extra.wd);
       setTokens((prev) => ({
         SOL: { ...prev.SOL, priceUsd: quote.oraclePrice || prev.SOL.priceUsd },
         USDC: { ...prev.USDC, priceUsd: 1 },
       }));
-
-      let shares: bigint | null = null;
-      let dep: DepositTicketView | null = null;
-      let wd: WithdrawTicketView | null = null;
-      if (publicKey && state.vaultData) {
-        shares = await RPC_FAILOVER.run((c) => fetchShareBalance(c, publicKey)).catch(() => null);
-        const dt = await RPC_FAILOVER.run((c) => fetchDepositTicket(c, publicKey)).catch(() => null);
-        if (dt) {
-          const activate = Number((dt.activateSlot as { toString(): string } | undefined)?.toString() ?? '0');
-          dep = { shares: BigInt((dt.shares as { toString(): string }).toString()), activateSlot: activate, active: slot >= activate };
-        }
-        const wt = await RPC_FAILOVER.run((c) => fetchWithdrawTicket(c, publicKey)).catch(() => null);
-        if (wt) {
-          wd = {
-            shares: BigInt((wt.shares as { toString(): string }).toString()),
-            requestedEpoch: Number((wt.epoch as { toString(): string } | undefined)?.toString() ?? '0'),
-          };
-        }
-      }
-      // Newer refresh started (wallet changed) — drop this stale wallet snapshot.
-      if (seq !== refreshSeqRef.current) return;
-      // Best-effort real chain block time for the current slot.
-      const bt = slot > 0
-        ? await RPC_FAILOVER.run((c) => c.getBlockTime(slot)).catch(() => null)
-        : null;
-      if (seq !== refreshSeqRef.current) return;
-      setBlockTime(bt);
-      setShareBalanceAtoms(shares);
-      setDepositTicket(dep);
-      setWithdrawTicket(wd);
       if (state.vaultData) {
+        shareMintRef.current = state.vaultData.shareMint.toBase58();
         const v = state.vaultData;
         const b = (x?: { toString(): string }) => BigInt((x?.toString() ?? '0'));
         const baseNet = b(v.baseReserveAmount) - b(v.insuranceBase) - b(v.keeperBase) - b(v.protocolBase);
@@ -281,19 +331,28 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           quoteNet: quoteNet > 0n ? quoteNet : 0n,
           minLiquidity: state.configData ? b(state.configData.minLiquidity) : 0n,
         });
-      } else {
-        setVaultAtoms(null);
       }
-      setVaultState(toVaultState(state, quote.oraclePrice, shares === null ? 0 : Number(shares.toString()) / 10 ** ACTIVE_VAULT.shareDecimals, slot));
-
+      setVaultState(
+        toVaultState(state, quote.oraclePrice, extra.shares === null ? 0 : Number(extra.shares.toString()) / 10 ** ACTIVE_VAULT.shareDecimals, slot),
+      );
+      setVaultSource({
+        state: extra.sourceState,
+        value: state,
+        asOf: extra.sourceState === 'live' ? nowMs : lastSuccessMsRef.current ?? nowMs,
+        reason: extra.reason,
+        errorKind: extra.errorKind,
+      });
+      if (extra.sourceState === 'live') lastSuccessMsRef.current = nowMs;
+      setVaultExists(true);
+      setVaultInitialized(true);
       setStatus({
         rpc: 'ok',
-        programRead: state.exists ? 'ok' : 'missing',
+        programRead: 'ok',
         oracle: {
           state: 'unavailable',
           reason: hasQuote
             ? 'Quote present; oracle freshness is validated on-chain by the deployed 2 s Pyth rule.'
-            : 'No valid on-chain Pyth quote. The configured credential lacks entitlement to the crypto-spot SOL/USD feed; the keeper cannot publish a quote.',
+            : 'No committed on-chain quote is currently readable for this vault.',
         },
         quote: {
           available: isFresh,
@@ -305,27 +364,191 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               ? 'Quote is present but expired at the current slot.'
               : 'No quote has been published by the keeper.',
         },
-        keeper: {
-          state: 'unverified',
-          reason: 'Keeper submission status is not observable from the chain.',
-        },
+        keeper: { state: 'unverified', reason: 'Keeper submission status is not observable from the chain.' },
         keeperConfigured: state.configData ? state.configData.keeper.toBase58() : null,
       });
-    } catch (error) {
-      setLiveError((error as Error).message?.slice(0, 160) ?? 'RPC error');
-      setStatus((prev) => ({ ...prev, rpc: 'error', programRead: 'error' }));
-    }
-  }, [connection, publicKey]);
+    },
+    [],
+  );
 
-  useEffect(() => {
+  const refreshProtocol = useCallback(async () => {
+    const seq = ++refreshSeqRef.current;
+    const nowMs = Date.now();
+    try {
+      // One authoritative, classified vault read. Concurrent identical reads are
+      // deduplicated by the failover layer.
+      const result = await RPC_FAILOVER.runKeyed('readVault', (c) => readVault(c));
+      if (seq !== refreshSeqRef.current) return;
+
+      if (result.kind === 'rpc_error') {
+        failureStreakRef.current += 1;
+        const { reason, errorKind } = result;
+        setLiveError(`${reason} Live vault and quote data could not be refreshed.`);
+        setRpcState('stale');
+        const prev = lastGoodRef.current;
+        if (prev) {
+          // Retain last-known values, explicitly marked stale (never as fresh).
+          applySnapshot(prev.state, prev.slot, nowMs, {
+            genesisVerified, programVerified, blockTime,
+            shares: shareBalanceAtoms, dep: depositTicket, wd: withdrawTicket,
+            sourceState: 'stale', reason, errorKind,
+          });
+        } else {
+          setVaultSource(unavailableSource(reason, errorKind));
+          setVaultInitialized(false);
+          setStatus((p) => ({ ...p, rpc: 'error', programRead: 'error' }));
+        }
+        const paused = failureStreakRef.current >= PAUSE_AFTER_FAILURES;
+        pausedRef.current = paused;
+        setAutoRetryPaused(paused);
+        pollDelayRef.current = delayForFailures(POLL_BASE_MS, failureStreakRef.current);
+        setPollDelayMs(pollDelayRef.current);
+        return;
+      }
+
+      if (result.kind === 'not_found') {
+        // Authoritative: a successful lookup returned no account.
+        failureStreakRef.current = 0;
+        pausedRef.current = false;
+        setAutoRetryPaused(false);
+        pollDelayRef.current = POLL_BASE_MS;
+        setPollDelayMs(POLL_BASE_MS);
+        setLiveError(null);
+        setRpcState('live');
+        setVaultExists(false);
+        setVaultInitialized(false);
+        setQuoteAvailable(false);
+        setQuoteFresh(false);
+        setVaultSource(unavailableSource('No vault account exists for the configured mints on Devnet.', 'not_found'));
+        setQuoteState(EMPTY_QUOTE_STATE);
+        setVaultState(EMPTY_VAULT_STATE);
+        setStatus({ ...EMPTY_STATUS, rpc: 'ok', programRead: 'missing' });
+        return;
+      }
+
+      if (result.kind === 'invalid') {
+        failureStreakRef.current = 0;
+        pausedRef.current = false;
+        setAutoRetryPaused(false);
+        setLiveError(result.reason);
+        setRpcState('invalid');
+        setVaultSource(prevSourceInvalid(result.reason, result.errorKind));
+        setVaultInitialized(false);
+        setStatus((p) => ({ ...p, rpc: 'error', programRead: 'error' }));
+        return;
+      }
+
+      // kind === 'ready'
+      failureStreakRef.current = 0;
+      pausedRef.current = false;
+      setAutoRetryPaused(false);
+      pollDelayRef.current = POLL_BASE_MS;
+      setPollDelayMs(POLL_BASE_MS);
+      setLiveError(null);
+      setRpcState('live');
+
+      const state = result.state;
+      const [slot, cluster, program] = await Promise.all([
+        RPC_FAILOVER.runKeyed('getSlot', (c) => c.getSlot()).catch(() => 0),
+        RPC_FAILOVER.runKeyed('verifyCluster', (c) => verifyCluster(c)).catch(() => ({ verified: false, genesisHash: null })),
+        RPC_FAILOVER.runKeyed('verifyProgram', (c) => verifyProgram(c)).catch(() => ({ verified: false, owner: null, executable: false })),
+      ]);
+      if (seq !== refreshSeqRef.current) return;
+      lastGoodRef.current = { state, slot };
+
+      let shares: bigint | null = null;
+      let dep: DepositTicketView | null = null;
+      let wd: WithdrawTicketView | null = null;
+      if (publicKey && state.vaultData) {
+        shares = await RPC_FAILOVER
+          .runKeyed(`shareBalance:${publicKey.toBase58()}`, (c) => fetchShareBalance(c, publicKey))
+          .catch(() => null);
+        const dt = await RPC_FAILOVER
+          .runKeyed(`depositTicket:${publicKey.toBase58()}`, (c) => fetchDepositTicket(c, publicKey))
+          .catch(() => null);
+        if (dt) {
+          const activate = Number((dt.activateSlot as { toString(): string } | undefined)?.toString() ?? '0');
+          dep = { shares: BigInt((dt.shares as { toString(): string }).toString()), activateSlot: activate, active: slot >= activate };
+        }
+        const wt = await RPC_FAILOVER
+          .runKeyed(`withdrawTicket:${publicKey.toBase58()}`, (c) => fetchWithdrawTicket(c, publicKey))
+          .catch(() => null);
+        if (wt) {
+          wd = {
+            shares: BigInt((wt.shares as { toString(): string }).toString()),
+            requestedEpoch: Number((wt.epoch as { toString(): string } | undefined)?.toString() ?? '0'),
+          };
+        }
+      }
+      if (seq !== refreshSeqRef.current) return;
+      const bt = slot > 0
+        ? await RPC_FAILOVER.runKeyed(`blockTime:${slot}`, (c) => c.getBlockTime(slot)).catch(() => null)
+        : null;
+      if (seq !== refreshSeqRef.current) return;
+
+      applySnapshot(state, slot, nowMs, {
+        genesisVerified: cluster.verified,
+        programVerified: program.verified,
+        blockTime: bt,
+        shares, dep, wd,
+        sourceState: 'live', reason: null, errorKind: null,
+      });
+      setLastUpdatedAt(Math.floor(nowMs / 1000));
+    } catch (error) {
+      if (seq !== refreshSeqRef.current) return;
+      const { kind, reason } = sourceErrorFromException(error);
+      failureStreakRef.current += 1;
+      setLiveError(`${reason} Live vault and quote data could not be refreshed.`);
+      setRpcState('stale');
+      const prev = lastGoodRef.current;
+      if (prev) {
+        applySnapshot(prev.state, prev.slot, nowMs, {
+          genesisVerified, programVerified, blockTime,
+          shares: shareBalanceAtoms, dep: depositTicket, wd: withdrawTicket,
+          sourceState: 'stale', reason, errorKind: kind,
+        });
+      } else {
+        setVaultSource(unavailableSource(reason, kind));
+      }
+      const paused = failureStreakRef.current >= PAUSE_AFTER_FAILURES;
+      pausedRef.current = paused;
+      setAutoRetryPaused(paused);
+      pollDelayRef.current = delayForFailures(POLL_BASE_MS, failureStreakRef.current);
+      setPollDelayMs(pollDelayRef.current);
+    } finally {
+      setRpcSnapshot(RPC_FAILOVER.health());
+      setLastUpdatedAt((t) => t ?? Math.floor(nowMs / 1000));
+    }
+  }, [applySnapshot, publicKey, genesisVerified, programVerified, blockTime, shareBalanceAtoms, depositTicket, withdrawTicket]);
+
+  const retryNow = useCallback(() => {
+    failureStreakRef.current = 0;
+    pausedRef.current = false;
+    setAutoRetryPaused(false);
+    pollDelayRef.current = POLL_BASE_MS;
+    setPollDelayMs(POLL_BASE_MS);
+    RPC_FAILOVER.resetHealth();
     void refreshProtocol();
-    // The deployed quote expiry is 10 slots (~4 s at 400 ms/slot), so poll at
-    // ~4 s. An 8 s poll would usually observe an already-expired quote even
-    // while a healthy keeper is re-quoting. Still a single lightweight RPC
-    // batch per tick (no transaction spam).
-    const id = setInterval(() => { void refreshProtocol(); }, 4_000);
-    return () => clearInterval(id);
   }, [refreshProtocol]);
+
+  // Adaptive, self-rescheduling poll (never a fixed fast interval). Auto-retry
+  // pauses after repeated failures to avoid hammering a rate-limited provider.
+  const refreshRef = useRef(refreshProtocol);
+  refreshRef.current = refreshProtocol;
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const loop = async () => {
+      await refreshRef.current();
+      if (stopped || pausedRef.current) return;
+      timer = setTimeout(loop, pollDelayRef.current);
+    };
+    void loop();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     void refreshBalances();
@@ -333,6 +556,13 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const connectWallet = () => { void connect().catch(() => undefined); };
   const disconnectWallet = () => { void disconnect().catch(() => undefined); };
+
+  const rpcStatus: RpcStatus = {
+    ...rpcSnapshot,
+    state: rpcState,
+    pollDelayMs,
+    autoRetryPaused,
+  };
 
   return (
     <ProtocolContext.Provider
@@ -347,6 +577,10 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         walletAddress: publicKey ? publicKey.toBase58() : null,
         balancesLoading,
         walletAtoms,
+        balancesSource,
+        vaultSource,
+        vaultExists,
+        rpcStatus,
         vaultInitialized,
         quoteAvailable,
         quoteFresh,
@@ -363,6 +597,7 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         activeVaultLabel: ACTIVE_VAULT.label,
         refreshBalances,
         refreshProtocol,
+        retryNow,
         connectWallet,
         disconnectWallet,
       }}
@@ -371,6 +606,11 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     </ProtocolContext.Provider>
   );
 };
+
+/** `invalid` helper kept local to avoid re-importing and to stay pure. */
+function prevSourceInvalid(reason: string, errorKind: SourceError): Sourced<OnChainProtocolState> {
+  return { state: 'invalid', value: null, asOf: null, reason, errorKind };
+}
 
 export const useProtocol = () => {
   const context = useContext(ProtocolContext);

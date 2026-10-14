@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseUnits, formatUnits } from '../src/chain/amounts';
-import { swapUnavailableReason, claimWithdrawState } from '../src/chain/gating';
+import { swapUnavailableReason, liveSwapGateReason, claimWithdrawState, submitFreshnessReason } from '../src/chain/gating';
 import { feeAtoms, expectedOutAtoms, minOutWithSlippage, swapAmounts } from '../src/chain/swapMath';
 import { deriveVaultAddresses, expectedDepositShares, keeperRewardPda } from '../src/chain/program';
 import { CANONICAL_VAULT, ACTIVE_VAULT } from '../src/chain/config';
@@ -135,8 +135,10 @@ describe('claim gating mirrors the program precondition (ticket.epoch <= vault.e
 });
 
 describe('swap gate fails closed', () => {
+  const enabled = { transactionsEnabled: true, transactionDisabledReason: null, genesisVerified: true };
   it('blocks with the 2-second freshness reason when there is no quote', () => {
     const reason = swapUnavailableReason({
+      ...enabled,
       vaultInitialized: true,
       circuitBreakerTripped: false,
       quoteAvailable: false,
@@ -147,17 +149,66 @@ describe('swap gate fails closed', () => {
 
   it('blocks when the vault is uninitialized or paused', () => {
     expect(
-      swapUnavailableReason({ vaultInitialized: false, circuitBreakerTripped: false, quoteAvailable: true }),
+      swapUnavailableReason({ ...enabled, vaultInitialized: false, circuitBreakerTripped: false, quoteAvailable: true }),
     ).toMatch(/not initialized/);
     expect(
-      swapUnavailableReason({ vaultInitialized: true, circuitBreakerTripped: true, quoteAvailable: true }),
+      swapUnavailableReason({ ...enabled, vaultInitialized: true, circuitBreakerTripped: true, quoteAvailable: true }),
     ).toMatch(/circuit breaker/);
   });
 
-  it('allows only when vault is live, not paused, and a fresh quote exists', () => {
+  it('blocks when transactions are disabled or the cluster is unverified', () => {
     expect(
-      swapUnavailableReason({ vaultInitialized: true, circuitBreakerTripped: false, quoteAvailable: true }),
+      swapUnavailableReason({ ...enabled, transactionsEnabled: false, transactionDisabledReason: 'read-only', vaultInitialized: true, circuitBreakerTripped: false, quoteAvailable: true }),
+    ).toMatch(/read-only/);
+    expect(
+      swapUnavailableReason({ ...enabled, genesisVerified: false, vaultInitialized: true, circuitBreakerTripped: false, quoteAvailable: true }),
+    ).toMatch(/unverified cluster/);
+  });
+
+  it('allows only when enabled, on a verified cluster, vault live, not paused, and a fresh quote exists', () => {
+    expect(
+      swapUnavailableReason({ ...enabled, vaultInitialized: true, circuitBreakerTripped: false, quoteAvailable: true }),
     ).toBeNull();
+  });
+});
+
+describe('state-aware live swap gate fails closed with a concrete reason', () => {
+  const ok = {
+    vaultState: 'live' as const,
+    vaultExists: true,
+    errorKind: null,
+    genesisVerified: true,
+    circuitBreakerTripped: false,
+    quoteAvailable: true,
+    quoteStatus: 'Fresh' as const,
+  };
+
+  it('allows only when every live precondition holds', () => {
+    expect(liveSwapGateReason(ok)).toBeNull();
+  });
+
+  it('blocks an unverified cluster even when the env says devnet', () => {
+    expect(liveSwapGateReason({ ...ok, genesisVerified: false })).toMatch(/unverified cluster/);
+  });
+
+  it('distinguishes an RPC 429 from an uninitialized vault', () => {
+    const r = liveSwapGateReason({ ...ok, vaultState: 'stale', errorKind: 'rate_limited', vaultExists: null });
+    expect(r).toMatch(/rate-limiting/i);
+    expect(r).not.toMatch(/no vault is initialized/i);
+  });
+
+  it('blocks an invalid account state and a failed preflight read', () => {
+    expect(liveSwapGateReason({ ...ok, vaultState: 'invalid' })).toMatch(/failed validation/);
+    expect(liveSwapGateReason({ ...ok, vaultState: 'stale', errorKind: 'timeout' })).toMatch(/RPC read failed/i);
+  });
+
+  it('blocks an expired or aging quote', () => {
+    expect(liveSwapGateReason({ ...ok, quoteAvailable: false, quoteStatus: 'Expired' })).toMatch(/expired/);
+    expect(liveSwapGateReason({ ...ok, quoteAvailable: false, quoteStatus: 'Aging' })).toMatch(/aging/);
+  });
+
+  it('blocks a paused vault', () => {
+    expect(liveSwapGateReason({ ...ok, circuitBreakerTripped: true })).toMatch(/circuit breaker/);
   });
 });
 
@@ -222,7 +273,7 @@ describe('quote availability never falls back to a numeric zero', () => {
 
   it('swap gate stays closed while the quote is unavailable or expired', () => {
     const unavailable = toQuoteState({ ...base }, 1000);
-    expect(swapUnavailableReason({ vaultInitialized: true, circuitBreakerTripped: false, quoteAvailable: unavailable.hasQuote && unavailable.status !== 'Expired' })).toMatch(/no fresh Pyth quote/);
+    expect(swapUnavailableReason({ transactionsEnabled: true, transactionDisabledReason: null, genesisVerified: true, vaultInitialized: true, circuitBreakerTripped: false, quoteAvailable: unavailable.hasQuote && unavailable.status !== 'Expired' })).toMatch(/no fresh Pyth quote/);
   });
 });
 
@@ -253,6 +304,29 @@ describe('keeper reward attribution (S2-24/S2-25)', () => {
     expect(toQuoteState({ ...base, quoteData }, 105).quoteKeeper).toBe(KEEPER.toBase58());
     // Unattributed (legacy/migrated sentinel) must never surface a configured keeper.
     expect(toQuoteState({ ...base, quoteData: { ...quoteData, keeper: pk } }, 105).quoteKeeper).toBeNull();
+  });
+});
+
+describe('submission-time quote freshness gate (S2-35)', () => {
+  it('refuses when the live quote could not be re-read', () => {
+    expect(submitFreshnessReason(null)).toMatch(/could not be re-read/);
+  });
+
+  it('refuses an unattributed or zero-version quote', () => {
+    expect(
+      submitFreshnessReason({ fresh: true, version: 0n, currentSlot: 5n, expirySlot: 10n }),
+    ).toMatch(/no attributed on-chain quote/);
+  });
+
+  it('refuses an expired quote and names the exact slots', () => {
+    const reason = submitFreshnessReason({ fresh: false, version: 4n, currentSlot: 12n, expirySlot: 10n });
+    expect(reason).toMatch(/expired/);
+    expect(reason).toMatch(/10/);
+    expect(reason).toMatch(/12/);
+  });
+
+  it('proceeds only for a fresh, attributed quote', () => {
+    expect(submitFreshnessReason({ fresh: true, version: 4n, currentSlot: 9n, expirySlot: 10n })).toBeNull();
   });
 });
 
