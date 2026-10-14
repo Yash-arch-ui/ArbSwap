@@ -2030,3 +2030,31 @@ Program upgraded and `expiry_slots` made admin-tunable (Step 41). This step:
 - **Boundary.** Only the authorized program upgrade + the one `set_params`
   proposal were sent. No swap/deposit/withdraw/claim/transfer, no other config or
   authority change. Secrets/URLs redacted.
+
+## Part 3 / Step 43 — S2-38 liveness verification + release gaps
+
+Report: [`docs/S2_38_LIVENESS_AND_RELEASE.md`](S2_38_LIVENESS_AND_RELEASE.md).
+
+- **Phase 1 (verified).** `Config.expiry_slots` is **still 10**; the S2-37
+  proposal is **pending** (`activate_slot 511127388`, ~12.7 h → ETA
+  ~2026-10-14T22:14Z). The `apply-expiry` runner is alive and recovered from a
+  transient RPC error (resilience fix `50c5b0c`); no duplicate proposal/apply.
+- **Phase 2 (BLOCKED).** The 30-min post-change measurement requires 120 active;
+  not run. Pre-change reference `logs/fresh_baseline.json` is RED (expiry=10:
+  0/1605 fresh). 2–4 s commit cadence **not** demonstrated; cadence reported
+  separately from freshness. Post-change command: `scripts/devnet/measure_fresh.sh 1800 400`.
+- **Phase 3 (done).** Simulator-backed demo streams + schema
+  (`simulation.attackers.export_streams` → `artifacts/public/demo_streams.json`,
+  `app/src/data/demoStreams.json`), determinism + no-network tests, `ClaimsPage`
+  mirroring `docs/CLAIMS.md`, `EvidencePage` devnet history. Simulated outcomes
+  labelled and kept separate from on-chain data.
+- **Phase 4 (done).** Swap page verified (depth both directions, Use-max, wrap/
+  unwrap + 0.05 SOL reserve, countdown, price ~$107 vs the stale $186.98). Browser
+  E2E exit 0; screenshots in `/tmp/e2e-s238/`. No swap submitted.
+- **Phase 5 (done, no tag).** Full gate green: fmt/clippy/workspace (lifecycle 104,
+  keeper 45), pytest 231/2 skipped, keeper TS 17/9/24, app 125 + build, E2E,
+  docs-consistency, bundle-freshness, banned, secrets, `api-key=` scan. CU
+  re-measured (5 runs): `update_quote` 47,836 (`≤40k` still **not met**,
+  host-sensitive). **`demo-freeze-1` NOT tagged** — expiry 120 not verified.
+- **Boundary.** Only the authorized upgrade + one `set_params` proposal sent; no
+  other on-chain writes. Secrets/URLs redacted.
