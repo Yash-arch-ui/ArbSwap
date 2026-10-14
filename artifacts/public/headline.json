@@ -21,13 +21,13 @@
     "window": "W1"
   },
   "cost": {
-    "cu_swap": 59327,
-    "cu_update_quote": 38563,
+    "cu_swap": 65079,
+    "cu_update_quote": 52336,
     "sol_price": 150.0,
-    "swap_total_quote": 0.00075889905,
+    "swap_total_quote": 0.00075976185,
     "update_gas_quote": 0.00075,
-    "update_priority_quote": 5.78445e-06,
-    "update_total_quote": 0.0007557844500000001,
+    "update_priority_quote": 7.8504e-06,
+    "update_total_quote": 0.0007578504,
     "updates_per_hour": 3600
   },
   "e1_e4": {
@@ -83,26 +83,13 @@
     }
   },
   "meta": {
-    "commit": "e01601f6b171e282ce749d98a4d1bfc9549c4bb9",
-    "data_sha256": {
-      "SOLUSDT-aggTrades-2026-09-10.csv": "11e96593eca7751b514fb8a00982494292bac1c93c26ceffa4a96d0903c59924",
-      "binance_SOLUSDC_1s.csv": "540837e5b29db479654347ae45ce1252baa5f0aa2fcdd4460df4518c06824aa3",
-      "binance_SOLUSDT_1s.csv": "a92033b3ff245b80f4f215956a6d9f2ae3df5307b018be87a82b7567a75c0193",
-      "binance_SOLUSDT_1s_6w.csv": "e31890292713bd8ffa0eb0927b3c96b2fc27554a081bab7083c5ec319d258e52",
-      "binance_SOLUSDT_1s_SA.csv": "6cdf748edbd1e66a8fc02693a6ee94c298d3e5652cef3e0e96538ec1148eb867",
-      "binance_SOLUSDT_1s_SB.csv": "e18abe7c93917a5d1e537aa79a290890a916a8efbba5537c608adcdfb4ca1317",
-      "binance_SOLUSDT_aggtrades_100ms_2026-09-10.csv": "49100720c5a38ec0ffa246d11c6eeea7983b744cf1e74f33c79786306e30e6d0",
-      "binance_SOLUSDT_aggtrades_100ms_2026-09-17.csv": "44af193cc4d1f79a4a717feb383f70877d7cb0bc36793f86c1da53252a37757c",
-      "binance_SOLUSDT_aggtrades_100ms_2026-10-01.csv": "e4f4639879d04bc097c86c26acdb7c71e7be652ccf6a4fc8015c5e4f5f662606",
-      "binance_USDCUSDT_1s_6w.csv": "11512c9fcfedb6c37ccb0a3f0f53571ad772b0cf0483257b8d8e0b0af03b38ea",
-      "binance_USDCUSDT_1s_SA.csv": "e2102887cd7a95e4885b38d08e07e14df6c9b2f01f890ffd151f066fef65f67d",
-      "binance_USDCUSDT_1s_SB.csv": "8dbad68d40499f903103f764fd1f710b4701d92e22446e3f0259ef000c886e03"
-    },
-    "date": "2026-10-11",
+    "commit": "b6c060ca1e4f26cb19a41ce0673e5594238fabba",
+    "data_sha256": {},
+    "date": "2026-10-14",
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "e01601f"
+    "short": "b6c060c"
   },
   "routed_world": {
     "rows": [
