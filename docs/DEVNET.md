@@ -633,3 +633,26 @@ offsets `[2,5,10,20,40,80]`; weights `[1000,1500,2000,2000,2000,1500]`.
 2. Confirm `ARBSWAP_DEVNET_KEYPAIR`/admin is `8R3V…` and equals `program_config.admin`.
 3. Fund test tokens within the mint caps (S2.4 uses them after init).
 4. No vault exists yet (dry-run shows the PDAs are unused).
+
+## STEP 2 — S2-37 upgrade: tunable expiry_slots (2026-10-14)
+
+Adds `expiry_slots` to `ParamsUpdate` (admin-tunable via the timelocked
+`set_params`/`apply_params`, bounded `grace_slots < expiry_slots <= 600`). No
+`Config`/`QuoteState` layout change; same `TIMELOCK_SLOTS` and authorization.
+
+| | |
+|---|---|
+| Repo commit | `40621b0` (branch `main`) |
+| Program id | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
+| Upgrade authority (public key) | `ddGs6hk5E4oPzSnwFfX4pD4DDhDTLTwRddv1VQym7bH` |
+| Fee payer (public key) | `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH` |
+| Build | `cargo build-sbf` into a clean target dir |
+| New ELF (payload) | 772,256 bytes, sha256 `0cdf9575bc91c4829706f6b1886341877625174f3d46c50b83c306c8904826c1` |
+| On-chain account | 780,224 bytes (loader retained 7,968 B trailing padding), sha256 `dff8a3020f4053342a3b5b6b109f1253ff126df4048fb1244811e30a5595371f` |
+| Upgrade signature | `31Aa7GZXKyFzzVNnFE2xfdqhuohdEtuYvE5bJKoixpZ9uMpW77uhpLAaFdCiH17RMB4ReEZpWwWw1Byma6Bqyb7f` |
+| Upgrade slot / block time | 510905181 / 1791961375 (2026-10-14T06:36Z) |
+| Previous ELF (rollback) | `~/arbswap-rollback/arbswap_b4df2b0f.so` (769,984 B, sha256 `b4df2b0f93735c7532871769ec713e92179f6375252a5bad7d8fea9c989f7096`) |
+| Post-upgrade smoke | vault Active; Config field-by-field unchanged (expiry_slots still 10); keeper bounded 5 min: 6 `COMMITTED_AND_VERIFIED` (v120->121+), author `8R3V...`, QuoteState len 897; swap preflight builds, only `QuoteExpired` when expired; no new error codes; no rollback |
+
+**Parameter change (S2-37 Task 3) is PENDING**: `set_params(expiry_slots=120)` is
+not yet proposed/applied; the live `Config.expiry_slots` remains 10 until then.
