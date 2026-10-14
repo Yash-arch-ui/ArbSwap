@@ -2121,3 +2121,24 @@ Report: [`docs/S2_40_LIVE_MARKET_AND_SWAP.md`](S2_40_LIVE_MARKET_AND_SWAP.md).
 - **Remaining fix = the pending `expiry_slots=120` apply** (~22:06Z): at the new
   ~1/9 s commit rate a 30 s window yields near-continuous freshness. No protocol
   change; no push.
+
+## Part 3 / Step 47 — S2-41 frontend/swap integration (gates A/B/C blocked)
+
+Report: [`docs/S2_41_BROWSER_SWAP_GATE.md`](S2_41_BROWSER_SWAP_GATE.md).
+
+- **Config gate A fails.** `expiry_slots` still 10; proposal pending
+  (`activate_slot 511127388`, ETA ~22:12Z); runner alive/polling.
+- **Frontend integration finished.** Audited every page: Overview/Swap/Vault/Risk
+  read live on-chain state via `ProtocolContext`; Analytics reads the published
+  `/artifacts/*` bundle; Simulator replays offline streams. No mock data.
+- **Swap lifecycle** is now build→simulate→preview→confirm: `SwapPage` simulates
+  and shows a preview (input, expected, min_out, fee, slippage, version/expiry,
+  wallet, network); confirm re-reads the quote, rebuilds/re-simulates, and never
+  submits a stale tx; the connected wallet signs; success only after confirmed.
+  `explainSwapError` decodes 6013/6015/6021/6030/6031/6032/6033/6037/6039.
+- **Real browser-wallet swap BLOCKED** (no wallet extension here; config/liveness
+  gate fails). No asset-moving tx.
+- **Checks green:** Rust fmt/clippy/workspace (104/45), pytest 231/2 skipped,
+  keeper TS 17/9/24, app 122 + build, browser E2E exit 0, docs/bundle/banned/
+  secrets CLEAN. Committed locally (**ahead of origin, not pushed**). `demo-freeze-1`
+  NOT tagged. Status: `BLOCKED: CONFIGURATION OR LIVENESS`.
