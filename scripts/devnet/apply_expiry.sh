@@ -17,7 +17,17 @@ if ! flock -n 9; then
 fi
 exec >> ../../logs/apply_expiry.log 2>&1
 echo "[$(date -u +%FT%TZ)] apply-expiry starting (lock=$LOCK)"
-npx tsx apply_params.ts apply --wait
-rc=$?
-echo "[$(date -u +%FT%TZ)] apply-expiry finished rc=$rc"
-exit "$rc"
+attempt=0
+while :; do
+  attempt=$((attempt + 1))
+  if npx tsx apply_params.ts apply --wait; then
+    echo "[$(date -u +%FT%TZ)] apply-expiry done (attempt $attempt)"
+    exit 0
+  fi
+  if (( attempt >= 10 )); then
+    echo "[$(date -u +%FT%TZ)] apply-expiry giving up after $attempt attempts"
+    exit 1
+  fi
+  echo "[$(date -u +%FT%TZ)] attempt $attempt failed; retrying in 120s"
+  sleep 120
+done
