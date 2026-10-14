@@ -123,7 +123,7 @@ at the real source via `[workspace] members = ["vault/program"]`.
 Toolchain used at setup: solana-cli 4.1.2, anchor 1.1.2, rust 1.98.0
 (pinned in `rust-toolchain.toml`), node 24, python 3.12.
 
-Current suite: **207 Rust / 230 Python** tests (single source of truth:
+Current suite: **211 Rust / 230 Python** tests (single source of truth:
 `simulation/data/results/artifacts.json`).
 
 ```bash
@@ -198,3 +198,9 @@ speed; never claim an unmeasured result; report losing regimes.
 - `docs/AUDIT_ACHIEVED_VS_PLAN.md` — achieved vs not achieved vs MasterPlan + BuilderPlan, phase by phase.
 - `docs/REMAINING_WORK.md` — what is still left vs the two plan files.
 - `simulation/analytics/README.md` — P4 indexer, metrics, and dashboard.
+
+**Devnet demo (scheduled):** quote validity will be raised to 120 slots (~30 s)
+so a person can swap; the 2 s oracle rule is still enforced at commit, and the
+swap does not re-check oracle age, so a longer window increases exposure to
+stale-price fills; test funds only; the realized-edge breaker and per-window
+flow cap remain active. Not a protocol guarantee. See `docs/DEMO_RUNBOOK.md`.

@@ -3,6 +3,13 @@
 Read-only unless explicitly marked. No secrets. RPC URLs come from `.env`
 (`ARBSWAP_RPC_URL`, gitignored) or `ARBSWAP_RPC_FALLBACKS`; never printed.
 
+> **Devnet demo configuration (scheduled; not yet active).** Quotes remain valid
+> for 120 slots (~30 s) so a person can swap; the oracle must still be within 2 s
+> at quote commit, but the swap does not re-check oracle age, so a longer
+> validity increases exposure to stale-price fills; test funds only; the
+> realized-edge breaker and the per-window flow cap remain active. This is a
+> configuration, not a protocol guarantee.
+
 ## Start / stop the keeper (bounded, single instance)
 
 ```bash

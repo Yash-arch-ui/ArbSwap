@@ -44,8 +44,17 @@ APY or return projection.
 ## Commands
 
 ```bash
-cargo test --workspace        # 207 Rust tests
+cargo test --workspace        # 211 Rust tests
 .venv/bin/pytest simulation -q # 230 Python tests
 anchor build                  # SBF program
 ./scripts/headline.sh         # headline chart (no data/keys)
 ```
+
+## Devnet demo configuration (limits)
+
+**Scheduled (pending the timelocked parameter apply; not yet active):** Devnet demo
+configuration: quotes remain valid for 120 slots (about 30 s) so a person can
+swap; the oracle must still be within 2 s at quote commit, but the swap does not
+re-check oracle age, so a longer validity increases exposure to stale-price
+fills; test funds only; the realized-edge breaker and the per-window flow cap
+remain active. This is a configuration, not a protocol guarantee.

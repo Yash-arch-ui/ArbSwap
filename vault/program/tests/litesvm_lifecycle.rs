@@ -831,6 +831,7 @@ impl Fixture {
             arbswap::accounts::SetParams {
                 admin: to_address(admin.pubkey()),
                 vault: self.vault,
+                config: self.config,
                 pending_config: self.pending_config(),
                 system_program: anchor_lang::system_program::ID,
             },
@@ -1362,6 +1363,7 @@ fn params_change_is_timelocked() {
     let mut fixture = Fixture::new(&keys);
     let update = arbswap::ParamsUpdate {
         fee_bps: 5,
+        expiry_slots: EXPIRY_SLOTS,
         ..Default::default()
     };
     assert_anchor_error(fixture.set_params(&keys.lp, update), "Unauthorized");
@@ -1410,6 +1412,7 @@ fn admin_only_controls_reject_non_admins() {
             &keys.lp,
             arbswap::ParamsUpdate {
                 fee_bps: 1,
+                expiry_slots: EXPIRY_SLOTS,
                 ..Default::default()
             },
         ),
@@ -2089,6 +2092,7 @@ fn params_update_cannot_change_keeper_eligibility() {
         max_anchor_dev_bps: before.max_anchor_dev_bps,
         flow_window_slots: before.flow_window_slots,
         max_window_flow_bps: before.max_window_flow_bps,
+        expiry_slots: before.expiry_slots,
     };
     fixture
         .set_params(&keys.admin, params)
@@ -2989,6 +2993,7 @@ fn apply_params_rejects_min_spread_above_max() {
     let bad = arbswap::ParamsUpdate {
         min_spread_bps: 60,
         max_spread_bps: 50,
+        expiry_slots: EXPIRY_SLOTS,
         ..Default::default()
     };
     fixture
@@ -3686,6 +3691,7 @@ fn account_spaces_match_serialized_sizes() {
             &keys.admin,
             arbswap::ParamsUpdate {
                 fee_bps: 5,
+                expiry_slots: EXPIRY_SLOTS,
                 ..Default::default()
             },
         )
@@ -4421,6 +4427,7 @@ fn admin_rotation_requires_timelock_and_acceptance() {
             &keys.admin,
             arbswap::ParamsUpdate {
                 fee_bps: 5,
+                expiry_slots: EXPIRY_SLOTS,
                 ..Default::default()
             },
         ),
@@ -4431,6 +4438,7 @@ fn admin_rotation_requires_timelock_and_acceptance() {
             &new_admin,
             arbswap::ParamsUpdate {
                 fee_bps: 5,
+                expiry_slots: EXPIRY_SLOTS,
                 ..Default::default()
             },
         )
@@ -5212,4 +5220,215 @@ fn independent_keeper_recovers_expired_quote_after_large_jump() {
         .expect("independent keeper B recovers the expired quote");
     assert_eq!(fixture.attributed_keeper(), keeper_b.pubkey());
     assert_eq!(fixture.quote_state_value().anchor_sqrt_price, jump_anchor);
+}
+
+/// S2-37: build a `ParamsUpdate` that carries every current Config field, so
+/// only the field under test changes when it is applied.
+fn params_from_config(before: &Config, expiry_slots: u64) -> arbswap::ParamsUpdate {
+    arbswap::ParamsUpdate {
+        fee_bps: before.fee_bps,
+        insurance_bps: before.insurance_bps,
+        keeper_bps: before.keeper_bps,
+        protocol_bps: before.protocol_bps,
+        max_staleness_seconds: before.max_staleness_seconds,
+        max_conf_bps: before.max_conf_bps,
+        max_anchor_step_bps: before.max_anchor_step_bps,
+        max_spread_step_bps: before.max_spread_step_bps,
+        min_spread_bps: before.min_spread_bps,
+        max_spread_bps: before.max_spread_bps,
+        max_quote_size: before.max_quote_size,
+        max_inventory_bps: before.max_inventory_bps,
+        utilization_max_bps: before.utilization_max_bps,
+        unbond_cooldown_slots: before.unbond_cooldown_slots,
+        max_update_slot_age: before.max_update_slot_age,
+        edge_window_slots: before.edge_window_slots,
+        max_edge_loss_bps: before.max_edge_loss_bps,
+        max_anchor_dev_bps: before.max_anchor_dev_bps,
+        flow_window_slots: before.flow_window_slots,
+        max_window_flow_bps: before.max_window_flow_bps,
+        expiry_slots,
+    }
+}
+
+/// S2-37: after the timelock, applying a proposal changes `expiry_slots` and
+/// nothing else (every other Config field is read back and compared).
+#[test]
+fn expiry_slots_is_tunable_and_only_that_field_changes() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let before = fixture.config_state();
+    assert_eq!(before.expiry_slots, EXPIRY_SLOTS);
+
+    fixture
+        .set_params(&keys.admin, params_from_config(&before, 120))
+        .expect("propose expiry 120");
+    let pending = read_state::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture.apply_params(&keys.admin).expect("apply");
+
+    let after = fixture.config_state();
+    assert_eq!(after.expiry_slots, 120, "expiry_slots changed");
+    // Immutable identity fields are untouched.
+    assert_eq!(after.admin, before.admin);
+    assert_eq!(after.keeper, before.keeper);
+    assert_eq!(after.treasury, before.treasury);
+    assert_eq!(after.pyth_feed_id, before.pyth_feed_id);
+    assert_eq!(after.min_liquidity, before.min_liquidity);
+    assert_eq!(after.warmup_slots, before.warmup_slots);
+    assert_eq!(after.epoch_slots, before.epoch_slots);
+    assert_eq!(after.grace_slots, before.grace_slots);
+    // Every other tunable field round-trips unchanged.
+    assert_eq!(after.fee_bps, before.fee_bps);
+    assert_eq!(after.insurance_bps, before.insurance_bps);
+    assert_eq!(after.keeper_bps, before.keeper_bps);
+    assert_eq!(after.protocol_bps, before.protocol_bps);
+    assert_eq!(after.max_staleness_seconds, before.max_staleness_seconds);
+    assert_eq!(after.max_conf_bps, before.max_conf_bps);
+    assert_eq!(after.max_anchor_step_bps, before.max_anchor_step_bps);
+    assert_eq!(after.max_spread_step_bps, before.max_spread_step_bps);
+    assert_eq!(after.min_spread_bps, before.min_spread_bps);
+    assert_eq!(after.max_spread_bps, before.max_spread_bps);
+    assert_eq!(after.max_quote_size, before.max_quote_size);
+    assert_eq!(after.max_inventory_bps, before.max_inventory_bps);
+    assert_eq!(after.utilization_max_bps, before.utilization_max_bps);
+    assert_eq!(after.unbond_cooldown_slots, before.unbond_cooldown_slots);
+    assert_eq!(after.max_update_slot_age, before.max_update_slot_age);
+    assert_eq!(after.edge_window_slots, before.edge_window_slots);
+    assert_eq!(after.max_edge_loss_bps, before.max_edge_loss_bps);
+    assert_eq!(after.max_anchor_dev_bps, before.max_anchor_dev_bps);
+    assert_eq!(after.flow_window_slots, before.flow_window_slots);
+    assert_eq!(after.max_window_flow_bps, before.max_window_flow_bps);
+}
+
+/// S2-37: the new `expiry_slots` guards — bounds, admin-only, timelock.
+#[test]
+fn expiry_slots_guards_reject_invalid_proposals() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+
+    // `expiry_slots <= grace_slots` is rejected.
+    assert_anchor_error(
+        fixture.set_params(
+            &keys.admin,
+            arbswap::ParamsUpdate {
+                expiry_slots: 0,
+                ..Default::default()
+            },
+        ),
+        "InvalidParams",
+    );
+    // Above `MAX_EXPIRY_SLOTS` (600) is rejected.
+    assert_anchor_error(
+        fixture.set_params(
+            &keys.admin,
+            arbswap::ParamsUpdate {
+                expiry_slots: 601,
+                ..Default::default()
+            },
+        ),
+        "InvalidParams",
+    );
+    // A non-admin cannot propose.
+    assert_anchor_error(
+        fixture.set_params(
+            &keys.lp,
+            arbswap::ParamsUpdate {
+                expiry_slots: 120,
+                ..Default::default()
+            },
+        ),
+        "Unauthorized",
+    );
+    // A valid proposal is stored but cannot be applied before the timelock.
+    fixture
+        .set_params(
+            &keys.admin,
+            arbswap::ParamsUpdate {
+                expiry_slots: 120,
+                ..Default::default()
+            },
+        )
+        .expect("admin proposes");
+    assert_anchor_error(fixture.apply_params(&keys.admin), "TimelockNotElapsed");
+}
+
+/// S2-37: with the longer window, a committed quote expires exactly
+/// `expiry_slots` after its commit slot: a swap one slot before succeeds and at
+/// the expiry slot is rejected with `QuoteExpired`.
+#[test]
+fn long_expiry_extends_the_quote_and_expires_at_the_boundary() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let before = fixture.config_state();
+    fixture
+        .set_params(&keys.admin, params_from_config(&before, 120))
+        .expect("propose");
+    let pending = read_state::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture.apply_params(&keys.admin).expect("apply");
+    assert_eq!(fixture.config_state().expiry_slots, 120);
+
+    let commit_slot = fixture.svm.get_sysvar::<Clock>().slot;
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(commit_slot))
+        .expect("update_quote");
+    let q = fixture.quote_state_value();
+    assert_eq!(
+        q.expiry_slot,
+        commit_slot + 120,
+        "quote expiry = commit slot + new expiry_slots"
+    );
+
+    // One slot before expiry the quote still fills...
+    fixture.warp_to_slot(q.expiry_slot - 1);
+    fixture
+        .swap(&keys.trader, AMOUNT_IN, 0, 1)
+        .expect("swap just before expiry");
+    // ...and at the expiry slot it is rejected.
+    fixture.warp_to_slot(q.expiry_slot);
+    assert_anchor_error(fixture.swap(&keys.trader, AMOUNT_IN, 0, 1), "QuoteExpired");
+}
+
+/// S2-37: a long-lived quote does not bypass the per-window one-sided flow cap;
+/// the second fill in the same window is rejected before the reserve drains.
+#[test]
+fn long_expiry_quote_still_bounded_by_flow_cap() {
+    let keys = Keys::new();
+    // 1 bps per-window one-sided flow cap so it binds well before the reserve.
+    let mut fixture = Fixture::with_config(&keys, 0, 100_000, 1);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let before = fixture.config_state();
+    fixture
+        .set_params(&keys.admin, params_from_config(&before, 120))
+        .expect("propose");
+    let pending = read_state::<arbswap::PendingConfig>(&fixture.svm, fixture.pending_config());
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture.apply_params(&keys.admin).expect("apply");
+    assert_eq!(fixture.config_state().expiry_slots, 120);
+
+    let commit_slot = fixture.svm.get_sysvar::<Clock>().slot;
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(commit_slot))
+        .expect("update_quote");
+    assert!(fixture.quote_state_value().expiry_slot > commit_slot + 1);
+
+    // Repeatedly fill inside the long window; the per-window one-sided flow cap
+    // must reject a fill long before the base reserve is exhausted.
+    let mut result = fixture.swap(&keys.trader, AMOUNT_IN, 0, 1);
+    let mut fills = if result.is_ok() { 1 } else { 0 };
+    while result.is_ok() && fills < 2_000 {
+        result = fixture.swap(&keys.trader, AMOUNT_IN, 0, 1);
+        fills += 1;
+    }
+    assert!(fills > 1, "the cap must not bind on the first fill");
+    assert_anchor_error(result, "FlowCapExceeded");
 }

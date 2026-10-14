@@ -1531,6 +1531,28 @@
           }
         },
         {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
           "name": "pending_config",
           "writable": true,
           "pda": {
@@ -3778,6 +3800,14 @@
               "Item 1a: max one-sided base flow per window, in bps of base reserve."
             ],
             "type": "u32"
+          },
+          {
+            "name": "expiry_slots",
+            "docs": [
+              "S2-37: committed-quote validity window (slots). Bounded by",
+              "`MAX_EXPIRY_SLOTS` and required to exceed `grace_slots`."
+            ],
+            "type": "u64"
           }
         ]
       }

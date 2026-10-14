@@ -8,6 +8,7 @@ Run: ``python scripts/mutation_program.py``
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -62,6 +63,30 @@ MUTATIONS = [
         "            let _ = (level.inv_lo, level.inv_hi);\n",
         "update_quote_rejects_an_under_estimated_inverse_sqrt",
     ),
+    (
+        "S2-37 expiry upper bound (propose)",
+        "        require!(\n"
+        "            params.expiry_slots <= MAX_EXPIRY_SLOTS,\n"
+        "            ErrorCode::InvalidParams\n"
+        "        );\n",
+        "",
+        "expiry_slots_guards_reject_invalid_proposals",
+    ),
+    (
+        "S2-37 expiry lower bound (propose)",
+        "        require!(\n"
+        "            params.expiry_slots > ctx.accounts.config.grace_slots,\n"
+        "            ErrorCode::InvalidParams\n"
+        "        );\n",
+        "",
+        "expiry_slots_guards_reject_invalid_proposals",
+    ),
+    (
+        "S2-37 apply expiry_slots",
+        "        config.expiry_slots = update.expiry_slots;\n",
+        "        let _ = update.expiry_slots;\n",
+        "expiry_slots_is_tunable_and_only_that_field_changes",
+    ),
 ]
 
 
@@ -79,9 +104,12 @@ def run_test(name: str) -> bool:
 
 def main() -> int:
     original = LIB.read_text()
+    only = os.environ.get("MUTATIONS_ONLY", "")
     ok = True
     rows = []
     for label, old, new, test in MUTATIONS:
+        if only and only not in label:
+            continue
         if old not in original:
             print(f"SKIP {label}: anchor not found")
             ok = False

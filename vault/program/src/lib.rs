@@ -18,6 +18,10 @@ const MAX_LEVEL_OFFSET_BPS: u32 = 500;
 const BPS_DENOM: u32 = 10_000;
 /// Timelock between `set_params` and `apply_params` (F-17): ~1 day at 400 ms.
 const TIMELOCK_SLOTS: u64 = 216_000;
+/// S2-37: upper bound on the tunable `expiry_slots` (≈2.5 min at 0.248 s/slot).
+/// Bounds the window in which a committed quote can be filled; the 2 s oracle
+/// rule is still enforced at commit (the swap itself does not re-check age).
+const MAX_EXPIRY_SLOTS: u64 = 600;
 /// p2-T4: the permissionless breaker trips when the stored oracle publish time
 /// is older than this multiple of `max_staleness_seconds`. Stored state only.
 const STALENESS_TRIP_MULTIPLE: i64 = 2;
@@ -1097,6 +1101,15 @@ pub mod arbswap {
                 <= 10_000,
             ErrorCode::InvalidParams
         );
+        // S2-37: `expiry_slots` is now tunable; bound it at proposal time too.
+        require!(
+            params.expiry_slots > ctx.accounts.config.grace_slots,
+            ErrorCode::InvalidParams
+        );
+        require!(
+            params.expiry_slots <= MAX_EXPIRY_SLOTS,
+            ErrorCode::InvalidParams
+        );
         let now = Clock::get()?.slot;
         let pending = &mut ctx.accounts.pending_config;
         pending.admin = ctx.accounts.admin.key();
@@ -1130,6 +1143,15 @@ pub mod arbswap {
             update.utilization_max_bps <= 8_000,
             ErrorCode::InvalidParams
         );
+        // S2-37: re-validate the tunable expiry window at application time.
+        require!(
+            update.expiry_slots > ctx.accounts.config.grace_slots,
+            ErrorCode::InvalidParams
+        );
+        require!(
+            update.expiry_slots <= MAX_EXPIRY_SLOTS,
+            ErrorCode::InvalidParams
+        );
         let config = &mut ctx.accounts.config;
         config.fee_bps = update.fee_bps;
         config.insurance_bps = update.insurance_bps;
@@ -1155,6 +1177,9 @@ pub mod arbswap {
         config.max_anchor_dev_bps = update.max_anchor_dev_bps;
         config.flow_window_slots = update.flow_window_slots;
         config.max_window_flow_bps = update.max_window_flow_bps;
+        // S2-37: the only newly tunable field (`expiry_slots`); everything else
+        // in `apply_params` is unchanged.
+        config.expiry_slots = update.expiry_slots;
         ctx.accounts.pending_config.activate_slot = u64::MAX;
         emit!(ParamsApplied {
             slot: Clock::get()?.slot
@@ -1935,6 +1960,9 @@ pub struct ParamsUpdate {
     pub flow_window_slots: u64,
     /// Item 1a: max one-sided base flow per window, in bps of base reserve.
     pub max_window_flow_bps: u32,
+    /// S2-37: committed-quote validity window (slots). Bounded by
+    /// `MAX_EXPIRY_SLOTS` and required to exceed `grace_slots`.
+    pub expiry_slots: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -2692,7 +2720,11 @@ pub struct SetParams<'info> {
     pub admin: Signer<'info>,
     #[account(seeds=[b"vault", vault.base_mint.as_ref(), vault.quote_mint.as_ref()], bump=vault.bump)]
     pub vault: Box<Account<'info, Vault>>,
-    #[account(init_if_needed, payer=admin, space=8+32+8+133+1, seeds=[b"pending", vault.key().as_ref()], bump)]
+    #[account(seeds=[b"config", vault.key().as_ref()], bump=config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    // S2-37: ParamsUpdate grew by one u64 (`expiry_slots`): 8 disc + 32 admin +
+    // 8 activate_slot + 100 params + 1 bump.
+    #[account(init_if_needed, payer=admin, space=8+32+8+100+1, seeds=[b"pending", vault.key().as_ref()], bump)]
     pub pending_config: Box<Account<'info, PendingConfig>>,
     pub system_program: Program<'info, System>,
 }

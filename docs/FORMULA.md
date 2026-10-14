@@ -387,6 +387,14 @@ grace_slots < age < expiry_slots:    age_penalty = kappa*(age-grace_slots)
 age >= expiry_slots:                 reject swap
 ```
 
+`expiry_slots` bounds the window in which a committed quote may be filled. It is
+set at initialization and, since S2-37, tunable by the admin through the
+timelocked `set_params`/`apply_params` path, subject to
+`grace_slots < expiry_slots <= MAX_EXPIRY_SLOTS` with `MAX_EXPIRY_SLOTS = 600`
+(≈2.5 min at 0.248 s/slot). The 2 s oracle-age rule is still enforced at
+`commit_quote`; the swap does not re-check oracle age, so a larger
+`expiry_slots` trades a longer execution window for more stale-price exposure.
+
 Pyth Core supplies price, confidence, exponent, and publish time. Its update
 verification is in-band and caller-paid, so measurements must separate Pyth
 verification CU from ArbSwap instruction CU.

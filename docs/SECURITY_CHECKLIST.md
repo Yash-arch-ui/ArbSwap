@@ -228,6 +228,9 @@ tests were strengthened with new tests (`per_swap_size_cap_is_enforced`,
 | Admin-only | drop `admin == vault.admin` | `admin_only_controls_reject_non_admins` | caught |
 | Timelock delay | drop `slot >= activate_slot` | `params_change_is_timelocked` | caught |
 | Account space | halve `quote_state` space | `account_spaces_match_serialized_sizes` | caught |
+| S2-37 expiry upper bound | drop `expiry_slots <= MAX_EXPIRY_SLOTS` | `expiry_slots_guards_reject_invalid_proposals` | caught |
+| S2-37 expiry lower bound | drop `expiry_slots > grace_slots` | `expiry_slots_guards_reject_invalid_proposals` | caught |
+| S2-37 apply expiry | `config.expiry_slots = update.expiry_slots` → no-op | `expiry_slots_is_tunable_and_only_that_field_changes` | caught |
 
 **Not mutated (covered by type system, not a runtime guard):** Token-2022
 rejection is the `Program<Token>` type (`token_2022_accounts_are_rejected`).
