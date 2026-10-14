@@ -65,7 +65,7 @@ function ep(url: string, c: ReturnType<typeof clocked>, opts: {
   const r = await broadcastTransaction([a, b], new Uint8Array([1, 2, 3]), { now: c.now, sleep: c.sleep });
   check("both endpoints received the tx", a.sends === 1 && b.sends === 1);
   check("one signature for duplicate sends", r.signature === SIG);
-  check("faster endpoint wins", r.endpoint === "https://a");
+  check("faster endpoint wins", r.endpoint === "https://a/");
   check("both endpoints listed as sentTo", r.sentTo.length === 2);
 }
 
@@ -75,7 +75,7 @@ function ep(url: string, c: ReturnType<typeof clocked>, opts: {
   const a = ep("https://a", c, { landAfter: Infinity });
   const b = ep("https://b", c, { landAfter: 300 });
   const r = await broadcastTransaction([a, b], new Uint8Array([1]), { now: c.now, sleep: c.sleep, pollIntervalMs: 150 });
-  check("first landed endpoint wins", r.endpoint === "https://b");
+  check("first landed endpoint wins", r.endpoint === "https://b/");
   check("confirmMs reflects landing delay", r.confirmMs === 300);
 }
 
@@ -85,7 +85,7 @@ function ep(url: string, c: ReturnType<typeof clocked>, opts: {
   const a = ep("https://a", c, { sendThrows: new Error("429 too many requests") });
   const b = ep("https://b", c, { landAfter: 0 });
   const r = await broadcastTransaction([a, b], new Uint8Array([1]), { now: c.now, sleep: c.sleep });
-  check("survives one endpoint failure", r.signature === SIG && r.endpoint === "https://b");
+  check("survives one endpoint failure", r.signature === SIG && r.endpoint === "https://b/");
 }
 
 // --- broadcast: program error is surfaced, never treated as success ---
