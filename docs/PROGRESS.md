@@ -1960,3 +1960,32 @@ Branch `s2-36-fresh-quote-diagnosis` (not pushed).
   container has no browser wallet extension.
 - **Boundary.** Read-only; no sign/swap/deploy, no on-chain or keeper/program
   change; the branch is not pushed.
+
+## Part 3 / Step 41 — S2-37 quote-liveness architecture diagnosis
+
+Report: [`docs/S2_37_QUOTE_LIVENESS_REDESIGN.md`](S2_37_QUOTE_LIVENESS_REDESIGN.md).
+No program/keeper/config/IDL change; no deploy; not pushed.
+
+- **Measured root cause.** Over 30 timed keeper cycles (Helius): Hermes fetch p50
+  417 / p90 1,299 ms; update **age at fetch** p50 1,013 / p90 1,410 ms; VAA
+  confirm p50 858 ms; push+commit confirm p50 865 / p90 9,313 ms; **age at commit**
+  p50 2,000 / p90 3,000 ms vs the deployed `max_staleness_seconds = 2`. Outcomes:
+  44 `COMMITTED_AND_VERIFIED` vs 8 expired-at-confirm. The controlling clock is
+  the on-chain `Clock::unix_timestamp` at `commit_quote` (not wall/frontend time).
+- **Why it is intermittent.** Wall path publish→commit ≈ 2.8 s (`~1.0 s` old at
+  fetch + `~0.9 s` VAA + `~0.9 s` atomic push+commit). `expiry_slots = 10` gives
+  ~2.5–3 s of executable validity; the keeper commits ~every 10–25 s, so a quote
+  is fresh only ~10–15 % of the time. A single-shot CLI preflight (18/18) could
+  never catch the window.
+- **Verified, not assumed.** push + `commit_quote` are **already atomic**; the
+  residual cost is the separate `stage_quote` + Wormhole VAA confirmations.
+- **Options.** A/B already implemented (keeper at its practical floor); C raises
+  `expiry_slots` (market-risk trade-off: swap does not re-check oracle age); D is
+  a program redesign (single-tx commit / price forwarder) needing rebuild +
+  redeploy + migration. **C and D require explicit approval; neither applied.**
+- **Read-only preflight.** `swap_preflight.ts` (simulate only): BuyBase 0.5 USDC,
+  fee 50 atoms, expected 4,658,847 WSOL atoms, `min_out 4,635,552`, tx 573 B,
+  accounts listed; simulation returns `QuoteExpired (6030)` on the current expired
+  quote — the gate holds. No swap submitted.
+- **Boundary.** No deploy/upgrade, no `anchor keys sync`, no authority/config/
+  oracle change, no mint/deposit/withdraw/claim/transfer, no swap, no push.
