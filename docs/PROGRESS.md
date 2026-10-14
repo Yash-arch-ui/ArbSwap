@@ -2128,7 +2128,7 @@ Report: [`docs/S2_41_BROWSER_SWAP_GATE.md`](S2_41_BROWSER_SWAP_GATE.md).
 
 - **Config gate A fails.** `expiry_slots` still 10; proposal pending
   (`activate_slot 511127388`, ETA ~22:12Z); runner alive/polling.
-- **Frontend integration finished.** Audited every page: Overview/Swap/Vault/Risk
+- **Frontend integration finished.** Reviewed every page: Overview/Swap/Vault/Risk
   read live on-chain state via `ProtocolContext`; Analytics reads the published
   `/artifacts/*` bundle; Simulator replays offline streams. No mock data.
 - **Swap lifecycle** is now build→simulate→preview→confirm: `SwapPage` simulates

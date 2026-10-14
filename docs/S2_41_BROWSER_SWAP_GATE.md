@@ -22,7 +22,7 @@ PendingConfig: admin 8R3V…, activate_slot 511127388, eligible=false
 - Gate A **FAILS** → per the task, only independent frontend work was done; the
   liveness (B) and real-swap (C) gates were not attempted.
 
-## Phase 1 — per-page live integration (audited)
+## Phase 1 — per-page live integration (reviewed)
 
 Every page reads live on-chain state or the real published artifact bundle; no
 mocked data:
