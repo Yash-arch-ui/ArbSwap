@@ -132,7 +132,7 @@ describe('S2-35 execution mode is explicit and transaction-enabled on Devnet', (
     const swap = readFileSync(here('../src/pages/SwapPage.tsx'), 'utf8');
     const vault = readFileSync(here('../src/pages/VaultPage.tsx'), 'utf8');
     // SwapPage: the `ok: true` note must follow the awaited on-chain submit.
-    const swapSubmit = swap.indexOf('await swapOnChain(');
+    const swapSubmit = swap.indexOf('await sendSwapTransaction(');
     const swapSuccess = swap.indexOf('ok: true');
     expect(swapSubmit).toBeGreaterThan(-1);
     expect(swapSuccess).toBeGreaterThan(swapSubmit);

@@ -5,6 +5,7 @@ import {
   Connection,
   PublicKey,
   SystemProgram,
+  Transaction,
   type AccountInfo,
 } from '@solana/web3.js';
 import {
@@ -590,6 +591,95 @@ export async function swap(
 ): Promise<string> {
   const { builder, preInstructions } = await swapMethod(connection, wallet, side, amountIn, minOut, minVersion);
   return builder.preInstructions(preInstructions).rpc();
+}
+
+/** Build (unsigned) the swap transaction for the connected wallet, for preview/simulation. */
+export async function buildSwapTransaction(
+  connection: Connection, wallet: unknown, side: SwapSide,
+  amountIn: bigint, minOut: bigint, minVersion: bigint,
+): Promise<Transaction> {
+  const { builder, preInstructions } = await swapMethod(connection, wallet, side, amountIn, minOut, minVersion);
+  return builder.preInstructions(preInstructions).transaction();
+}
+
+/** Human, actionable explanations for the deployed program's swap error codes. */
+const SWAP_ERRORS: Record<number, string> = {
+  6012: 'Integer math overflow — amount is out of range.',
+  6013: 'The vault is paused by the circuit breaker (Paused).',
+  6015: 'The oracle update is stale or invalid (InvalidOracle). A fresh quote is required.',
+  6021: 'The per-window one-sided flow cap would be exceeded (FlowCapExceeded).',
+  6030: 'The on-chain quote expired before submission (QuoteExpired). Re-open Swap and submit against a fresh quote.',
+  6031: 'The on-chain quote version is older than required (VersionTooOld). Refresh and retry.',
+  6032: 'The fill would be worse than your minimum output (SlippageExceeded).',
+  6033: 'The committed ladder cannot fill this size (CapacityExceeded). Reduce the amount.',
+  6037: 'The quote update slot is too old (UpdateSlotTooOld).',
+  6039: 'The staged quote expired before commit (StalePendingQuote).',
+  6041: 'Quote attribution mismatch (QuoteAttributionMismatch).',
+  6042: 'The active quote has no keeper attribution (UnattributedQuote).',
+};
+
+/** Extract a program error code from a `simulateTransaction` result or thrown error. */
+export function explainSwapError(err: unknown): string {
+  const anyErr = err as {
+    InstructionError?: [number, { Custom?: number } | string];
+    value?: { err?: unknown; logs?: string[] };
+    logs?: string[];
+    message?: string;
+  };
+  const instr = anyErr?.InstructionError ?? (anyErr?.value?.err as { InstructionError?: [number, { Custom?: number } | string] })?.InstructionError;
+  const code = Array.isArray(instr) && instr[1] && typeof instr[1] === 'object' ? (instr[1] as { Custom?: number }).Custom : undefined;
+  if (typeof code === 'number' && SWAP_ERRORS[code]) return SWAP_ERRORS[code];
+  const logs = anyErr?.logs ?? anyErr?.value?.logs ?? [];
+  const logLine = logs.find((l) => /Error Code:|custom program error/.test(l));
+  if (logLine) return `Program error: ${logLine.replace(/^Program log: /, '').slice(0, 160)}`;
+  if (typeof code === 'number') return `Program rejected the swap (code ${code}).`;
+  return anyErr?.message?.slice(0, 160) ?? 'The transaction simulation failed.';
+}
+
+export interface SwapSimulation {
+  ok: boolean;
+  err: unknown;
+  logs: string[];
+  unitsConsumed?: number;
+  reason: string | null;
+}
+
+/** Simulate a built swap transaction (read-only preflight before wallet signing). */
+export async function simulateSwap(connection: Connection, tx: Transaction): Promise<SwapSimulation> {
+  const sim = await connection.simulateTransaction(tx);
+  const logs = sim.value.logs ?? [];
+  return {
+    ok: sim.value.err === null,
+    err: sim.value.err,
+    logs,
+    unitsConsumed: sim.value.unitsConsumed ?? undefined,
+    reason: sim.value.err === null ? null : explainSwapError(sim.value),
+  };
+}
+
+/**
+ * Sign with the connected wallet and submit, then wait for a confirmed status.
+ * Never reports success before chain confirmation.
+ */
+export async function sendSwapTransaction(
+  connection: Connection, wallet: unknown, tx: Transaction,
+): Promise<string> {
+  const w = wallet as Wallet;
+  const signed = await w.signTransaction(tx);
+  const sig = await connection.sendRawTransaction(signed.serialize(), {
+    skipPreflight: true, maxRetries: 3, preflightCommitment: 'confirmed',
+  });
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    const st = await connection.getSignatureStatuses([sig], { searchTransactionHistory: false }).catch(() => null);
+    const v = st?.value?.[0];
+    if (v?.err) throw new Error(`Transaction failed on-chain: ${JSON.stringify(v.err)}`);
+    if (v && (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized')) return sig;
+    if (Date.now() > deadline) {
+      throw new Error(`Confirmation timed out for ${sig.slice(0, 8)}… (it may still land; verify on the explorer).`);
+    }
+    await new Promise((r) => setTimeout(r, 800));
+  }
 }
 
 export async function crankEpoch(connection: Connection, wallet: unknown): Promise<string> {

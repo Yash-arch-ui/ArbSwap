@@ -3,12 +3,15 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
-import { swap as swapOnChain, fetchFreshQuote } from '../chain/program';
+import {
+  buildSwapTransaction, simulateSwap, sendSwapTransaction, fetchFreshQuote,
+} from '../chain/program';
+import type { Transaction } from '@solana/web3.js';
 import { parseUnits, formatUnits } from '../chain/amounts';
 import { swapAmountsFromLadder, maxGrossInput, quoteCountdown, type SwapSideName, type LadderLevel } from '../chain/swapMath';
 import { liveSwapGateReason, submitFreshnessReason } from '../chain/gating';
 import { isTransportError } from '../chain/dataState';
-import { ACTIVE_VAULT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON } from '../chain/config';
+import { ACTIVE_VAULT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON, CLUSTER } from '../chain/config';
 import { ReadOnlyBanner } from '../components/ReadOnlyMode';
 import { FundingPanel } from '../components/FundingPanel';
 import './SwapPage.css';
@@ -31,6 +34,11 @@ export const SwapPage: React.FC = () => {
   const [isSwapping, setIsSwapping] = useState<boolean>(false);
   // Note carries a severity so the UI never shows a success check on a failure.
   const [swapNote, setSwapNote] = useState<{ text: string; ok: boolean } | null>(null);
+  // Prepared transaction preview — shown before the wallet signs (never auto-submits).
+  const [preview, setPreview] = useState<{
+    tx: Transaction; minOut: bigint; expectedOut: bigint;
+    version: bigint; expirySlot: number; amountInAtoms: bigint;
+  } | null>(null);
 
   const outTokenSymbol = inTokenSymbol === 'SOL' ? 'USDC' : 'SOL';
   const inToken = tokens[inTokenSymbol];
@@ -198,8 +206,37 @@ export const SwapPage: React.FC = () => {
     setInAmount('');
   };
 
+  // Build a fresh quote plan + preflight-simulate, or return a precise reason.
+  const buildPlan = async (): Promise<
+    | { plan: { tx: Transaction; minOut: bigint; expectedOut: bigint; version: bigint; expirySlot: number; amountInAtoms: bigint } }
+    | { error: string }
+  > => {
+    const fresh = await fetchFreshQuote(connection);
+    const freshReason = submitFreshnessReason(fresh);
+    if (!fresh || freshReason) return { error: freshReason ?? 'Swaps unavailable: no live on-chain quote.' };
+    const submitLevels: LadderLevel[] = (isSellingSol ? fresh.bidLevels : fresh.askLevels).map((l) => ({
+      sqrtLo: BigInt(l.sqrtLo.toString()),
+      sqrtHi: BigInt(l.sqrtHi.toString()),
+      liquidity: BigInt(l.liquidity.toString()),
+    }));
+    const submitAmounts = swapAmountsFromLadder({ side, amountInAtoms, feeBps, slippageBps, levels: submitLevels });
+    if (submitAmounts.capacityExceeded) {
+      return { error: 'Exceeds quoted depth: the committed ladder cannot fill this size. Reduce the amount.' };
+    }
+    const ixSide = isSellingSol ? { sellBase: {} } : { buyBase: {} };
+    const tx = await buildSwapTransaction(connection, wallet, ixSide as never, amountInAtoms, submitAmounts.minOut, fresh.version);
+    const sim = await simulateSwap(connection, tx);
+    if (!sim.ok) return { error: sim.reason ?? 'The transaction simulation failed.' };
+    return {
+      plan: {
+        tx, minOut: submitAmounts.minOut, expectedOut: submitAmounts.expectedOut,
+        version: fresh.version, expirySlot: Number(fresh.expirySlot), amountInAtoms,
+      },
+    };
+  };
+
+  // Step 1: build + simulate, then present the preview. Never signs here.
   const handleSwap = async () => {
-    // Hard guard: never sign/submit unless this build is transaction-enabled.
     if (!TRANSACTIONS_ENABLED) {
       setSwapNote({ text: TRANSACTION_DISABLED_REASON ?? 'Transactions are disabled in this build.', ok: false });
       return;
@@ -214,55 +251,50 @@ export const SwapPage: React.FC = () => {
     }
     setIsSwapping(true);
     setSwapNote(null);
+    setPreview(null);
     try {
-      // S2-35: re-read the live committed quote at submission time. The polled
-      // ladder can be up to one poll interval older than the on-chain account,
-      // and the deployed quote expires after only `Config.expiry_slots` (10
-      // slots ≈2.4 s). Build `min_out` from the *current* committed ladder and
-      // submit against its version; refuse on expiry without submitting, so the
-      // app can never present a submission the program would reject.
-      const fresh = await fetchFreshQuote(connection);
-      const freshReason = submitFreshnessReason(fresh);
-      if (!fresh || freshReason) {
-        setSwapNote({ text: freshReason ?? 'Swaps unavailable: no live on-chain quote.', ok: false });
+      const r = await buildPlan();
+      if ('error' in r) {
+        setSwapNote({ text: r.error, ok: false });
         return;
       }
-      const submitLevels: LadderLevel[] = (isSellingSol ? fresh.bidLevels : fresh.askLevels).map((l) => ({
-        sqrtLo: BigInt(l.sqrtLo.toString()),
-        sqrtHi: BigInt(l.sqrtHi.toString()),
-        liquidity: BigInt(l.liquidity.toString()),
-      }));
-      const submitAmounts = swapAmountsFromLadder({
-        side, amountInAtoms, feeBps, slippageBps, levels: submitLevels,
-      });
-      if (submitAmounts.capacityExceeded) {
-        setSwapNote({
-          text: 'Swaps unavailable: the committed ladder cannot fill this size (on-chain capacity cap). Not submitted.',
-          ok: false,
-        });
+      setPreview(r.plan);
+    } catch (error) {
+      setSwapNote({ text: `Swap preparation failed: ${(error as Error).message?.slice(0, 160) ?? 'unknown error'}`, ok: false });
+    } finally {
+      setIsSwapping(false);
+    }
+  };
+
+  // Step 2: on user confirmation, re-validate + rebuild (never submit a stale tx),
+  // then let the connected wallet sign and wait for on-chain confirmation.
+  const handleConfirm = async () => {
+    if (!preview || !wallet) return;
+    setIsSwapping(true);
+    setSwapNote(null);
+    try {
+      const r = await buildPlan();
+      if ('error' in r) {
+        setSwapNote({ text: `${r.error} The prepared transaction was discarded.`, ok: false });
+        setPreview(null);
         return;
       }
-      const submitMinOutHuman = formatUnits(submitAmounts.minOut, outToken.decimals, 6);
-      // SOL in = trader sells base; USDC in = trader buys base.
-      const ixSide = isSellingSol ? { sellBase: {} } : { buyBase: {} };
-      const signature = await swapOnChain(
-        connection,
-        wallet,
-        ixSide as never,
-        amountInAtoms,
-        submitAmounts.minOut,
-        fresh.version,
-      );
-      // Only report success after the transaction confirmed (the builder awaits
-      // confirmation) and then refresh both the wallet balances and vault/quote
-      // state so the UI reflects the new on-chain reality.
+      const signature = await sendSwapTransaction(connection, wallet, r.plan.tx);
+      const minOutHuman = formatUnits(r.plan.minOut, outToken.decimals, 6);
       setSwapNote({
-        text: `Swap confirmed ${signature.slice(0, 8)}… — minimum received enforced on-chain (${submitMinOutHuman} ${outTokenSymbol}).`,
+        text: `Swap confirmed ${signature.slice(0, 8)}… — minimum received enforced on-chain (${minOutHuman} ${outTokenSymbol}).`,
         ok: true,
       });
+      setPreview(null);
       await Promise.all([refreshBalances(), refreshProtocol()]);
     } catch (error) {
-      setSwapNote({ text: `Swap failed: ${(error as Error).message?.slice(0, 160) ?? 'unknown error'}`, ok: false });
+      const msg = (error as Error).message ?? 'unknown error';
+      const human = /user rejected|rejected the request|declined/i.test(msg)
+        ? 'Wallet signature rejected.'
+        : /timed out|timeout/i.test(msg)
+          ? msg
+          : `Swap failed: ${msg.slice(0, 160)}`;
+      setSwapNote({ text: human, ok: false });
     } finally {
       setIsSwapping(false);
     }
@@ -507,11 +539,38 @@ export const SwapPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Transaction preview — shown before the wallet signs; never auto-submits */}
+          {preview && (
+            <div className="uni-card" style={{ marginTop: 8, borderColor: 'var(--uni-accent1)' }} data-testid="swap-preview" role="dialog" aria-label="Confirm swap">
+              <strong>Confirm swap — review before signing.</strong>
+              <dl className="uni-details-body" style={{ marginTop: 8, fontSize: 12.5, display: 'grid', gap: 4 }}>
+                <div><dt>You pay</dt><dd className="mono">{formatUnits(preview.amountInAtoms, inToken.decimals, 6)} {inTokenSymbol}</dd></div>
+                <div><dt>Expected output</dt><dd className="mono">{formatUnits(preview.expectedOut, outToken.decimals, 6)} {outTokenSymbol}</dd></div>
+                <div><dt>Minimum output (on-chain)</dt><dd className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>{formatUnits(preview.minOut, outToken.decimals, 6)} {outTokenSymbol}</dd></div>
+                <div><dt>Fee</dt><dd className="mono">{feeBps} bps</dd></div>
+                <div><dt>Slippage tolerance</dt><dd className="mono">{(slippageBps / 100).toFixed(2)}%</dd></div>
+                <div><dt>Quote version / expiry</dt><dd className="mono">v{preview.version.toString()} · slot {preview.expirySlot}</dd></div>
+                <div><dt>Wallet / network</dt><dd className="mono">{publicKey ? `${publicKey.toBase58().slice(0, 4)}…${publicKey.toBase58().slice(-4)}` : 'not connected'} · {CLUSTER}</dd></div>
+              </dl>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button type="button" className="uni-main-button accent" style={{ flex: 1 }} disabled={isSwapping} onClick={handleConfirm}>
+                  {isSwapping ? 'Waiting for wallet…' : 'Confirm & sign in wallet'}
+                </button>
+                <button type="button" className="uni-button uni-button-ghost" disabled={isSwapping} onClick={() => { setPreview(null); setSwapNote(null); }}>
+                  Cancel
+                </button>
+              </div>
+              <p className="mono" style={{ fontSize: 11, color: 'var(--uni-neutral2)', marginTop: 6 }}>
+                The quote is re-read, and the transaction rebuilt and simulated again at confirmation; a stale quote is never submitted.
+              </p>
+            </div>
+          )}
+
           {/* Main CTA — gated by the resolved execution mode + state gate */}
           <button
             type="button"
-            className={`uni-main-button ${parsedInAmount > 0 && !submitBlockedReason && connected ? 'accent' : 'disabled'}`}
-            disabled={!TRANSACTIONS_ENABLED || parsedInAmount <= 0 || isSwapping || (connected && !!swapBlockedReason)}
+            className={`uni-main-button ${parsedInAmount > 0 && !submitBlockedReason && connected && !preview ? 'accent' : 'disabled'}`}
+            disabled={!TRANSACTIONS_ENABLED || parsedInAmount <= 0 || isSwapping || !!preview || (connected && !!swapBlockedReason)}
             onClick={handleSwap}
           >
             {!TRANSACTIONS_ENABLED ? (
@@ -522,10 +581,12 @@ export const SwapPage: React.FC = () => {
               'Swaps unavailable'
             ) : isSwapping ? (
               'Settling on Solana…'
+            ) : preview ? (
+              'Review & confirm above'
             ) : parsedInAmount <= 0 ? (
               'Enter an amount'
             ) : (
-              `Swap ${inTokenSymbol} → ${outTokenSymbol}`
+              `Preview swap ${inTokenSymbol} → ${outTokenSymbol}`
             )}
           </button>
 
