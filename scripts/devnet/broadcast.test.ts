@@ -74,7 +74,7 @@ function ep(url: string, c: ReturnType<typeof clocked>, opts: {
   const c = clocked();
   const a = ep("https://a", c, { landAfter: Infinity });
   const b = ep("https://b", c, { landAfter: 300 });
-  const r = await broadcastTransaction([a, b], new Uint8Array([1]), { now: c.now, sleep: c.sleep, pollIntervalMs: 150 });
+  const r = await broadcastTransaction([a, b], new Uint8Array([1]), { now: c.now, sleep: c.sleep, pollIntervalMs: 150, rpcPerMinuteCap: 600 });
   check("first landed endpoint wins", r.endpoint === "https://b/");
   check("confirmMs reflects landing delay", r.confirmMs === 300);
 }
@@ -133,6 +133,31 @@ function ep(url: string, c: ReturnType<typeof clocked>, opts: {
     threw = String(e.message);
   }
   check("timeout thrown", /not confirmed/.test(threw));
+}
+
+// --- broadcast (S2-42): status polls share the per-endpoint budget with sends.
+// A 100 ms poll interval over 55 s would otherwise issue ~550 `getSignatureStatuses`
+// calls; with a 2/min cap the gated loop must make only a handful. This is the
+// regression guard for the 429 storm that delayed confirmation past the oracle window.
+{
+  const c = clocked();
+  let statusCalls = 0;
+  const a: RpcEndpoint = {
+    url: "https://a",
+    connection: {
+      async sendRawTransaction() { return SIG; },
+      async getSignatureStatuses() { statusCalls += 1; return { value: [null] }; },
+    },
+  };
+  const buckets = new Map();
+  let threw = "";
+  try {
+    await broadcastTransaction([a], new Uint8Array([1]), {
+      now: c.now, sleep: c.sleep, rpcPerMinuteCap: 2, pollIntervalMs: 100, timeoutMs: 55_000,
+    }, buckets);
+  } catch (e) { threw = String(e.message); }
+  check("status polls are budget-gated (not ~550)", statusCalls <= 3);
+  check("unlanded tx still times out", /not confirmed/.test(threw));
 }
 
 console.log(`\n${n} broadcast cases passed`);

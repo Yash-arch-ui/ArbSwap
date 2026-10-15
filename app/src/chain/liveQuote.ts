@@ -1,6 +1,7 @@
 // S2-36: live, non-stale quote observation.
 //
-// The deployed quote expires after only `Config.expiry_slots` (10 slots). The
+// The deployed quote expires after `Config.expiry_slots` (read live from chain;
+// the demo value is 120 slots). The
 // previous frontend refreshed the whole vault/config/reserve/quote snapshot on a
 // single slow adaptive poll, so the displayed quote could be several seconds —
 // and several versions — out of date, and a "Fresh" label could freeze after the

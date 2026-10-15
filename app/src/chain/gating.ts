@@ -93,7 +93,8 @@ export function liveSwapGateReason(input: LiveSwapGateInput): string | null {
 /**
  * S2-35: submission-time freshness gate. The polled UI state can be up to one
  * poll interval older than the live account, and the deployed quote expires
- * after only 10 slots (~2.4 s). Immediately before building a swap the quote is
+ * after only `Config.expiry_slots` (read live from chain). Immediately before
+ * building a swap the quote is
  * re-read; this turns that re-read into a user-facing reason (or null to
  * proceed). It mirrors the deployed `swap` checks: `version > 0` (attributed,
  * never a migrated placeholder) and `current_slot < expiry_slot`, so the client

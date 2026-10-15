@@ -407,7 +407,12 @@ async function main() {
       const res = await broadcastTransaction(
         endpoints,
         tx.serialize(),
-        { pollIntervalMs: 50, timeoutMs: 12_000, rpcPerMinuteCap: 900, now: Date.now },
+        // S2-42: bound status-poll RPC. A 50 ms poll across two shared free-tier
+        // endpoints self-inflicted 429 storms that delayed confirmation past the
+        // 2 s oracle window (InvalidOracle 6015 / StalePendingQuote 6039). The
+        // cap is per endpoint and shared with sends; confirmation still resolves
+        // on the first landed status.
+        { pollIntervalMs: 250, timeoutMs: 12_000, rpcPerMinuteCap: 240, now: Date.now },
         broadcastBuckets,
       );
       txTimes[label] = {

@@ -179,9 +179,10 @@ interface ProtocolContextType {
 
 const ProtocolContext = createContext<ProtocolContextType | undefined>(undefined);
 
-// The deployed quote expires after only `Config.expiry_slots` (10 slots, ~2.4 s
-// on Devnet), so a 4 s poll would almost never observe a fresh quote. Poll
-// slightly faster than the expiry window; concurrent identical reads are
+// The deployed quote expires after `Config.expiry_slots` (read live from chain;
+// the demo value is 120 slots), so the poll must be faster than the expiry
+// window to observe a fresh quote. Poll slightly faster than the expiry window;
+// concurrent identical reads are
 // deduplicated by the failover layer and back off on provider failures, so this
 // does not add RPC chatter beyond what a fresh-quote UI needs.
 const POLL_BASE_MS = 1_500;

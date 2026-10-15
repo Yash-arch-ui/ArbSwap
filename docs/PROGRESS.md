@@ -2160,3 +2160,38 @@ Report: [`docs/S2_41_BROWSER_SWAP_GATE.md`](S2_41_BROWSER_SWAP_GATE.md).
   the longer expiry is the enabler.
 - Residual blockers unchanged: the **timelock** (~03:30 IST) and the **browser
   wallet** (operator action; no extension here).
+
+## Part 3 / Step 49 — S2-42 recovery: config applied, keeper fixed, liveness GREEN
+
+Report: [`docs/S2_42_EXECUTION_REPORT.md`](S2_42_EXECUTION_REPORT.md).
+
+- **Gate A PASS.** The S2-37 proposal was eligible but unapplied (no runner
+  running). The authorized runner applied it: tx
+  `2JchnrSstJG1…Fq1CWr`, slot **511234933**, `Instruction: ApplyParams`,
+  `Status: Ok`; `expiry_slots` **10 → 120**, only that field changed,
+  `PendingConfig` reset to u64::MAX. No duplicate proposal, no timelock bypass.
+- **Keeper defect fixed (bounded, safety-neutral).** `broadcast.ts` polled
+  `getSignatureStatuses` every **50 ms** with no poll rate limit; the resulting
+  `429` storms delayed confirmation past the 2 s oracle window and produced
+  `InvalidOracle (6015)` / `StalePendingQuote (6039)`. Now the first status check
+  is immediate and later polls are spaced to the configured per-endpoint cap;
+  keeper opts 50→250 ms, cap 900→240. Regression test added (broadcast **19**).
+- **Gate B PASS.** `measure_fresh.sh 1800 400` with one supervised keeper:
+  before fix **0.415 RED** (2602 samples, 35 commits, longest stale 122.7 s) →
+  after fix **0.841 GREEN** (2641 samples, 104 commits, longest stale 34.6 s),
+  artifacts `logs/fresh_monitor_20261015T050545Z.json` and
+  `logs/fresh_monitor_20261015T053948Z.json`.
+- **Frontend.** tsc/lint/122 tests/build green; browser E2E exit 0 (0 exceptions,
+  0 console errors, 23/30+ fresh samples). Read-only BuyBase preflight (0.5 USDC /
+  0.5 %) now `simulation_err: null` with a `SwapEvent` (was `QuoteExpired 6030` at
+  expiry=10). Removed the navbar live-slot display. Fixed a build-time secret
+  leak: the Vite build inlined the untracked `app/.env.local` Helius `api-key`
+  into the public bundle; rebuilt keyless (matching CI) and the bundle scan is
+  CLEAN.
+- **Checks.** Rust fmt/clippy(CI)/workspace tests green (104/45); pytest 231/2
+  skipped; keeper TS 19/9/24; docs/bundle/banned/secrets CLEAN.
+- **Real browser-wallet swap BLOCKED:** no wallet provider is injected in this
+  headless browser (CDP-confirmed). No asset-moving tx; no swap claimed.
+- App (`http://localhost:5173/`) and the supervised keeper were left running for
+  the operator. Nothing pushed; `demo-freeze-1` not tagged.
+- Status: **`BLOCKED: USER WALLET OR APPROVAL`**.

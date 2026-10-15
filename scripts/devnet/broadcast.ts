@@ -190,6 +190,14 @@ export async function broadcastTransaction(
   // a slow fallback in the set that materially delays confirmation inside the
   // deployed 2 s freshness window.
   const trusted = sent.filter((ep) => accepted.has(ep.url));
+  // S2-42: bound the status-poll rate. A tight poll interval against shared /
+  // free-tier keys fires tens of `getSignatureStatuses` per second, triggering
+  // 429 storms that delay confirmation past the deployed 2 s oracle-freshness
+  // window. The first status check is immediate (a tx that already landed is
+  // never penalised); subsequent poll rounds are spaced so the per-endpoint RPC
+  // rate stays at or below the configured cap. No on-chain check is weakened.
+  const budgetPollMs = Math.max(1, Math.ceil(60_000 / Math.max(1, opts.rpcPerMinuteCap ?? 120)));
+  const effectivePollMs = Math.max(pollIntervalMs, budgetPollMs);
   const pollOnce = (): Promise<{ landed: true; endpoint: string } | { landed: false } | { error: string }> =>
     new Promise((resolve) => {
       let pending = trusted.length;
@@ -227,6 +235,6 @@ export async function broadcastTransaction(
       };
     }
     if (now() > deadline) throw new Error(`tx ${signature} not confirmed within ${timeoutMs}ms`);
-    await sleep(pollIntervalMs);
+    await sleep(effectivePollMs);
   }
 }
