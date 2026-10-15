@@ -406,7 +406,7 @@ export const AnalyticsPage: React.FC = () => {
     <div className="analytics-page-wrapper">
       <div className="container analytics-container">
         <OnchainAnalyticsPanel />
-        <ReadOnlyBanner detail="Analytics combines live on-chain observations, indexed/optional exports, and offline model artifacts — each labelled by provenance. No transactions." />
+        <ReadOnlyBanner detail="Analytics combines live on-chain observations, indexed/optional exports, and offline model artifacts, each labelled by provenance. No transactions." />
         
         {/* Header Block */}
         <div className="analytics-header">

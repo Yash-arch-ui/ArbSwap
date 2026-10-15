@@ -381,7 +381,7 @@ export const SimulatorPage: React.FC = () => {
           {/* Bottom Live Delta Summary */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.25)', borderRadius: 10, padding: '10px 16px', border: '1px solid rgba(255,255,255,0.05)', marginTop: 4 }}>
             <span style={{ fontSize: 12.5, color: 'var(--uni-neutral2)' }}>
-              Current Scenario: <strong>{currentMeta.title}</strong> — {currentMeta.desc}
+            Current Scenario: <strong>{currentMeta.title}</strong> · {currentMeta.desc}
             </span>
             <div className="mono" style={{ fontSize: 12, color: alphaDelta >= 0 ? '#00e5b0' : '#ff593c', whiteSpace: 'nowrap' }}>
               LP Advantage: <strong>{alphaDelta >= 0 ? '+' : ''}{alphaDelta.toFixed(3)} units</strong>

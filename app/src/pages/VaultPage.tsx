@@ -105,7 +105,7 @@ export const VaultPage: React.FC = () => {
       if (expected <= 0n) throw new Error('deposit too small for the current vault');
       const minShares = (expected * 9950n) / 10000n; // 0.5% slippage floor
       const signature = await depositOnChain(connection, wallet, base, quote, minShares);
-      setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}… — ${explorerTxUrl(signature)} (shares activate after warm-up).`, ok: true });
+      setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}... Shares activate after warm-up. ${explorerTxUrl(signature)}`, ok: true });
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
@@ -152,7 +152,7 @@ export const VaultPage: React.FC = () => {
     setNotice({ text: 'Claiming settled withdrawal…', ok: false });
     try {
       const signature = await claimWithdrawOnChain(connection, wallet);
-      setNotice({ text: `Claim confirmed ${signature.slice(0, 8)}… — ${explorerTxUrl(signature)}`, ok: true });
+      setNotice({ text: `Claim confirmed ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, ok: true });
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
@@ -314,7 +314,7 @@ export const VaultPage: React.FC = () => {
               <p style={{ fontSize: 13, color: 'var(--uni-neutral2)', lineHeight: 1.6 }}>
                 <strong>Pro-Rata Two-Token Accounting (D-05):</strong> Deposits contribute both SOL and USDC proportional to current pool reserves. No oracle is used in share calculation.
                 <br />
-                <span style={{ color: 'var(--uni-accent1)' }}>Your SOL is auto-wrapped to WSOL in the same transaction — no manual wrap needed.</span>
+                <span style={{ color: 'var(--uni-accent1)' }}>Your SOL is auto-wrapped to WSOL in the same transaction. No manual wrap needed.</span>
               </p>
 
               <div className="uni-panel uni-panel-sell">
