@@ -321,10 +321,6 @@ export const SwapPage: React.FC = () => {
 
       <ReadOnlyBanner detail="Live quote, depth, and balances are read from Devnet, but this build cannot sign or submit swaps." />
 
-      {connected && walletAtoms && walletAtoms.base === 0n && walletAtoms.quote === 0n && (
-        <FundingPanel baseSymbol="WSOL" quoteSymbol="USDC" />
-      )}
-
       {primaryStatus && (
         <div
           className="uni-card"
@@ -676,6 +672,12 @@ export const SwapPage: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {connected && walletAtoms && walletAtoms.base === 0n && walletAtoms.quote === 0n && (
+        <div style={{ width: '100%', maxWidth: 960, marginTop: 24 }}>
+          <FundingPanel baseSymbol="WSOL" quoteSymbol="USDC" />
+        </div>
+      )}
     </div>
   );
 };

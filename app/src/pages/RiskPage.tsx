@@ -241,19 +241,19 @@ export const RiskPage: React.FC = () => {
               </div>
               <div className="pillar-row mt-2">
                 <span>Valid Quote Updates (24h)</span>
-                <span className="mono text-muted">Unavailable (not indexed)</span>
+                <span className="mono text-muted" />
               </div>
               <div className="pillar-row mt-2">
                 <span>Rejected / Stale Updates</span>
-                <span className="mono text-muted">Unavailable (not indexed)</span>
+                <span className="mono text-muted" />
               </div>
               <div className="pillar-row mt-2">
                 <span>Mean Compute Units / Update</span>
-                <span className="mono text-muted">Unavailable (not indexed)</span>
+                <span className="mono text-muted" />
               </div>
               <div className="pillar-row mt-2">
                 <span>Adaptive Priority Fee</span>
-                <span className="mono text-muted">Unavailable (not indexed)</span>
+                <span className="mono text-muted" />
               </div>
             </div>
 
