@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import idl from '../src/idl/arbswap.json';
-import { keeperRewardPda } from '../src/chain/program';
+import { keeperRewardPda, getProgram } from '../src/chain/program';
 
 // The committed IDL must match the deployed program's instruction interfaces. If
 // a builder or the program changes account ordering, this fails loudly.
@@ -60,5 +60,24 @@ describe('deployed instruction interfaces (IDL ↔ builders)', () => {
       new PublicKey('2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm'),
     );
     expect(keeperRewardPda(vault, keeper).toBase58()).toBe(expected.toBase58());
+  });
+});
+
+describe('useWallet().wallet shape is unwrapped for Anchor', () => {
+  const pk = new PublicKey('8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH');
+  const adapter = {
+    publicKey: pk,
+    signTransaction: async (t: unknown) => t,
+    signAllTransactions: async (t: unknown[]) => t,
+  };
+  const providerWallet = (wallet: unknown): { publicKey: PublicKey } =>
+    (getProgram({} as never, wallet).provider as unknown as { wallet: { publicKey: PublicKey } }).wallet;
+
+  it('unwraps { adapter, readyState } so the adapter publicKey is used', () => {
+    expect(providerWallet({ adapter, readyState: 'Installed' }).publicKey.toBase58()).toBe(pk.toBase58());
+  });
+
+  it('accepts a bare adapter unchanged', () => {
+    expect(providerWallet(adapter).publicKey.toBase58()).toBe(pk.toBase58());
   });
 });

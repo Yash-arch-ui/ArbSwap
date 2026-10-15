@@ -91,9 +91,24 @@ export function mapQuote(q: Record<string, unknown>): OnChainQuote {
   };
 }
 
+/**
+ * Normalise the value returned by `useWallet().wallet` into an Anchor `Wallet`.
+ *
+ * In `@solana/wallet-adapter-react` >=0.15 the context `wallet` is
+ * `{ adapter, readyState }`, NOT the adapter itself, so `wallet.publicKey` is
+ * `undefined` and `wallet.signTransaction` does not exist. Unwrap `.adapter`
+ * when present so callers can pass either shape safely.
+ */
+function anchorWallet(wallet: unknown): Wallet {
+  if (wallet && typeof wallet === 'object' && 'adapter' in wallet) {
+    return (wallet as { adapter: Wallet }).adapter;
+  }
+  return wallet as Wallet;
+}
+
 /** Anchor program bound to a connection + wallet (the wallet-adapter adapter). */
 export function getProgram(connection: Connection, wallet: unknown): Program {
-  const provider = new AnchorProvider(connection, wallet as Wallet, { commitment: 'confirmed' });
+  const provider = new AnchorProvider(connection, anchorWallet(wallet), { commitment: 'confirmed' });
   return new Program(idl as never, provider);
 }
 
@@ -484,7 +499,7 @@ async function ensureAta(
 export async function deposit(
   connection: Connection, wallet: unknown, baseAmount: bigint, quoteAmount: bigint, minShares: bigint,
 ): Promise<string> {
-  const w = wallet as Wallet;
+  const w = anchorWallet(wallet);
   const program = getProgram(connection, wallet);
   const { vault, config } = deriveVaultAddresses();
   const owner = w.publicKey;
@@ -590,7 +605,7 @@ export async function swapMethod(
   connection: Connection, wallet: unknown, side: SwapSide,
   amountIn: bigint, minOut: bigint, minVersion: bigint,
 ) {
-  const w = wallet as Wallet;
+  const w = anchorWallet(wallet);
   const program = getProgram(connection, wallet);
   const { vault, config, quoteState } = deriveVaultAddresses();
   const owner = w.publicKey;
@@ -720,7 +735,7 @@ export async function simulateSwap(connection: Connection, tx: Transaction): Pro
 export async function sendSwapTransaction(
   connection: Connection, wallet: unknown, tx: Transaction,
 ): Promise<string> {
-  const w = wallet as Wallet;
+  const w = anchorWallet(wallet);
   const signed = await w.signTransaction(tx);
   const sig = await connection.sendRawTransaction(signed.serialize(), {
     skipPreflight: true, maxRetries: 3, preflightCommitment: 'confirmed',
@@ -748,7 +763,7 @@ export async function crankEpoch(connection: Connection, wallet: unknown): Promi
 export async function requestWithdraw(
   connection: Connection, wallet: unknown, shares: bigint,
 ): Promise<string> {
-  const w = wallet as Wallet;
+  const w = anchorWallet(wallet);
   const program = getProgram(connection, wallet);
   const { vault } = deriveVaultAddresses();
   const owner = w.publicKey;
@@ -768,7 +783,7 @@ export async function requestWithdraw(
 
 /** Claim a settled withdrawal for the current epoch. */
 export async function claimWithdraw(connection: Connection, wallet: unknown): Promise<string> {
-  const w = wallet as Wallet;
+  const w = anchorWallet(wallet);
   const program = getProgram(connection, wallet);
   const { vault } = deriveVaultAddresses();
   const owner = w.publicKey;
@@ -818,7 +833,7 @@ export async function fetchKeeperReward(
  * keeper buckets, so a keeper can never claim another keeper's accrual.
  */
 export async function claimKeeperReward(connection: Connection, wallet: unknown): Promise<string> {
-  const w = wallet as Wallet;
+  const w = anchorWallet(wallet);
   const program = getProgram(connection, wallet);
   const { vault } = deriveVaultAddresses();
   const owner = w.publicKey;
