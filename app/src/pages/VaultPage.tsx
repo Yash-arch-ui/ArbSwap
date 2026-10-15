@@ -167,7 +167,7 @@ export const VaultPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: 1040, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 32 }}>
+    <div style={{ maxWidth: 1040, margin: '0 auto', padding: '36px 20px 80px', display: 'flex', flexDirection: 'column', gap: 32 }}>
       <div>
         <h1 className="uni-headline">Active Market-Making Vault</h1>
         <p className="uni-subheadline">
@@ -197,7 +197,7 @@ export const VaultPage: React.FC = () => {
         <div className="uni-card" style={{ padding: '20px 22px', border: '1px solid rgba(255,255,255,0.08)', background: 'var(--uni-surface1)', borderRadius: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha APY</span>
-            <span style={{ fontSize: 10, color: 'var(--uni-accent1)', background: 'rgba(240,180,0,0.1)', padding: '2px 6px', borderRadius: 4 }}>Model Est.</span>
+            <span style={{ fontSize: 10, color: 'var(--uni-accent1)', background: 'rgba(0,229,176,0.1)', padding: '2px 6px', borderRadius: 4 }}>Model Est.</span>
           </div>
           <p className="mono" style={{ fontSize: 24, fontWeight: 600, color: 'var(--uni-accent1)', margin: '8px 0 4px' }}>+{vaultState.netHedgedApy}%</p>
           <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Trading fees minus adverse selection</span>
@@ -287,14 +287,14 @@ export const VaultPage: React.FC = () => {
                 justifyContent: 'center',
                 gap: 8,
                 background: activeTab === 'withdraw' 
-                  ? 'linear-gradient(135deg, rgba(240, 180, 0, 0.2), rgba(240, 180, 0, 0.08))' 
+                  ? 'linear-gradient(135deg, rgba(0, 229, 176, 0.2), rgba(0, 229, 176, 0.08))' 
                   : 'transparent',
-                color: activeTab === 'withdraw' ? '#f0b400' : 'var(--uni-neutral2)',
+                color: activeTab === 'withdraw' ? '#00e5b0' : 'var(--uni-neutral2)',
                 border: activeTab === 'withdraw' 
-                  ? '1px solid rgba(240, 180, 0, 0.4)' 
+                  ? '1px solid rgba(0, 229, 176, 0.4)' 
                   : '1px solid transparent',
                 boxShadow: activeTab === 'withdraw' 
-                  ? '0 4px 16px rgba(240, 180, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.15)' 
+                  ? '0 4px 16px rgba(0, 229, 176, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.15)' 
                   : 'none',
               }}
             >
@@ -302,8 +302,8 @@ export const VaultPage: React.FC = () => {
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
-                background: activeTab === 'withdraw' ? '#f0b400' : 'rgba(255, 255, 255, 0.25)',
-                boxShadow: activeTab === 'withdraw' ? '0 0 8px #f0b400' : 'none',
+                background: activeTab === 'withdraw' ? '#00e5b0' : 'rgba(255, 255, 255, 0.25)',
+                boxShadow: activeTab === 'withdraw' ? '0 0 8px #00e5b0' : 'none',
               }} />
               <span>Withdraw (Epoch Queue)</span>
             </button>

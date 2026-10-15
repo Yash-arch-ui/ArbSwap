@@ -50,7 +50,7 @@ export const SimulatorPage: React.FC = () => {
   const event = data.events[String(step)];
 
   return (
-    <div style={{ maxWidth: 1040, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ maxWidth: 1040, margin: '0 auto', padding: '36px 20px 80px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <h1 className="uni-headline">Simulator</h1>
       <p className="uni-subheadline">
         Simulated, offline — <strong>{STREAMS.meta.label}</strong> (seed {STREAMS.meta.seed}).

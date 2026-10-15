@@ -196,9 +196,9 @@ input { font-family: inherit; border: none; background: none; color: inherit; ou
 .uni-main {
   position: relative;
   z-index: 1;
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 40px 20px 100px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 /* Typography Headings in Reference Style */
