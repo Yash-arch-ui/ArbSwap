@@ -315,7 +315,9 @@ export const RiskPage: React.FC = () => {
 
       <style>{`
         .risk-page-wrapper {
-          padding: 36px 0 70px;
+          padding: 36px 20px 80px;
+          max-width: 1200px;
+          margin: 0 auto;
         }
         .risk-container {
           display: flex;
@@ -330,31 +332,33 @@ export const RiskPage: React.FC = () => {
           gap: 16px;
         }
         .risk-title {
-          font-size: 26px;
+          font-size: 28px;
           font-weight: 700;
-          letter-spacing: -0.02em;
+          letter-spacing: -0.025em;
           color: var(--text-primary);
         }
         .risk-subtitle {
-          font-size: 13.5px;
+          font-size: 14px;
           color: var(--text-muted);
-          margin-top: 3px;
+          margin-top: 4px;
         }
         .status-banner {
           padding: 22px 26px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          border-radius: var(--radius-lg);
+          border-radius: 18px;
           transition: all 0.25s ease;
         }
         .status-banner.healthy {
-          border-color: rgba(16, 185, 129, 0.3);
-          background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), var(--bg-surface-1));
+          border: 1px solid rgba(0, 229, 176, 0.35);
+          background: linear-gradient(135deg, rgba(0, 229, 176, 0.08), var(--uni-surface1));
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 229, 176, 0.08);
         }
         .status-banner.tripped {
-          border-color: rgba(244, 63, 94, 0.4);
-          background: linear-gradient(135deg, rgba(244, 63, 94, 0.1), var(--bg-surface-1));
+          border: 1px solid rgba(244, 63, 94, 0.45);
+          background: linear-gradient(135deg, rgba(244, 63, 94, 0.12), var(--uni-surface1));
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(244, 63, 94, 0.15);
         }
         .status-banner-left {
           display: flex;
