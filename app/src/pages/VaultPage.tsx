@@ -224,21 +224,88 @@ export const VaultPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 24 }}>
         
         {/* Left: Terminal */}
-        <div className="uni-card" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid var(--uni-surface3)', paddingBottom: 12 }}>
+        <div className="uni-card" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* High-Contrast Segmented Tab Controls */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            background: 'rgba(0, 0, 0, 0.4)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: 16,
+            padding: 5,
+            gap: 6,
+          }}>
             <button 
               type="button" 
-              className={`uni-button ${activeTab === 'deposit' ? 'uni-button-accent' : 'uni-button-ghost'}`}
-              onClick={() => setActiveTab('deposit')}
+              onClick={() => { setActiveTab('deposit'); setNotice(null); }}
+              style={{
+                padding: '12px 18px',
+                borderRadius: 12,
+                fontSize: 14,
+                fontWeight: 600,
+                letterSpacing: '-0.01em',
+                cursor: 'pointer',
+                transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                background: activeTab === 'deposit' 
+                  ? 'linear-gradient(135deg, rgba(0, 229, 176, 0.2), rgba(0, 229, 176, 0.08))' 
+                  : 'transparent',
+                color: activeTab === 'deposit' ? '#00e5b0' : 'var(--uni-neutral2)',
+                border: activeTab === 'deposit' 
+                  ? '1px solid rgba(0, 229, 176, 0.4)' 
+                  : '1px solid transparent',
+                boxShadow: activeTab === 'deposit' 
+                  ? '0 4px 16px rgba(0, 229, 176, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.15)' 
+                  : 'none',
+              }}
             >
-              Deposit (Pro-Rata)
+              <span style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: activeTab === 'deposit' ? '#00e5b0' : 'rgba(255, 255, 255, 0.25)',
+                boxShadow: activeTab === 'deposit' ? '0 0 8px #00e5b0' : 'none',
+              }} />
+              <span>Deposit (Pro-Rata)</span>
             </button>
             <button 
               type="button" 
-              className={`uni-button ${activeTab === 'withdraw' ? 'uni-button-accent' : 'uni-button-ghost'}`}
-              onClick={() => setActiveTab('withdraw')}
+              onClick={() => { setActiveTab('withdraw'); setNotice(null); }}
+              style={{
+                padding: '12px 18px',
+                borderRadius: 12,
+                fontSize: 14,
+                fontWeight: 600,
+                letterSpacing: '-0.01em',
+                cursor: 'pointer',
+                transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                background: activeTab === 'withdraw' 
+                  ? 'linear-gradient(135deg, rgba(240, 180, 0, 0.2), rgba(240, 180, 0, 0.08))' 
+                  : 'transparent',
+                color: activeTab === 'withdraw' ? '#f0b400' : 'var(--uni-neutral2)',
+                border: activeTab === 'withdraw' 
+                  ? '1px solid rgba(240, 180, 0, 0.4)' 
+                  : '1px solid transparent',
+                boxShadow: activeTab === 'withdraw' 
+                  ? '0 4px 16px rgba(240, 180, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.15)' 
+                  : 'none',
+              }}
             >
-              Withdraw (Epoch Queue)
+              <span style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: activeTab === 'withdraw' ? '#f0b400' : 'rgba(255, 255, 255, 0.25)',
+                boxShadow: activeTab === 'withdraw' ? '0 0 8px #f0b400' : 'none',
+              }} />
+              <span>Withdraw (Epoch Queue)</span>
             </button>
           </div>
 

@@ -215,26 +215,27 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 60px 20px 80px;
+  padding: 36px 20px 60px;
   min-height: 80vh;
 }
 
 .uni-headline {
-  font-size: clamp(28px, 4vw, 48px);
-  font-weight: 500;
-  letter-spacing: -0.03em;
+  font-size: clamp(28px, 3.5vw, 42px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
   text-align: center;
   color: var(--uni-neutral1);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+  line-height: 1.2;
 }
 
 .uni-subheadline {
-  max-width: 52ch;
+  max-width: 56ch;
   text-align: center;
-  font-size: 15px;
-  line-height: 1.65;
+  font-size: 14.5px;
+  line-height: 1.55;
   color: var(--uni-neutral2);
-  margin-bottom: 40px;
+  margin-bottom: 24px;
 }
 
 /* ---- Swap box ---- */
@@ -244,7 +245,7 @@
   background: var(--uni-surface2);
   border: 1px solid var(--uni-surface3);
   border-radius: 24px;
-  padding: 4px;
+  padding: 6px;
   box-shadow: 0 8px 40px rgba(0,0,0,0.45);
 }
 
@@ -253,11 +254,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 18px 10px;
+  padding: 12px 16px 8px;
 }
 
 .uni-tab-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--uni-neutral1);
 }
@@ -265,9 +266,9 @@
 /* ---- Input panels ---- */
 .uni-panel {
   background: var(--uni-surface1);
-  border-radius: 20px;
-  padding: 16px 16px 12px;
-  margin: 2px;
+  border-radius: 18px;
+  padding: 14px 16px 12px;
+  margin: 3px;
   transition: background 0.15s;
 }
 
@@ -276,21 +277,23 @@
 }
 
 .uni-panel-sell {
-  border-bottom-left-radius: 4px;
-  border-bottom-right-radius: 4px;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
 }
 
 .uni-panel-buy {
-  border-top-left-radius: 4px;
-  border-top-right-radius: 4px;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
 }
 
 .uni-panel-label {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--uni-neutral2);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .uni-panel-row {
