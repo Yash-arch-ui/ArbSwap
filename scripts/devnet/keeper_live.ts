@@ -37,6 +37,7 @@ import {
 } from "./keeper_commit";
 import { resolveRpcConfig, redactUrl, RpcPool } from "./rpc";
 import { broadcastTransaction, type RpcEndpoint } from "./broadcast";
+import { reclaimStaleVaas } from "./keeper_reclaim";
 
 const PROGRAM = new PublicKey("2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm");
 const VAULT = new PublicKey("8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt");
@@ -232,7 +233,67 @@ async function main() {
   // instead of waiting out a long exponential delay and missing the window.
   const backoffBase = Number(process.env.KEEPER_BACKOFF_BASE_MS ?? 200);
   const backoffCap = Number(process.env.KEEPER_BACKOFF_CAP_MS ?? 1_500);
+  // S2-42: each Pyth push creates a Wormhole EncodedVaa account (~0.00237 SOL
+  // rent) that a failed push leaves orphaned. Reclaim keeper-owned orphans once
+  // they are older than a grace window exceeding the maximum transaction
+  // lifetime, so an in-flight/ambiguous push can never race the close. The
+  // priority fee is configurable (0 is devnet-viable).
+  const priorityFeeMicroLamports = Number(process.env.KEEPER_PRIORITY_FEE_MICROLAMPORTS ?? 0);
+  const vaaGraceMs = Number(process.env.VAA_GRACE_MS ?? 90_000);
+  const vaaReclaimIntervalMs = Number(process.env.VAA_RECLAIM_INTERVAL_MS ?? 30_000);
+  const vaaLedger = new Map<string, number>();
+  const activeVaas = new Set<string>();
+  let lastReclaimMs = 0;
   if (dryRun) console.error(`keeper DRY_RUN: no transactions will be sent (rpc=${redactUrl(rpcConfig.endpoints[0])})`);
+
+  /** Broadcast a keeper-signed transaction with bounded poll rate (S2-42). */
+  const broadcastKeeperTx = async (tx: Transaction) =>
+    broadcastTransaction(
+      endpoints,
+      tx.serialize(),
+      { pollIntervalMs: 250, timeoutMs: 12_000, rpcPerMinuteCap: 240, now: Date.now },
+      broadcastBuckets,
+    );
+  // Reclaim dependencies: discovery is filtered by the keeper's write authority
+  // (SDK), and `closeEncodedVaa` requires the keeper signer, which receives the
+  // rent back. Never closes an `active` address or one younger than `vaaGraceMs`.
+  const reclaimDeps = {
+    findOwned: async () =>
+      (await receiver.findOwnedEncodedVaaAccounts()).map((k: PublicKey) => k.toBase58()),
+    closeAccounts: async (addresses: string[]): Promise<{ closed: string[]; failed: string[] }> => {
+      const closed: string[] = [];
+      const failed: string[] = [];
+      const batchSize = Number(process.env.VAA_RECLAIM_BATCH ?? 8);
+      for (let i = 0; i < addresses.length; i += batchSize) {
+        const batch = addresses.slice(i, i + batchSize);
+        try {
+          const built = await Promise.all(
+            batch.map((a) => receiver.buildCloseEncodedVaaInstruction(new PublicKey(a))),
+          );
+          const { blockhash: bh } = await connection.getLatestBlockhash("processed");
+          const tx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: bh });
+          tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 + batch.length * 40_000 }));
+          if (priorityFeeMicroLamports > 0) {
+            tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }));
+          }
+          for (const b of built) tx.add(b.instruction);
+          tx.sign(keeper, ...built.flatMap((b: any) => b.signers ?? []));
+          await broadcastKeeperTx(tx);
+          closed.push(...batch);
+        } catch (e) {
+          failed.push(...batch);
+          console.log(`reclaim batch failed: ${(e as Error).message}`);
+        }
+      }
+      return { closed, failed };
+    },
+    firstSeenMs: vaaLedger,
+    active: activeVaas,
+    nowMs: () => Date.now(),
+    graceMs: vaaGraceMs,
+    maxPerPass: Number(process.env.VAA_RECLAIM_MAX_PER_PASS ?? 40),
+    log: (m: string) => console.log(m),
+  };
 
   const feed = Buffer.from(FEED_ID, "hex");
   const priceUpdate = getPriceFeedAccountForProgram(0, feed);
@@ -259,6 +320,21 @@ async function main() {
   let failures = 0;
   for (let attempt = 1; attempt <= attempts && !(success && runSeconds === 0); attempt += 1) {
     if (runSeconds > 0 && Date.now() > deadline) break;
+    // S2-42: at the start of each cycle (no tx of this cycle exists yet), reclaim
+    // keeper-owned encoded-VAA accounts left orphaned by earlier failed pushes.
+    // Rate-limited and best-effort so it can never affect the quote pipeline.
+    activeVaas.clear();
+    if (!dryRun && Date.now() - lastReclaimMs >= vaaReclaimIntervalMs) {
+      lastReclaimMs = Date.now();
+      try {
+        const rr = await reclaimStaleVaas(reclaimDeps);
+        if (rr.closed || rr.failed) {
+          console.log(JSON.stringify({ reclaim: { ...rr, rent_recovered_sol: rr.rentRecoveredLamports / 1e9 } }));
+        }
+      } catch (e) {
+        console.error(`reclaim pass failed: ${(e as Error).message}`);
+      }
+    }
     const tCycle = Date.now();
     try {
     // 1. Fetch the fresh Hermes update, the current slot and a blockhash
@@ -352,7 +428,13 @@ async function main() {
       ],
     });
 
-    const { postInstructions } = await receiver.buildUpdatePriceFeedInstructions(updates.binary.data, 0);
+    const { postInstructions, closeInstructions } = await receiver.buildUpdatePriceFeedInstructions(updates.binary.data, 0);
+    // S2-42: record the encoded-VAA accounts this cycle creates so reclamation
+    // will not close them until they age past the in-flight grace window.
+    for (const c of (closeInstructions ?? []) as any[]) {
+      const addr = c?.instruction?.keys?.[0]?.pubkey?.toBase58?.();
+      if (typeof addr === "string") { vaaLedger.set(addr, Date.now()); activeVaas.add(addr); }
+    }
     // Everything except the push is the VAA pipeline: the system `create` (which
     // funds/owns the encoded-VAA account), then init/write/verify on Wormhole.
     const vaaItems = postInstructions.filter((p: any) => p.instruction.programId.toBase58() !== PUSH_ORACLE);
@@ -367,13 +449,13 @@ async function main() {
     // latency without weakening any check.
     const stageTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
     stageTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
-    stageTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }));
+    if (priorityFeeMicroLamports > 0) stageTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }));
     stageTx.add(stageIx);
     stageTx.sign(keeper);
 
     const vaaTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
     vaaTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
-    vaaTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }));
+    if (priorityFeeMicroLamports > 0) vaaTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }));
     const vaaSigners: any[] = [];
     for (const item of vaaItems) {
       vaaTx.add(item.instruction);
@@ -383,7 +465,7 @@ async function main() {
 
     const pushTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
     pushTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
-    pushTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }));
+    if (priorityFeeMicroLamports > 0) pushTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }));
     pushTx.add(pushItems[0].instruction);
     pushTx.add(commitIx);
     pushTx.sign(keeper);

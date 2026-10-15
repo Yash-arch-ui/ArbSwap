@@ -108,6 +108,39 @@ commits **35 → 104** (~1 commit/17 s), longest stale **122.7 s → 34.6 s**.
 Post-fix keeper cadence improved to ~70 slots/commit (e.g. v927→v937 over
 704 slots) with far fewer 429-driven stalls. Gate B: **PASS**.
 
+## Phase 4b — encoded-VAA rent reclamation (keeper burn fix)
+
+While measuring expenditure, the wallet was draining at **−0.88 SOL/hr (~21
+SOL/day)** despite tiny fees (~0.000015/tx). Root cause: every Pyth push creates a
+Wormhole `EncodedVaa` account (338 bytes, **0.00236728 SOL** rent). A **successful**
+push closes/refunds it, but a **failed** `push+commit` (`6015 InvalidOracle` /
+`6039`, ~60% of attempts) leaves the account orphaned and the rent locked.
+Discovery found **3,778** orphaned encoded-VAA accounts holding **8.94 SOL** of the
+keeper's own rent.
+
+Fix (`scripts/devnet/keeper_reclaim.ts` + wiring in `keeper_live.ts`):
+
+- Reclaim at the start of each cycle (rate-limited, best-effort) using the Pyth SDK
+  `findOwnedEncodedVaaAccounts` (filtered by the keeper's write authority) and
+  `buildCloseEncodedVaaInstruction` (`closeEncodedVaa` requires the keeper signer,
+  which receives the rent back).
+- **Safeguards:** ownership (the SDK only returns accounts the keeper's write
+  authority owns); a **grace window** (`VAA_GRACE_MS`, default 90 s ≥ max tx
+  lifetime) so an in-flight/ambiguous push can never race the close; an `active`
+  set excludes the current cycle's accounts; a per-pass cap (`VAA_RECLAIM_MAX_PER_PASS`,
+  default 40) bounds RPC/fees; closes are batched (`VAA_RECLAIM_BATCH`, default 8/tx).
+- `KEEPER_PRIORITY_FEE_MICROLAMPORTS` now defaults to **0** (validated: commits
+  still land on devnet in ~0.7–1.2 s).
+- **Tests:** `keeper_reclaim.test.ts` = **15** cases (ownership, grace window,
+  in-flight safety, partial close failure, thrown batch close, discovery failure,
+  per-pass cap). Keeper suite now **15/19/9/24**.
+
+Measured over 2 min with the fix live: **+0.179783 SOL** (recovering the backlog),
+i.e. **+5.4 SOL/hr** while draining, versus **−0.88 SOL/hr** before. Once the
+3,778-account backlog is drained the steady state is transaction fees only (~0.02
+SOL/hr) plus continuous rent recovery. This is a keeper-side change only — no
+protocol safety check was modified.
+
 ## Phase 5 — frontend / backend integration
 
 Reviewed, not rewritten; no broken behavior was found in the live path.
