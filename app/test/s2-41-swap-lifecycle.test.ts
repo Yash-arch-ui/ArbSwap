@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { explainSwapError } from '../src/chain/program';
+import { PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { explainSwapError, attachFeePayer } from '../src/chain/program';
 
 const swapSrc = readFileSync(
   fileURLToPath(new URL('../src/pages/SwapPage.tsx', import.meta.url)),
@@ -29,6 +30,24 @@ describe('S2-41 swap lifecycle: simulate → preview → confirm', () => {
     const send = swapSrc.indexOf('await sendSwapTransaction(');
     const firstOk = swapSrc.indexOf('ok: true');
     expect(firstOk).toBeGreaterThan(send);
+  });
+});
+
+describe('S2-41 built swap tx carries a fee payer', () => {
+  const conn = { getLatestBlockhash: async () => ({ blockhash: PublicKey.default.toBase58() }) } as never;
+  const withIx = () =>
+    new Transaction().add(new TransactionInstruction({ keys: [], programId: PublicKey.default, data: Buffer.from([]) }));
+
+  it('attachFeePayer sets feePayer + recentBlockhash so the tx compiles', async () => {
+    const tx = withIx();
+    await attachFeePayer(conn, { adapter: { publicKey: PublicKey.default } }, tx);
+    expect(tx.feePayer?.equals(PublicKey.default)).toBe(true);
+    expect(tx.recentBlockhash).toBe(PublicKey.default.toBase58());
+    expect(() => tx.compileMessage()).not.toThrow();
+  });
+
+  it('rejects a disconnected wallet instead of building an unusable tx', async () => {
+    await expect(attachFeePayer(conn, { adapter: {} }, withIx())).rejects.toThrow(/not connected/i);
   });
 });
 

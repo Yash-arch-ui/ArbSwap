@@ -670,7 +670,25 @@ export async function buildSwapTransaction(
   amountIn: bigint, minOut: bigint, minVersion: bigint,
 ): Promise<Transaction> {
   const { builder, preInstructions, postInstructions } = await swapMethod(connection, wallet, side, amountIn, minOut, minVersion);
-  return builder.preInstructions(preInstructions).postInstructions(postInstructions).transaction();
+  const tx = await builder.preInstructions(preInstructions).postInstructions(postInstructions).transaction();
+  return attachFeePayer(connection, wallet, tx);
+}
+
+/**
+ * Anchor 0.31's `MethodBuilder.transaction()` returns a bare `Transaction` with no
+ * fee payer or blockhash (only `.rpc()` fills them via the provider, see
+ * `provider.js`). Attach both so the built tx compiles for simulation and wallet
+ * signing instead of failing with "Transaction fee payer required".
+ */
+export async function attachFeePayer(
+  connection: Connection, wallet: unknown, tx: Transaction,
+): Promise<Transaction> {
+  const owner = anchorWallet(wallet).publicKey;
+  if (!owner) throw new Error('Wallet is not connected.');
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  tx.feePayer = owner;
+  tx.recentBlockhash = blockhash;
+  return tx;
 }
 
 /** Human, actionable explanations for the deployed program's swap error codes. */
