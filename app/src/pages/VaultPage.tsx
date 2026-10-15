@@ -6,7 +6,9 @@ import { useProtocol } from '../context/ProtocolContext';
 import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, claimWithdraw as claimWithdrawOnChain, withdrawTicket as deriveWithdrawTicket, expectedDepositShares } from '../chain/program';
 import { parseUnits, formatUnits } from '../chain/amounts';
 import { claimWithdrawState } from '../chain/gating';
-import { ACTIVE_VAULT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON, explorerTxUrl } from '../chain/config';
+import { ACTIVE_VAULT, BASE_MINT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON, explorerTxUrl } from '../chain/config';
+import { MIN_SOL_FOR_FEES } from '../chain/wrappedSol';
+import { NATIVE_MINT } from '@solana/spl-token';
 import { ReadOnlyBanner } from '../components/ReadOnlyMode';
 
 export const VaultPage: React.FC = () => {
@@ -21,6 +23,7 @@ export const VaultPage: React.FC = () => {
     withdrawTicket,
     shareBalanceAtoms,
     vaultAtoms,
+    walletAtoms,
   } = useProtocol();
   const connection = APP_RPC_FAILOVER.connection;
   const { connected, publicKey, wallet } = useWallet();
@@ -86,6 +89,13 @@ export const VaultPage: React.FC = () => {
     try {
       const base = parseUnits(depositSol, tokens.SOL.decimals);
       const quote = parseUnits(depositUsdc, tokens.USDC.decimals);
+      // SOL is auto-wrapped; never wrap so much that no SOL is left for fees.
+      if (BASE_MINT.equals(NATIVE_MINT) && walletAtoms && base > walletAtoms.base) {
+        const wrapNeeded = base - walletAtoms.base;
+        if (walletAtoms.sol < wrapNeeded + MIN_SOL_FOR_FEES) {
+          throw new Error(`Wrapping this deposit would leave less than ${formatUnits(MIN_SOL_FOR_FEES, tokens.SOL.decimals)} SOL for fees. Lower the amount.`);
+        }
+      }
       if (!vaultAtoms) throw new Error('vault state not loaded yet');
       const expected = expectedDepositShares({
         baseAmount: base,
@@ -212,6 +222,8 @@ export const VaultPage: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <p style={{ fontSize: 13, color: 'var(--uni-neutral2)', lineHeight: 1.6 }}>
                 <strong>Pro-Rata Two-Token Accounting (D-05):</strong> Deposits contribute both SOL and USDC proportional to current pool reserves. No oracle is used in share calculation.
+                <br />
+                <span style={{ color: 'var(--uni-accent1)' }}>Your SOL is auto-wrapped to WSOL in the same transaction — no manual wrap needed.</span>
               </p>
 
               <div className="uni-panel uni-panel-sell">

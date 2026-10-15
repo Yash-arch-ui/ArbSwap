@@ -30,7 +30,7 @@ export const FundingPanel: React.FC<{ baseSymbol: string; quoteSymbol: string }>
           <a href="https://faucet.solana.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--uni-accent1)' }}>
             faucet.solana.com
           </a>{' '}
-          (then wrap some into {baseSymbol} on the Swap page).
+          (auto-wrapped into {baseSymbol} when you deposit or sell SOL).
         </li>
         <li>
           Get Devnet USDC:{' '}

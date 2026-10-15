@@ -113,6 +113,8 @@ export interface WalletBalances {
   base: bigint;
   quote: bigint;
   sol: number;
+  /** Native SOL balance in lamports (the source auto-wrapped into WSOL). */
+  solAtoms: bigint;
 }
 
 export interface RpcStatus extends RpcHealthSnapshot {
@@ -135,7 +137,7 @@ interface ProtocolContextType {
   walletAddress: string | null;
   balancesLoading: boolean;
   /** Exact atom balances of the connected wallet's base/quote ATAs (null until read). */
-  walletAtoms: { base: bigint; quote: bigint } | null;
+  walletAtoms: { base: bigint; quote: bigint; sol: bigint } | null;
   /** Full classified wallet-balance source (state/value/asOf/error). */
   balancesSource: Sourced<WalletBalances>;
   /** Classified protocol account source (the authoritative vault/quote/config read). */
@@ -203,7 +205,7 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [tokens, setTokens] = useState(INITIAL_TOKENS);
   const [status, setStatus] = useState<ProtocolStatus>(EMPTY_STATUS);
   const [balancesLoading, setBalancesLoading] = useState(false);
-  const [walletAtoms, setWalletAtoms] = useState<{ base: bigint; quote: bigint } | null>(null);
+  const [walletAtoms, setWalletAtoms] = useState<{ base: bigint; quote: bigint; sol: bigint } | null>(null);
   const [balancesSource, setBalancesSource] = useState<Sourced<WalletBalances>>(
     loadingSource('Wallet balances have not been read.'),
   );
@@ -258,11 +260,11 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         SOL: { ...prev.SOL, balance: Number(balances.base.toFixed(4)) },
         USDC: { ...prev.USDC, balance: Number(balances.quote.toFixed(2)) },
       }));
-      setWalletAtoms({ base: balances.baseAtoms, quote: balances.quoteAtoms });
+      setWalletAtoms({ base: balances.baseAtoms, quote: balances.quoteAtoms, sol: balances.solAtoms });
       setShareBalanceAtoms(shares);
       setBalancesSource(
         liveSource<WalletBalances>(
-          { base: balances.baseAtoms, quote: balances.quoteAtoms, sol: balances.sol },
+          { base: balances.baseAtoms, quote: balances.quoteAtoms, sol: balances.sol, solAtoms: balances.solAtoms },
           Date.now(),
         ),
       );

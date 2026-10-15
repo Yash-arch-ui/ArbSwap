@@ -9,6 +9,7 @@ import {
 import type { Transaction } from '@solana/web3.js';
 import { parseUnits, formatUnits } from '../chain/amounts';
 import { swapAmountsFromLadder, maxGrossInput, quoteCountdown, type SwapSideName, type LadderLevel } from '../chain/swapMath';
+import { MIN_SOL_FOR_FEES } from '../chain/wrappedSol';
 import { liveSwapGateReason, submitFreshnessReason } from '../chain/gating';
 import { isTransportError } from '../chain/dataState';
 import { ACTIVE_VAULT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON, CLUSTER } from '../chain/config';
@@ -104,8 +105,8 @@ export const SwapPage: React.FC = () => {
   // Fail closed: swaps require a fresh on-chain quote, the committed ladder must
   // be able to absorb the whole input (otherwise the program reverts), and the
   // connected wallet must actually hold enough of the input token. The base mint
-  // is WSOL, so selling SOL requires wrapped SOL: we say so explicitly rather
-  // than letting the transaction fail on-chain.
+  // is WSOL, but native SOL is auto-wrapped into WSOL on submit, so selling SOL
+  // spends native + already-wrapped SOL together.
   const capacityReason =
     depthExceeded
       ? `Exceeds quoted depth. Max now: ${maxInputHuman} ${inTokenSymbol} (~${maxOutHuman} ${outTokenSymbol}).`
@@ -113,8 +114,16 @@ export const SwapPage: React.FC = () => {
   const balanceReason = (() => {
     if (!connected || amountInAtoms <= 0n) return null;
     if (isSellingSol) {
-      if (walletAtoms && walletAtoms.base < amountInAtoms) {
-        return `Insufficient wrapped SOL: you hold ${formatUnits(walletAtoms.base, ACTIVE_VAULT.baseDecimals)} WSOL but are selling ${formatUnits(amountInAtoms, ACTIVE_VAULT.baseDecimals)}. Wrap native SOL to WSOL first.`;
+      const spendableSol = walletAtoms ? walletAtoms.sol + walletAtoms.base : 0n;
+      if (walletAtoms && spendableSol < amountInAtoms) {
+        return `Insufficient SOL: you hold ${formatUnits(spendableSol, ACTIVE_VAULT.baseDecimals)} SOL (native + wrapped) but are selling ${formatUnits(amountInAtoms, ACTIVE_VAULT.baseDecimals)}.`;
+      }
+      // Wrapping spends native SOL; never wrap so much that no SOL is left for fees.
+      if (walletAtoms) {
+        const wrapNeeded = amountInAtoms > walletAtoms.base ? amountInAtoms - walletAtoms.base : 0n;
+        if (wrapNeeded > 0n && walletAtoms.sol < wrapNeeded + MIN_SOL_FOR_FEES) {
+          return `Wrapping this sale would leave less than ${formatUnits(MIN_SOL_FOR_FEES, ACTIVE_VAULT.baseDecimals)} SOL for transaction fees. Lower the amount.`;
+        }
       }
     } else if (walletAtoms && walletAtoms.quote < amountInAtoms) {
       return `Insufficient USDC: you hold ${formatUnits(walletAtoms.quote, ACTIVE_VAULT.quoteDecimals)} USDC but are spending ${formatUnits(amountInAtoms, ACTIVE_VAULT.quoteDecimals)}.`;
@@ -656,6 +665,10 @@ export const SwapPage: React.FC = () => {
           <p className="mono" style={{ fontSize: 11, color: 'var(--uni-neutral2)', marginTop: 6 }}>
             Available depth — Buy ≤ {formatUnits(maxBuyInput, ACTIVE_VAULT.quoteDecimals, 6)} USDC ·
             Sell ≤ {formatUnits(maxSellInput, ACTIVE_VAULT.baseDecimals, 6)} WSOL
+          </p>
+
+          <p className="mono" style={{ fontSize: 11, color: 'var(--uni-accent1)', marginTop: 6 }}>
+            SOL is auto-wrapped to WSOL when you sell and auto-unwrapped back to SOL when you buy — no manual wrap step.
           </p>
 
           <p className="swap-footer-note">

@@ -9,11 +9,13 @@ import {
   type AccountInfo,
 } from '@solana/web3.js';
 import {
+  NATIVE_MINT,
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction,
 } from '@solana/spl-token';
 import type { TransactionInstruction } from '@solana/web3.js';
+import { wrapSolInstructions, unwrapSolInstructions } from './wrappedSol';
 import idl from '../idl/arbswap.json';
 import { ARBSWAP_PROGRAM_ID, BASE_MINT, QUOTE_MINT } from './solana';
 import { ACTIVE_VAULT, EXPECTED_GENESIS_HASH } from './config';
@@ -457,17 +459,18 @@ export async function fetchQuoteOnly(connection: Connection): Promise<OnChainQuo
   }
 }
 
-/** Address of an ATA, plus an idempotent-create instruction if it is missing. */async function ensureAta(
+/** Address of an ATA, plus an idempotent-create instruction if it is missing. */
+async function ensureAta(
   connection: Connection,
   mint: PublicKey,
   owner: PublicKey,
-): Promise<{ ata: PublicKey; createIx: TransactionInstruction | null }> {
+): Promise<{ ata: PublicKey; createIx: TransactionInstruction | null; exists: boolean }> {
   const ata = getAssociatedTokenAddressSync(mint, owner);
   const info = await connection.getAccountInfo(ata);
   const createIx = info
     ? null
     : createAssociatedTokenAccountIdempotentInstruction(owner, ata, owner, mint);
-  return { ata, createIx };
+  return { ata, createIx, exists: info !== null };
 }
 
 /**
@@ -490,9 +493,25 @@ export async function deposit(
   const base = await ensureAta(connection, BASE_MINT, owner);
   const quote = await ensureAta(connection, QUOTE_MINT, owner);
   const share = await ensureAta(connection, state.vaultData.shareMint, owner);
-  const preInstructions = [base.createIx, quote.createIx, share.createIx].filter(
-    (ix): ix is TransactionInstruction => ix !== null,
-  );
+  const preInstructions: TransactionInstruction[] = [];
+  // Auto-wrap: the base mint is native WSOL, so fund the WSOL ATA from the
+  // wallet's native SOL (create ATA if needed + transfer + syncNative) before the
+  // deposit pulls base tokens. Only the shortfall not already held as WSOL is
+  // wrapped, so existing WSOL is used first and SOL is kept for fees. No manual
+  // "wrap in Phantom" step is required.
+  if (BASE_MINT.equals(NATIVE_MINT)) {
+    const held = await readAtaAmount(connection, base.ata);
+    const shortfall = baseAmount > held ? baseAmount - held : 0n;
+    if (shortfall > 0n) {
+      preInstructions.push(...wrapSolInstructions(owner, shortfall, base.exists));
+    } else if (base.createIx) {
+      preInstructions.push(base.createIx);
+    }
+  } else if (base.createIx) {
+    preInstructions.push(base.createIx);
+  }
+  if (quote.createIx) preInstructions.push(quote.createIx);
+  if (share.createIx) preInstructions.push(share.createIx);
   return program.methods
     .deposit(new BN(baseAmount.toString()), new BN(quoteAmount.toString()), new BN(minShares.toString()))
     .accounts({
@@ -543,14 +562,29 @@ export function expectedDepositShares(args: {
 
 export type SwapSide = { buyBase: Record<string, never> } | { sellBase: Record<string, never> };
 
+/** Current SPL token-account amount (atoms), or 0n when the account is absent. */
+async function readAtaAmount(connection: Connection, ata: PublicKey): Promise<bigint> {
+  try {
+    const bal = await connection.getTokenAccountBalance(ata);
+    return BigInt(bal.value.amount);
+  } catch {
+    return 0n;
+  }
+}
+
 /**
- * Resolve all accounts and return the `swap` method builder plus the idempotent
- * ATA-creation pre-instructions. Exposed so tests can build the transaction for
- * the *connected* wallet and assert its accounts without broadcasting.
+ * Resolve all accounts and return the `swap` method builder plus the wrap/unwrap
+ * and idempotent ATA-creation instructions. Exposed so tests can build the
+ * transaction for the *connected* wallet and assert its accounts without
+ * broadcasting.
  *
  * The program's `trader_base`/`trader_quote` are plain `TokenAccount`s (not
  * `init_if_needed`), so a fresh wallet — e.g. buying WSOL for the first time —
  * must have its ATAs created in the same transaction or the swap fails.
+ *
+ * The base mint is native WSOL, so a sell wraps the wallet's native SOL into WSOL
+ * *before* the swap and a buy closes (unwraps) the WSOL ATA *after* the swap, so
+ * the trader pays/receives native SOL without a manual wrap step.
  */
 export async function swapMethod(
   connection: Connection, wallet: unknown, side: SwapSide,
@@ -564,9 +598,31 @@ export async function swapMethod(
   if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
   const base = await ensureAta(connection, BASE_MINT, owner);
   const quote = await ensureAta(connection, QUOTE_MINT, owner);
-  const preInstructions = [base.createIx, quote.createIx].filter(
-    (ix): ix is TransactionInstruction => ix !== null,
-  );
+  const isNativeBase = BASE_MINT.equals(NATIVE_MINT);
+  const isSellBase = 'sellBase' in (side as object);
+  const preInstructions: TransactionInstruction[] = [];
+  const postInstructions: TransactionInstruction[] = [];
+  if (isNativeBase) {
+    if (isSellBase) {
+      // Sell base: wrap only the native-SOL shortfall not already held as WSOL,
+      // so any existing WSOL is used first and the swap can pull base tokens.
+      const held = await readAtaAmount(connection, base.ata);
+      const shortfall = amountIn > held ? amountIn - held : 0n;
+      if (shortfall > 0n) {
+        preInstructions.push(...wrapSolInstructions(owner, shortfall, base.exists));
+      } else if (base.createIx) {
+        preInstructions.push(base.createIx);
+      }
+    } else {
+      // Buy base: create the WSOL ATA up front, then close (unwrap) it after so
+      // the trader receives native SOL instead of WSOL (also sweeps any dust).
+      if (base.createIx) preInstructions.push(base.createIx);
+      postInstructions.push(...unwrapSolInstructions(owner).instructions);
+    }
+  } else if (base.createIx) {
+    preInstructions.push(base.createIx);
+  }
+  if (quote.createIx) preInstructions.push(quote.createIx);
   // S2-19: the keeper reward PDA for the keeper attributed to the active quote.
   const attributedKeeper = state.quoteData?.keeper ?? PublicKey.default;
   const [keeperReward] = PublicKey.findProgramAddressSync(
@@ -581,7 +637,7 @@ export async function swapMethod(
       traderBase: base.ata, traderQuote: quote.ata, keeperReward, systemProgram: SYSTEM_PROGRAM_ID,
       tokenProgram: TOKEN_PROGRAM_ID,
     });
-  return { builder, preInstructions };
+  return { builder, preInstructions, postInstructions };
 }
 
 /** Build + send a `swap`. `side` is `{ buyBase: {} }` or `{ sellBase: {} }`. */
@@ -589,8 +645,8 @@ export async function swap(
   connection: Connection, wallet: unknown, side: SwapSide,
   amountIn: bigint, minOut: bigint, minVersion: bigint,
 ): Promise<string> {
-  const { builder, preInstructions } = await swapMethod(connection, wallet, side, amountIn, minOut, minVersion);
-  return builder.preInstructions(preInstructions).rpc();
+  const { builder, preInstructions, postInstructions } = await swapMethod(connection, wallet, side, amountIn, minOut, minVersion);
+  return builder.preInstructions(preInstructions).postInstructions(postInstructions).rpc();
 }
 
 /** Build (unsigned) the swap transaction for the connected wallet, for preview/simulation. */
@@ -598,8 +654,8 @@ export async function buildSwapTransaction(
   connection: Connection, wallet: unknown, side: SwapSide,
   amountIn: bigint, minOut: bigint, minVersion: bigint,
 ): Promise<Transaction> {
-  const { builder, preInstructions } = await swapMethod(connection, wallet, side, amountIn, minOut, minVersion);
-  return builder.preInstructions(preInstructions).transaction();
+  const { builder, preInstructions, postInstructions } = await swapMethod(connection, wallet, side, amountIn, minOut, minVersion);
+  return builder.preInstructions(preInstructions).postInstructions(postInstructions).transaction();
 }
 
 /** Human, actionable explanations for the deployed program's swap error codes. */

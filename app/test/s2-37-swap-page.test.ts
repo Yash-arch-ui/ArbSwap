@@ -109,3 +109,21 @@ describe('S2-37 funding panel (zero-balance wallets)', () => {
     expect(src).toMatch(/Devnet test funds/);
   });
 });
+
+describe('WSOL auto-wrap/unwrap is wired into deposit and swap', () => {
+  const program = readFileSync(fileURLToPath(new URL('../src/chain/program.ts', import.meta.url)), 'utf8');
+  it('deposit auto-wraps native SOL into WSOL', () => {
+    expect(program).toMatch(/import \{ wrapSolInstructions, unwrapSolInstructions \} from '\.\/wrappedSol'/);
+    expect(program).toMatch(/wrapSolInstructions\(owner, shortfall, base\.exists\)/);
+  });
+  it('a sell wraps the shortfall and a buy unwraps via post-instructions', () => {
+    expect(program).toMatch(/postInstructions\.push\(\.\.\.unwrapSolInstructions\(owner\)\.instructions\)/);
+    expect(program).toMatch(/builder\.preInstructions\(preInstructions\)\.postInstructions\(postInstructions\)/);
+  });
+  it('the swap UI spends native + wrapped SOL and no longer asks for a manual wrap', () => {
+    const swap = readFileSync(fileURLToPath(new URL('../src/pages/SwapPage.tsx', import.meta.url)), 'utf8');
+    expect(swap).toMatch(/walletAtoms\.sol \+ walletAtoms\.base/);
+    expect(swap).not.toMatch(/Wrap native SOL to WSOL first/);
+    expect(swap).toMatch(/auto-unwrapped back to SOL/);
+  });
+});

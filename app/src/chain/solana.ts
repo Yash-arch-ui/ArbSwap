@@ -55,14 +55,22 @@ export const QUOTE_SYMBOL = ACTIVE_VAULT.quoteMint.equals(new PublicKey(USDC_MIN
 export async function loadWalletBalances(
   connection: Connection,
   owner: PublicKey,
-): Promise<{ sol: number; base: number; quote: number; baseAtoms: bigint; quoteAtoms: bigint }> {
+): Promise<{ sol: number; base: number; quote: number; baseAtoms: bigint; quoteAtoms: bigint; solAtoms: bigint }> {
   const LAMPORTS = 1_000_000_000;
-  const sol = (await connection.getBalance(owner)) / LAMPORTS;
+  const solLamports = await connection.getBalance(owner);
+  const sol = solLamports / LAMPORTS;
   const read = async (mint: PublicKey): Promise<{ ui: number; atoms: bigint }> => {
     const res = await connection.getParsedTokenAccountsByOwner(owner, { mint });
     const info = res.value[0]?.account.data.parsed.info.tokenAmount;
     return { ui: info?.uiAmount ?? 0, atoms: BigInt(info?.amount ?? '0') };
   };
   const [base, quote] = await Promise.all([read(BASE_MINT), read(QUOTE_MINT)]);
-  return { sol, base: base.ui, quote: quote.ui, baseAtoms: base.atoms, quoteAtoms: quote.atoms };
+  return {
+    sol,
+    base: base.ui,
+    quote: quote.ui,
+    baseAtoms: base.atoms,
+    quoteAtoms: quote.atoms,
+    solAtoms: BigInt(solLamports),
+  };
 }
