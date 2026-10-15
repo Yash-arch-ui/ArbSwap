@@ -3,7 +3,7 @@
 // Every Pyth push creates a Wormhole `EncodedVaa` account (338 bytes ~= 0.002367
 // SOL rent). The Pyth push oracle closes it on a *successful* update, but a
 // failed `push+commit` leaves the account orphaned and the rent locked. This
-// module selects which keeper-owned encoded-VAA accounts are safe to close:
+// module selects which keeper-owned encoded-VAA accounts may be closed:
 //
 //   * only addresses reported as owned by the keeper's write authority
 //     (`findOwnedEncodedVaaAccounts` / `findEncodedVaaAccountsByWriteAuthority`);
