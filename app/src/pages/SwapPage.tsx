@@ -504,12 +504,14 @@ export const SwapPage: React.FC = () => {
             </div>
             <div className="uni-panel-foot">
               <span>{inTokenSymbol === 'SOL' ? (priceAvailable ? `~$${(parsedInAmount * quoteState.oraclePrice).toFixed(2)} USD` : 'N/A') : `~$${parsedInAmount.toFixed(2)} USD`}</span>
-              <span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 Balance: {!connected ? 'connect wallet' : balancesAvailable ? `${inToken.balance} ${inToken.symbol}` : 'Balance unavailable'}
-                {connected && balancesAvailable && (
-                  <button type="button" className="uni-max" onClick={() => setInAmount(inToken.balance.toString())}>
-                    Max
-                  </button>
+                {connected && balancesAvailable && inToken.balance > 0 && (
+                  <span style={{ display: 'inline-flex', gap: 4, marginLeft: 4 }}>
+                    <button type="button" className="uni-max" onClick={() => setInAmount((inToken.balance * 0.25).toFixed(inTokenSymbol === 'SOL' ? 4 : 2))}>25%</button>
+                    <button type="button" className="uni-max" onClick={() => setInAmount((inToken.balance * 0.50).toFixed(inTokenSymbol === 'SOL' ? 4 : 2))}>50%</button>
+                    <button type="button" className="uni-max" onClick={() => setInAmount(inToken.balance.toString())}>Max</button>
+                  </span>
                 )}
               </span>
             </div>
@@ -602,13 +604,59 @@ export const SwapPage: React.FC = () => {
           )}
 
           {swapNote && (
-            <p
-              className="swap-success-note"
-              style={{ color: swapNote.ok ? undefined : 'var(--uni-warning)' }}
+            <div
+              className={`swap-status-card ${swapNote.ok ? 'success' : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel') ? 'cancelled' : 'error'}`}
+              style={{
+                marginTop: 14,
+                padding: '12px 16px',
+                borderRadius: 12,
+                border: swapNote.ok 
+                  ? '1px solid rgba(0, 229, 176, 0.4)' 
+                  : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel')
+                  ? '1px solid rgba(255, 170, 0, 0.4)'
+                  : '1px solid rgba(255, 80, 80, 0.4)',
+                background: swapNote.ok 
+                  ? 'rgba(0, 229, 176, 0.08)' 
+                  : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel')
+                  ? 'rgba(255, 170, 0, 0.08)'
+                  : 'rgba(255, 80, 80, 0.08)',
+              }}
               role={swapNote.ok ? 'status' : 'alert'}
             >
-              {swapNote.ok ? '✓' : '⚠'} {swapNote.text}
-            </p>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontWeight: 600,
+                fontSize: 13,
+                color: swapNote.ok 
+                  ? 'var(--uni-success, #00e5b0)' 
+                  : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel')
+                  ? 'var(--uni-warning, #f5a623)'
+                  : '#ff5050',
+                marginBottom: 4,
+              }}>
+                <span>
+                  {swapNote.ok 
+                    ? '✓ Transaction Confirmed' 
+                    : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel')
+                    ? '✕ Transaction Cancelled'
+                    : '✕ Transaction Failed'}
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  fontWeight: 500,
+                }}>
+                  {swapNote.ok ? 'On-Chain Devnet' : swapNote.text.toLowerCase().includes('reject') ? 'Wallet Request' : 'Devnet Error'}
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--uni-neutral1)', lineHeight: 1.5 }}>
+                {swapNote.text}
+              </p>
+            </div>
           )}
 
           {/* Details toggle */}

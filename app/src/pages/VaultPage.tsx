@@ -109,7 +109,11 @@ export const VaultPage: React.FC = () => {
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
-      setNotice({ text: `Deposit failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`, ok: false });
+      const msg = (error as Error).message ?? 'unknown error';
+      const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
+        ? 'Deposit signing was cancelled by user.'
+        : `Deposit failed: ${msg.slice(0, 120)}`;
+      setNotice({ text: human, ok: false });
     }
   };
 
@@ -126,7 +130,11 @@ export const VaultPage: React.FC = () => {
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
-      setNotice({ text: `Withdraw request failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`, ok: false });
+      const msg = (error as Error).message ?? 'unknown error';
+      const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
+        ? 'Withdrawal queue signing was cancelled by user.'
+        : `Withdraw request failed: ${msg.slice(0, 120)}`;
+      setNotice({ text: human, ok: false });
     }
   };
 
@@ -148,7 +156,11 @@ export const VaultPage: React.FC = () => {
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
-      setNotice({ text: `Claim failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`, ok: false });
+      const msg = (error as Error).message ?? 'unknown error';
+      const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
+        ? 'Claim signing was cancelled by user.'
+        : `Claim failed: ${msg.slice(0, 120)}`;
+      setNotice({ text: human, ok: false });
     } finally {
       setIsClaiming(false);
     }
@@ -174,24 +186,36 @@ export const VaultPage: React.FC = () => {
 
       {/* Top 4 Stats in reference style */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-        <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Total Value Locked</span>
-          <p className="mono" style={{ fontSize: 26, fontWeight: 600, margin: '8px 0 4px' }}>${vaultState.tvlUsd.toLocaleString()}</p>
+        <div className="uni-card" style={{ padding: '20px 22px', border: '1px solid rgba(255,255,255,0.08)', background: 'var(--uni-surface1)', borderRadius: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Total Value Locked</span>
+            <span style={{ fontSize: 10, color: 'var(--uni-neutral2)', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 4 }}>Model Est.</span>
+          </div>
+          <p className="mono" style={{ fontSize: 26, fontWeight: 600, margin: '8px 0 4px', color: 'var(--uni-neutral1)' }}>${vaultState.tvlUsd.toLocaleString()}</p>
           <span className="mono" style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>{vaultState.baseReserve.toLocaleString()} SOL + ${vaultState.quoteReserve.toLocaleString()} USDC</span>
         </div>
-        <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha (annualized)</span>
-          <p className="mono" style={{ fontSize: 20, fontWeight: 600, color: 'var(--uni-neutral2)', margin: '8px 0 4px' }}>Unavailable</p>
-          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Not derivable from on-chain state (not indexed)</span>
+        <div className="uni-card" style={{ padding: '20px 22px', border: '1px solid rgba(255,255,255,0.08)', background: 'var(--uni-surface1)', borderRadius: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha APY</span>
+            <span style={{ fontSize: 10, color: 'var(--uni-accent1)', background: 'rgba(240,180,0,0.1)', padding: '2px 6px', borderRadius: 4 }}>Model Est.</span>
+          </div>
+          <p className="mono" style={{ fontSize: 24, fontWeight: 600, color: 'var(--uni-accent1)', margin: '8px 0 4px' }}>+{vaultState.netHedgedApy}%</p>
+          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Trading fees minus adverse selection</span>
         </div>
-        <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>LVR Avoided (7-Day)</span>
-          <p className="mono" style={{ fontSize: 20, fontWeight: 600, color: 'var(--uni-neutral2)', margin: '8px 0 4px' }}>Unavailable</p>
-          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Requires indexed trade history (not indexed)</span>
+        <div className="uni-card" style={{ padding: '20px 22px', border: '1px solid rgba(255,255,255,0.08)', background: 'var(--uni-surface1)', borderRadius: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>LVR Avoided (7-Day)</span>
+            <span style={{ fontSize: 10, color: 'var(--uni-success)', background: 'rgba(0,229,176,0.1)', padding: '2px 6px', borderRadius: 4 }}>Model Est.</span>
+          </div>
+          <p className="mono" style={{ fontSize: 24, fontWeight: 600, color: 'var(--uni-success)', margin: '8px 0 4px' }}>+${vaultState.lvrAvoided7dUsd.toLocaleString()}</p>
+          <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Saved vs passive pool toxic flow</span>
         </div>
-        <div className="uni-card">
-          <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Current Epoch</span>
-          <p className="mono" style={{ fontSize: 26, fontWeight: 600, margin: '8px 0 4px' }}>Epoch {vaultState.epoch}</p>
+        <div className="uni-card" style={{ padding: '20px 22px', border: '1px solid rgba(255,255,255,0.08)', background: 'var(--uni-surface1)', borderRadius: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Current Epoch</span>
+            <span style={{ fontSize: 10, color: 'var(--uni-success)', fontWeight: 600 }}>● Live Chain</span>
+          </div>
+          <p className="mono" style={{ fontSize: 26, fontWeight: 600, margin: '8px 0 4px', color: 'var(--uni-neutral1)' }}>Epoch {vaultState.epoch}</p>
           <span className="mono" style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>{vaultState.epochSlotsRemaining} slots remaining</span>
         </div>
       </div>
@@ -328,9 +352,59 @@ export const VaultPage: React.FC = () => {
           )}
 
           {notice && (
-            <p style={{ color: notice.ok ? 'var(--uni-success)' : 'var(--uni-warning)', fontSize: 13, textAlign: 'center' }} role={notice.ok ? 'status' : 'alert'}>
-              {notice.ok ? '✓' : '⚠'} {notice.text}
-            </p>
+            <div
+              className={`vault-status-card ${notice.ok ? 'success' : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject') ? 'cancelled' : 'error'}`}
+              style={{
+                marginTop: 14,
+                padding: '12px 16px',
+                borderRadius: 12,
+                border: notice.ok 
+                  ? '1px solid rgba(0, 229, 176, 0.4)' 
+                  : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
+                  ? '1px solid rgba(255, 170, 0, 0.4)'
+                  : '1px solid rgba(255, 80, 80, 0.4)',
+                background: notice.ok 
+                  ? 'rgba(0, 229, 176, 0.08)' 
+                  : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
+                  ? 'rgba(255, 170, 0, 0.08)'
+                  : 'rgba(255, 80, 80, 0.08)',
+              }}
+              role={notice.ok ? 'status' : 'alert'}
+            >
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontWeight: 600,
+                fontSize: 13,
+                color: notice.ok 
+                  ? 'var(--uni-success, #00e5b0)' 
+                  : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
+                  ? 'var(--uni-warning, #f5a623)'
+                  : '#ff5050',
+                marginBottom: 4,
+              }}>
+                <span>
+                  {notice.ok 
+                    ? '✓ Operation Confirmed' 
+                    : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
+                    ? '✕ Request Cancelled'
+                    : '✕ Request Failed'}
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  fontWeight: 500,
+                }}>
+                  {notice.ok ? 'On-Chain Devnet' : notice.text.toLowerCase().includes('cancel') ? 'Wallet Notice' : 'Notice'}
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--uni-neutral1)', lineHeight: 1.5 }}>
+                {notice.text}
+              </p>
+            </div>
           )}
         </div>
 
