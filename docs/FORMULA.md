@@ -454,6 +454,57 @@ zero-share mint guard; `first_depositor_inflation_loses_at_most_rounding` shows 
 donation-inflation attacker cannot steal from a later depositor beyond rounding.
 No ERC-4626 virtual-share offset (recorded as a mitigation, not a proof).
 
+### 12.1 Single-Sided (Balanced) Deposit
+
+A user enters with one token; the vault converts the unwanted leg against its own
+committed ladder and prices shares at the post-swap composition.
+
+For `side = SellBase` (base in, `amount_in`), the plan finds the gross swapped
+notional `s` whose ladder output balances the deposit:
+
+```text
+s_net  = s - ceil(s*fee_bps/10,000)
+out    = walk_ladder(ask, s_net)
+B'     = B_net + s_net          base gains the swap input
+Q'     = Q_net - out            quote loses the ladder output
+dB     = amount_in - s
+dq     = out
+shares = min(floor(dB*S/B'), floor(dq*S/Q'))
+```
+
+`BuyBase` mirrors this (quote in, `out = walk_ladder(bid, s_net)`). `s` is the
+integer root of `floor(dB*S/B') = floor(dq*S/Q')`, found by bounded bisection
+(<=64 steps); the neighbouring integers are compared and the plan with the larger
+`min` is returned. Only `amount_in` is pulled — the fee stays in the reserve and
+is credited to the buckets. Guards: `amount_in <= max_quote_size`, the window
+flow cap, the edge breaker, and `min_shares`/`min_swap_out`.
+
+**Status:** SPEC; implemented as `solve_deposit_single` in
+`vault/program/src/lib.rs`, covered by `vault/program/tests/litesvm_single_sided.rs`.
+The single-sided path trades against the vault's own ladder at the committed
+quote and inherits the same stale-quote exposure as `swap`, bounded by
+`max_anchor_dev_bps`, the window flow cap and the edge breaker.
+
+### 12.2 Single-Sided Withdrawal
+
+`claim_withdraw_single` reuses the pro-rata floors of `claim_withdraw`
+(`base_out`, `quote_out`) and converts the unwanted leg against the ladder,
+paying only the chosen token:
+
+```text
+side = BuyBase:  payout = base_out  + walk_ladder(ask, quote_out - fee)
+side = SellBase: payout = quote_out + walk_ladder(bid, base_out  - fee)
+```
+
+`payout >= min_out` (`SlippageExceeded`). If the ladder cannot absorb the
+unwanted leg, the instruction reverts with `CapacityExceeded` and leaves the
+ticket and shares intact (the user can fall back to two-sided `claim_withdraw`).
+The single-sided claim requires a fresh quote; two-sided `claim_withdraw` does
+not.
+
+**Status:** SPEC; implemented as `claim_withdraw_single` in
+`vault/program/src/lib.rs`.
+
 ## 13. Research Metrics
 
 These formulas measure outcomes; they do not justify tuning parameters.

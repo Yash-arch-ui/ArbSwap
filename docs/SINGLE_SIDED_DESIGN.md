@@ -1,7 +1,17 @@
 # SINGLE_SIDED_DESIGN.md — single-token deposit and withdrawal on the vault's own ladder
 
-Status: **design complete; on-chain program work NO-GO for the 2026-10-16 window** (see §7).
-No program code is written under this design yet. `docs/DECISIONS.md` D-011.
+Status: **implemented in the program and covered by LiteSVM tests** (operator
+override of the §7 NO-GO; see `docs/DECISIONS.md` D-015/D-016). Two new
+instructions (`deposit_single`, `claim_withdraw_single`), two events
+(`DepositSingleEvent`, `WithdrawSingleEvent`), no account-layout change, no
+redeploy in this window (program-upgrade remains a gated Task 6 action).
+
+Two deviations from the text below, applied during implementation:
+`deposit_single` transfers the **full** `amount_in` in one transfer (the §1.1
+"only `dB` is pulled" wording was a leftover error — pulling only `dB` breaks
+conservation of the input fee), and `deposit_single` requires an existing funded
+pool (`total_shares > 0`) because the internal conversion needs a committed
+ladder. Both are recorded in `docs/DECISIONS.md` D-016.
 
 Scope: add **two new instructions** to the existing program, `deposit_single` and
 `claim_withdraw_single`, that let a user enter with one token and exit with one
@@ -220,6 +230,14 @@ existing event shapes). No account-type changes.
 ---
 
 ## 7. GO / NO-GO decision
+
+> **Update (D-015):** the operator explicitly overrode this NO-GO
+> ("DOTASK 3 FULLY"). The two instructions are now implemented and covered by
+> `vault/program/tests/litesvm_single_sided.rs` (helper extraction done with the
+> six existing LiteSVM suites passing unmodified; CU measured under the 200k
+> per-instruction budget; IDL regenerated). **No redeploy occurs here** — the
+> program upgrade remains the separately gated Task 6 action. The original
+> rationale is preserved below for the record.
 
 **NO-GO for deploying `deposit_single`/`claim_withdraw_single` in the
 2026-10-16 window.** Reason: the design is sound and bounded, but shipping two

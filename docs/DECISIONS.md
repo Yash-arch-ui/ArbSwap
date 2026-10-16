@@ -149,3 +149,34 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
 - **Rejected:** A rushed on-chain deploy (fund-safety risk); a frontend-only
   `swap`+`deposit` composition marketed as the program instruction (different
   trust surface — documented as the recommended browser-only fallback instead).
+
+### D-015 — Operator override: implement Task 3 (single-sided program) in this window
+- **Decision:** Override D-011 and implement the single-sided program
+  (`deposit_single` / `claim_withdraw_single`) fully in the 2026-10-16 window:
+  shared-helper extraction with `swap` unchanged, the full LiteSVM suite, CU
+  measurement, IDL/fixture regeneration, docs. **No redeploy** — the program
+  upgrade stays the separately gated Task 6 action.
+- **Reason:** The operator instructed "DOTASK 3 FULLY" after reading the D-011
+  NO-GO. The design was already complete and the work is bounded and testable
+  off-chain; shipping the code and proofs without a redeploy carries no
+  fund-safety risk to the live vault.
+- **Rejected:** Staying NO-GO against an explicit operator directive; bundling a
+  redeploy into this step (kept gated and rolled back separately).
+
+### D-016 — Single-sided implementation deviations from the design text
+- **Decision:** (1) `deposit_single` transfers the **full** `amount_in` in one
+  transfer (not "only `dB`"); (2) `deposit_single` requires an existing funded
+  pool (`total_shares > 0`); (3) events are named `DepositSingleEvent` /
+  `WithdrawSingleEvent`; (4) no `min_version` argument (signatures kept exactly
+  as the design specified).
+- **Reason:** (1) The §1.1 "only `dB` is pulled" wording is a leftover error:
+  pulling only `dB` would leave the fee tokens uncollected and break conservation
+  of the input fee; the full transfer places `amount_in` in the reserve and the
+  fee is credited to the buckets. (2) The internal conversion trades the
+  committed ladder, which needs a live ladder and non-zero net reserves; there is
+  no ladder on an empty pool. (3) `DepositSingle` collides (E0428) with the new
+  accounts struct. (4) The operator asked to keep the design signatures.
+- **Rejected:** (1) Pulling only `dB` (breaks conservation); (2) a first-deposit
+  `min_liquidity` path (would need a bootstrap ladder with no committed quote);
+  (3) reusing the `DepositSingle`/`WithdrawSingle` names (compile collision);
+  (4) adding `min_version` (would change the designed ABI).

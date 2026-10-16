@@ -585,6 +585,177 @@
       "args": []
     },
     {
+      "name": "claim_withdraw_single",
+      "docs": [
+        "Single-token withdrawal. Reuses `claim_withdraw`'s pro-rata floors and",
+        "ticket/burn semantics, then converts the unwanted leg against the vault's",
+        "committed ladder and pays out only `side`. Requires a fresh attributed",
+        "quote; the normal `claim_withdraw` still works with an expired quote."
+      ],
+      "discriminator": [
+        185,
+        191,
+        187,
+        117,
+        154,
+        183,
+        213,
+        203
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_reserve",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve",
+          "writable": true
+        },
+        {
+          "name": "share_mint",
+          "writable": true
+        },
+        {
+          "name": "share_lock",
+          "writable": true
+        },
+        {
+          "name": "withdraw_ticket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_base",
+          "writable": true
+        },
+        {
+          "name": "user_quote",
+          "writable": true
+        },
+        {
+          "name": "keeper_reward",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "quote_state.keeper",
+                "account": "QuoteState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "side",
+          "type": {
+            "defined": {
+              "name": "SwapSide"
+            }
+          }
+        },
+        {
+          "name": "min_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "commit_quote",
       "docs": [
         "S2-11: commit a staged quote against the `PriceUpdateV2` account written",
@@ -897,6 +1068,191 @@
         },
         {
           "name": "min_shares",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deposit_single",
+      "docs": [
+        "Single-token deposit. The user enters with one token; the vault converts",
+        "the unwanted leg against its own committed ladder and deposits both legs.",
+        "Shares use the existing proportional rule priced at the post-swap net",
+        "reserves; only the input token is pulled. Same fee, spread, flow cap and",
+        "edge breaker as `swap`. See `docs/SINGLE_SIDED_DESIGN.md`."
+      ],
+      "discriminator": [
+        116,
+        81,
+        213,
+        110,
+        17,
+        83,
+        209,
+        188
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  113,
+                  117,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_reserve",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve",
+          "writable": true
+        },
+        {
+          "name": "share_mint",
+          "writable": true
+        },
+        {
+          "name": "share_lock",
+          "writable": true
+        },
+        {
+          "name": "user_base",
+          "writable": true
+        },
+        {
+          "name": "user_quote",
+          "writable": true
+        },
+        {
+          "name": "user_shares",
+          "writable": true
+        },
+        {
+          "name": "deposit_ticket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "keeper_reward",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "quote_state.keeper",
+                "account": "QuoteState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "side",
+          "type": {
+            "defined": {
+              "name": "SwapSide"
+            }
+          }
+        },
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_shares",
+          "type": "u64"
+        },
+        {
+          "name": "min_swap_out",
           "type": "u64"
         }
       ]
@@ -2888,6 +3244,19 @@
       ]
     },
     {
+      "name": "DepositSingleEvent",
+      "discriminator": [
+        32,
+        1,
+        80,
+        241,
+        172,
+        185,
+        201,
+        152
+      ]
+    },
+    {
       "name": "EdgeBreakerTripped",
       "discriminator": [
         229,
@@ -3171,6 +3540,19 @@
         128,
         151,
         39
+      ]
+    },
+    {
+      "name": "WithdrawSingleEvent",
+      "discriminator": [
+        48,
+        75,
+        148,
+        114,
+        187,
+        39,
+        140,
+        18
       ]
     }
   ],
@@ -3687,6 +4069,69 @@
           },
           {
             "name": "quote_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositSingleEvent",
+      "docs": [
+        "Single-token deposit (see `docs/SINGLE_SIDED_DESIGN.md`). `side` is the token",
+        "the user paid: `SellBase` = base in, `BuyBase` = quote in."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "version",
+            "type": "u64"
+          },
+          {
+            "name": "side",
+            "type": {
+              "defined": {
+                "name": "SwapSide"
+              }
+            }
+          },
+          {
+            "name": "amount_in",
+            "docs": [
+              "Total input pulled from the user (the swapped notional plus the",
+              "deposited remainder)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "swap_in",
+            "docs": [
+              "Internal swap notional (gross, fee inclusive) and its ladder output."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "swap_out",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "base_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "quote_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
             "type": "u64"
           }
         ]
@@ -5441,6 +5886,65 @@
           },
           {
             "name": "epoch",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawSingleEvent",
+      "docs": [
+        "Single-token withdrawal (see `docs/SINGLE_SIDED_DESIGN.md`). `side` is the",
+        "token the user receives: `BuyBase` = base out, `SellBase` = quote out."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "version",
+            "type": "u64"
+          },
+          {
+            "name": "side",
+            "type": {
+              "defined": {
+                "name": "SwapSide"
+              }
+            }
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "base_out",
+            "type": "u64"
+          },
+          {
+            "name": "quote_out",
+            "type": "u64"
+          },
+          {
+            "name": "swap_in",
+            "docs": [
+              "Internal swap notional (the unwanted leg, gross) and its ladder output."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "swap_out",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "payout",
             "type": "u64"
           }
         ]
