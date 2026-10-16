@@ -105,6 +105,34 @@ volatility feature is committed, at which point the pipeline should be run and
 the regenerated bundle committed so the check passes. The checker was **not**
 modified and no unrelated work was overwritten.
 
+## Frontend ↔ backend wiring audit (live Devnet, read-only)
+
+Verified with the frontend's own constants/derivations against chain state:
+
+| Check | Result |
+|---|---|
+| `vault/config/quoteState` derived from `[b"vault", WSOL, USDC]` == `ACTIVE_VAULT` == on-chain | PASS |
+| volatility PDA `[b"vol", vault]` == deployed `5HbPRjB…` | PASS |
+| vault decode: mints WSOL/USDC, `share_mint`, `total_shares`, `status` | PASS |
+| config decode: `keeper`, `pyth_feed_id` == frontend `SOL_USD_FEED_ID` | PASS |
+| quote decode: version/update/expiry + attributed keeper; `keeperReward` PDA | PASS |
+| volatility decode (hand-written, not IDL): owner, vault binding, `enabled`, nonce | PASS |
+| deposit/withdraw ticket PDAs `[b"dep"/b"wd", vault, user]` == on-chain | PASS |
+| share ATA `getAssociatedTokenAddressSync(shareMint, user)` == on-chain holder | PASS |
+| instruction account orders (deposit/request_withdraw/claim_withdraw/swap) match program | PASS |
+
+**No mock data in runtime `src/`.** The on-chain surfaces (Vault, Swap, Risk, and
+the protocol part of Overview) read live via RPC (`getAccountInfo`,
+`getParsedTokenAccountsByOwner`, `getTokenAccountBalance`, Anchor account fetch,
+`LiveQuoteFeed`, `readVolatility`). The Analytics page + the analytics block of
+Overview read `/artifacts/*.json` — the backend's real model/evaluation outputs
+(static research bundle), not fabricated values.
+
+**IDL sync:** `app/src/idl/arbswap.json` was synced from the generated
+`target/idl/arbswap.json` (29 instructions; adds `initialize/observe/propose/apply
+volatility` + `VolatilityState`/`PendingVolatilityParams`; `volatility_state` on
+update/stage/commit). `tsc`/`oxlint`/Vitest (138) and production build pass.
+
 ## Rollback
 
 - Pre-volatility ELF preserved at `~/arbswap-rollback/arbswap-prevolatility-780224.so` (`dff8a302…`).
