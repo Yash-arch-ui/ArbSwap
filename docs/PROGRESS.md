@@ -14,10 +14,10 @@
 | 4 frontend | NOT DONE | — |
 | 5 docs | NOT DONE | — |
 | 6 deploy | NOT DONE | — |
-| 7 demo/evidence | NOT DONE | — |
-| 8 liveness/proofs | NOT DONE | — |
-| 9 site package | NOT DONE | — |
-| 10 submission | NOT DONE | — |
+| 7 demo/evidence | NOT DONE | verify offline demo mode + evidence page |
+| 8 liveness/proofs | NOT DONE | 30-min fresh-quote run + live swaps pending |
+| 9 site package | PARTIAL | `docs/DEPLOY_FRONTEND.md`, D-013; dist verified no api-key |
+| 10 submission | PARTIAL | `docs/QA.md`, `SUBMISSION_TEXT.md`, `PITCH_OUTLINE.md`, `PRE_DEMO_CHECKLIST.md`, D-014; fresh-clone + tags pending |
 | gate-fix | DONE | commits `81e96c4`, `9134cd1`, `2ef5f41`; bundle-freshness + bundle secrets green |
 
 ### Next actions on resume (do not repeat finished work)

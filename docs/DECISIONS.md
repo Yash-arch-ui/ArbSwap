@@ -122,6 +122,20 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
   nonce/hash pipeline (needs a custom server; Vercel static hosting can't set a
   per-request nonce).
 
+### D-014 — Task 10.1 stale-item list does not match this repo (no churn)
+- **Decision:** Do not remove `inverse-sqrt` / `InvalidInverseSqrt` /
+  `verify-instead-of-compute` (they are **current** features here: the
+  inverse-sqrt capacity redesign, C3/B2), and do not rewrite the historical
+  `9a0505…`/`688,616`/tSOL/tUSDC records (they are dated STEP-1/earlier-vault
+  history, not forward references). The current canonical numbers are consistent:
+  CU `update_quote` 47,836 / `swap` 63,579; deployed ELF `42eeac64…` (849,368 B);
+  current vault uses WSOL/USDC.
+- **Reason:** The task's list was written for a different repo state. Removing a
+  live feature or rewriting dated history would break code or falsify records, and
+  risks docs-consistency.
+- **Rejected:** Deleting the inverse-sqrt code/docs (breaks the program); editing
+  historical deployment records (falsifies evidence).
+
 ### D-011 — Single-sided program work: NO-GO for the 2026-10-16 window
 - **Decision:** Complete the design (`docs/SINGLE_SIDED_DESIGN.md`) but do **not**
   implement or deploy `deposit_single`/`claim_withdraw_single` on-chain in this
