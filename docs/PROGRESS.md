@@ -14,7 +14,7 @@
 | 4 frontend | DONE (flag off by default) | `app/src/chain/singleSided.ts` (integer mirror + Rust golden vectors); `app/src/pages/VaultPage.tsx` Deposit "Deposit with" / Withdraw "Receive as" toggles; `VITE_ENABLE_SINGLE_SIDED` fail-closed (`app/src/chain/config.ts`); tx preview+simulate+submit-time fresh-quote re-read; `app/test/singleSided.test.ts` (15), `app/test/task4-single-sided-ui.test.ts` (18); D-017 |
 | 5 docs | DONE | `docs/SINGLE_SIDED_DESIGN.md`, `docs/SELF_REVIEW_SINGLE_SIDED.md`, `docs/DECISIONS.md` D-015…D-018 |
 | 6 deploy | DONE (6.1–6.5; 6.6 pending) | upgrade `21VdJsBe…` (933,240 B, sha256 `c8725a23…`, hash MATCH, slot 511682809, 2026-10-16T10:36:22Z); rollback `~/arbswap-rollback/arbswap_pre_single_sided.so` (unused); post-upgrade smoke green; live two-sided deposit→request→crank→claim (`2szDwnxJ…`/`28exTx39…`/`jyy8EHSh…`/`hWenydz7…`) deltas==event==pro-rata, reserves≥liabilities, shares consistent; expired-quote claim (d) evidenced; (a)/(e) single-token NOT RUN; `docs/DEVNET.md` STEP 3 |
-| 7 demo/evidence | NOT DONE | verify offline demo mode + evidence page |
+| 7 demo/evidence | DONE | offline demo: `SimulatorPage.tsx` renders bundled `app/src/data/demoStreams.json` (byte-identical to `artifacts/public/demo_streams.json`), 8 scenarios, no `fetch`/wallet/tx (`app/test/simulator.test.ts`); evidence: `AnalyticsPage` mounts `OnchainAnalyticsPanel` reading served `/analytics/onchain.json` (`app/public/analytics/onchain.json`, generated_at `2026-10-13T19:42Z`), parser/state tests (`app/test/onchainAnalytics.test.ts`); 11/11 pass. Snapshot predates the Task 6 single-sided upgrade (refresh optional, no code change required) |
 | 8 liveness/proofs | NOT DONE | 30-min fresh-quote run + live swaps pending |
 | 9 site package | PARTIAL | `docs/DEPLOY_FRONTEND.md`, D-013; dist verified no api-key |
 | 10 submission | PARTIAL | `docs/QA.md`, `SUBMISSION_TEXT.md`, `PITCH_OUTLINE.md`, `PRE_DEMO_CHECKLIST.md`, D-014; fresh-clone + tags pending |
@@ -31,8 +31,10 @@
    complete in `docs/SINGLE_SIDED_DESIGN.md`.
 2. Recommended fast increment: browser-only one-sided flow composing the
    existing `swap` + `deposit` (Task 4.1) behind `VITE_ENABLE_SINGLE_SIDED`.
-3. Remaining non-upgrade tasks: 7 (demo/evidence), 8 (liveness), 9 (site package
+3. Remaining non-upgrade tasks: 8 (liveness), 9 (site package
    incl. `docs/DEPLOY_FRONTEND.md`), 10 (submission package + fresh-clone).
+   Task 7 (demo/evidence) is DONE (offline simulator + on-chain evidence panel
+   verified; see the table row above).
 4. Known open items: Task 8.1 30-minute fresh-quote measurement; browser-wallet
    swap (operator only); Vercel must not set a keyed `VITE_*` var (D-010).
 
