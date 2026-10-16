@@ -72,3 +72,31 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
   sha256 `dff8a302…`) in place as an additional fallback; do not overwrite it.
 - **Reason:** Distinct rollback targets for two different baselines.
 - **Rejected:** Replacing it (would lose the older fallback).
+
+### D-009 — Bundle-freshness fix (supersedes D-008; done now on operator instruction)
+- **Decision:** Regenerate the published bundle via the repo workflow
+  (`export_artifacts.py` + `publish_artifacts.py` + `render_docs.py`) with the
+  **committed** `simulation/data/results/cu.json` restored (CU **not** re-measured),
+  and update the test-count references in `README.md` and `docs/CLAIMS.md` from
+  211 to **260 Rust** (`docs/RESULTS.md` is rendered).
+- **Reason:** The red was purely frontend sources changed after the recorded
+  bundle commit; no program source changed, so re-measuring CU only injects
+  host-variable medians (observed 47,836 → 50,161) and churns every doc. Keeping
+  the committed CU as the source of truth keeps `check_docs_consistency` green.
+  The test count legitimately rose to 260 with the volatility test suites.
+- **Rejected:** Re-measuring CU (`measure_cu.sh`) — same hash but nondeterministic
+  medians that break docs-consistency doc numbers; and leaving the green reversed.
+
+### D-010 — Browser RPC must be a public endpoint (secret-leak fix)
+- **Decision:** Add a committed `app/.env.production` pinning
+  `VITE_SOLANA_RPC_URL=https://api.devnet.solana.com` (+ fallback), so the
+  production bundle contains no provider key; the local, git-ignored
+  `app/.env.local` (keyed Helius URL) is left untouched for local dev.
+- **Reason:** The built bundle embedded a live Helius `api-key=` (from
+  `app/.env.local`, inlined by Vite because it is a `VITE_*` var). The task
+  forbids any `api-key=` string in the public bundle. Vite loads
+  `.env.[mode]` at higher precedence than `.env.local`, so a committed
+  `.env.production` overrides the keyed local value for `vite build`.
+- **Rejected:** Editing the operator's `app/.env.local` (local only, doesn't fix
+  production); relying on Vercel env (unverified, could re-leak). Production
+  deploy must also avoid setting a keyed `VITE_*` var (documented, Task 9.2).
