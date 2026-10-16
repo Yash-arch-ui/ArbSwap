@@ -8,7 +8,7 @@
 | Task | Status | Evidence |
 |---|---|---|
 | 0 state/precheck | DONE | commit `2cd897c`; tag `pre-single-sided` |
-| 1 design doc | DONE (on-chain NO-GO) | `docs/SINGLE_SIDED_DESIGN.md`; D-011 |
+| 1 design doc | DONE (on-chain NO-GO) | `docs/SINGLE_SIDED_DESIGN.md` (commit `abfd9c5`); D-011 |
 | 2 reference + vectors | NOT DONE | see roadmap |
 | 3 program | NOT DONE | — |
 | 4 frontend | NOT DONE | — |
@@ -18,7 +18,7 @@
 | 8 liveness/proofs | NOT DONE | — |
 | 9 site package | NOT DONE | — |
 | 10 submission | NOT DONE | — |
-| gate-fix | DONE | commit `81e96c4`; bundle-freshness + bundle secrets green |
+| gate-fix | DONE | commits `81e96c4`, `9134cd1`, `2ef5f41`; bundle-freshness + bundle secrets green |
 
 ### Next actions on resume (do not repeat finished work)
 
