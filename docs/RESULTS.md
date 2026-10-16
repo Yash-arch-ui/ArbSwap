@@ -22,7 +22,7 @@ The routed chart is `docs/headline_chart.svg` (`./scripts/headline.sh`).
 
 <!-- BEGIN GENERATED NUMBERS -->
 
-_Generated from `simulation/data/results/artifacts.json` (commit `98b9c23`, 2026-10-16, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
+_Generated from `simulation/data/results/artifacts.json` (commit `00dee6a`, 2026-10-16, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
 
 **Calibration (W1):** B1 best 2s markout **-0.02 bps** (target -0.2, accept [-0.5, 0.1]); quiet half-spread **2.409 bps** (target 2.6, accept [1.8, 3.4]).
 
@@ -58,7 +58,7 @@ _Generated from `simulation/data/results/artifacts.json` (commit `98b9c23`, 2026
 | `update_quote` | 47,836 |
 | `update_quote_wide_conf_rejected` | 15,375 |
 
-**Tests:** 284 Rust / 233 Python. **Guard mutations:** 58 caught (docs/SECURITY_CHECKLIST.md).
+**Tests:** 287 Rust / 239 Python. **Guard mutations:** 58 caught (docs/SECURITY_CHECKLIST.md).
 
 <!-- END GENERATED NUMBERS -->
 
