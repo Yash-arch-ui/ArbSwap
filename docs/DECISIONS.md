@@ -224,3 +224,22 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
   force in Python only (slower and does not exercise the Rust solver directly);
   generating vectors from the Rust solver (not independent); folding flow-cap and
   edge checks into these tests (they are instruction-level, already covered).
+
+### D-019 — Task 6: deploy the single-sided build and scope Task 6.5 to the two-sided path
+- **Decision:** The single-sided program (Task 3) is deployed to devnet: clean
+  `cargo build-sbf` = 933,240 B, sha256 `c8725a23…`, upgrade signature
+  `21VdJsBe…` (slot 511682809, 2026-10-16T10:36:22Z), on-chain hash MATCH, no
+  rollback (previous ELF `42eeac64…`, 849,368 B, retained). Then Task 6.5's live
+  smoke runs **only** the two-sided lifecycle (`deposit` → `request_withdraw` →
+  `crank_epoch` → `claim_withdraw`) plus the expired-quote claim check (d);
+  single-token steps (a)/(e) are marked **NOT RUN** because no single-sided CLI
+  exists yet, so `VITE_ENABLE_SINGLE_SIDED` is **not** set in any build.
+- **Reason:** The operator selected "Two-sided only (b,c,d)" for 6.5 to prove the
+  upgrade did not regress the existing money path without taking on the cost/risk
+  of a new single-token CLI in the frozen window. The upgrade is additive (no
+  `Config`/`Vault`/`QuoteState` layout change, no existing instruction touched),
+  so the two-sided path is the correct regression surface.
+- **Rejected:** Building a single-token CLI and running (a)/(e) live in the
+  freeze window (scope/time risk); leaving Task 6.5 unrun (the gate requires a
+  live check); setting the single-sided flag without a passing (a) (would expose
+  an unproven-on-devnet path).

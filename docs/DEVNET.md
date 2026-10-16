@@ -656,3 +656,62 @@ Adds `expiry_slots` to `ParamsUpdate` (admin-tunable via the timelocked
 
 **Parameter change (S2-37 Task 3) is PENDING**: `set_params(expiry_slots=120)` is
 not yet proposed/applied; the live `Config.expiry_slots` remains 10 until then.
+
+## STEP 3 — single-sided upgrade + live two-sided smoke (2026-10-16)
+
+Task 6 of the single-sided execution prompt. Adds `deposit_single` and
+`claim_withdraw_single` (and shared helpers) as **purely additive** code: no
+`Config`/`Vault`/`QuoteState` layout change, no change to any existing
+instruction. Build is `cargo build-sbf` in a clean target dir; the deployed
+program is byte-identical to the reviewed artifact.
+
+| | |
+|---|---|
+| Repo commit | `00dee6a` (branch `deposit-withdraw`) |
+| Program id | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
+| Upgrade authority (public key) | `ddGs6hk5E4oPzSnwFfX4pD4DDhDTLTwRddv1VQym7bH` |
+| Fee payer (public key) | `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH` |
+| New ELF (clean build) | **933,240 bytes**, sha256 `c8725a23698de9d0779041771936c443e39d92f36b4c5353c20ce87b597cb015` |
+| On-chain account | 933,240 bytes, sha256 `c8725a23…` — **MATCH** (`devnet_program_hash.py`) |
+| Upgrade signature | `21VdJsBeRkrX3WVTPx6pdYmfrPCnaqqh4VuudJoJwrQkkmm5ts9o9XD1EtvFs36z7E4Rp5y5F82iAkcQ4Cy3wioB` |
+| Upgrade slot / block time | 511682809 / 1792146982 (2026-10-16T10:36:22Z) |
+| Previous ELF (rollback) | `~/arbswap-rollback/arbswap_pre_single_sided.so` (849,368 B, sha256 `42eeac64…`) — **not used** |
+| Release preflight (`release_preflight.ts`) | `ok:true`; vault Active; Config field-by-field unchanged; QuoteState len 897 |
+| Post-upgrade keeper (5 min) | quote versions 4795→4810, 0 failures, author `8R3V…` |
+
+### Task 6.5 — live two-sided lifecycle (`scripts/devnet/two_sided_lifecycle.ts`)
+
+Simulate-then-submit, admin `8R3V…`, one molar-proportional round trip:
+deposit 1,000,000 base atoms (0.001 WSOL) + 127,817 quote atoms (0.127817 USDC).
+
+| Step | Signature | Slot / time | Result |
+|---|---|---|---|
+| (b) deposit | `2szDwnxJGALdEmC2G1oh7EgRa36wFU5xFYSKSCsoyqwWkCRqu8tsznu1GqUuWVu9g7nn6RxPy4tRhCFpNeELHi8Q` | 511687211 / 10:53:48Z | `DepositEvent{shares:359,111, base_amount:999,995, quote_amount:127,817}`; `total_shares` 184,925,609→185,284,720 |
+| (c) request_withdraw | `28exTx39CFbkAuQK1wKQgf67mUc1rmHcspEhLSC9JTDmkG3Nywwbjxj7Nf5q5FwaW8mLjy7voHdKrsoXQMfW1DdZ` | 511689827 / 11:04:12Z | warm-up elapsed (`activate_slot` 511,687,361); shares 359,111 moved to `share_lock`; ticket epoch = vault.epoch+1 |
+| (c) crank_epoch | `jyy8EHShc3jcCunHXHHfqGT1FWE7xrMkqnBouTV7SxCMKgC6qd8x4nn8288D8zLs8cR2UVXaUk2ApN7idDfEYQK` | 511689839 / 11:04:15Z | vault epoch 0→1 (≥ `epoch_start + 1,500`) |
+| (c) claim_withdraw | `hWenydz7pxAvUxseriyXpytpi1MRhN6YwVvWepPCbV9eQ7LAmQXonWUgi44NQuXxmAWfhxxKvfqLyfzuDhNn8te` | 511689856 / 11:04:19Z | `WithdrawClaimed{base_amount:999,994, quote_amount:127,816}` |
+
+Verification (all automated checks PASS): token deltas **equal** the claim event
+**and** the pro-rata formula `shares · net_reserve / total_shares`
+(expected_base 999,994 = delta_base 999,994; expected_quote 127,816 =
+delta_quote 127,816); `total_shares` 185,284,720→184,925,609 (Δ = 359,111 =
+ticket shares, burned from `share_lock`); reserves after (base 514,951,395 /
+quote 65,820,108) **≥** liabilities (base 498 / quote 372). The `WithdrawClaimed`
+`shares` field reads `0` because the ticket is zeroed before the emit
+(`lib.rs:726` then `:729`) — cosmetic, the burned amount is verified via
+`total_shares`.
+
+**(d) claim while the quote is expired.** Confirmed a real expired window on a
+two-sided path: slot 511,690,109 ≥ `QuoteState.expiry_slot` 511,690,087
+(version 4862) — the quote does lapse between keeper refreshes. `claim_withdraw`
+takes **no** `quote_state` account and performs no freshness check (account list
+above), so the on-chain claim `hWenyd…` is valid regardless of quote age; a
+re-simulation against the already-settled ticket fails only with `Custom 6004`
+(`InvalidAmount`, 0 shares), never with any staleness error.
+
+**(a)/(e) single-token live smoke: NOT RUN.** No single-sided CLI exists yet, so
+`deposit_single`/`claim_withdraw_single` were exercised only by the LiteSVM suite
+(`litesvm_single_sided.rs`) and the reference differential — not on devnet.
+Consequently `VITE_ENABLE_SINGLE_SIDED` is **not** set in any build.
+
+**No rollback triggered** (6.4): hash matched, vault Active, all smokes green.
