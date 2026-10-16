@@ -14,10 +14,11 @@
 //! The default transports are dry-run/replay; nothing here embeds a private key.
 
 use arbswap_keeper::{
-    build_update_quote_transaction, compute_quote, confidence_bps, encode_quote_update_body,
-    encode_update_quote_instruction, pyth_decimal_to_q64, DryRunSender, KeeperCore, KeeperParams,
-    OracleTick, PrevalidateBounds, QuoteSender, UpdateQuotePlan, VolatilityState,
-    MAX_UPDATE_COMPUTE_UNITS,
+    build_observe_volatility_transaction, build_update_quote_transaction, compute_quote,
+    confidence_bps, encode_quote_update_body, encode_update_quote_instruction, pyth_decimal_to_q64,
+    volatility_pda, volatility_spread_depth, DryRunSender, KeeperCore, KeeperParams,
+    ObserveVolatilityPlan, OracleTick, PrevalidateBounds, QuoteSender, UpdateQuotePlan,
+    VolatilityState, MAX_UPDATE_COMPUTE_UNITS,
 };
 use base64::Engine;
 use solana_address::Address;
@@ -599,6 +600,27 @@ fn read_config(rpc_url: &str, config: &Address) -> Option<arbswap::Config> {
     arbswap::Config::try_deserialize(&mut &data[..]).ok()
 }
 
+/// Read the vault-bound volatility PDA. `None` means the account does not exist
+/// (pre-upgrade program, or a vault that has not run `initialize_volatility`),
+/// in which case the keeper omits it so the legacy program keeps working.
+fn read_volatility(rpc_url: &str, volatility_state: &Address) -> Option<arbswap::VolatilityState> {
+    use anchor_lang::AccountDeserialize;
+    let v = rpc_call(
+        rpc_url,
+        "getAccountInfo",
+        serde_json::json!([volatility_state.to_string(), {"encoding": "base64"}]),
+    )?;
+    let b64 = v
+        .get("result")?
+        .get("value")?
+        .get("data")?
+        .as_array()?
+        .first()?
+        .as_str()?;
+    let data = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    arbswap::VolatilityState::try_deserialize(&mut &data[..]).ok()
+}
+
 fn read_keypair(path: &str) -> Keypair {
     let text = fs::read_to_string(Path::new(path)).expect("read keeper keypair");
     let bytes: Vec<u8> = serde_json::from_str(&text).expect("keypair JSON array");
@@ -647,6 +669,7 @@ fn live(args: Vec<String>) {
     let price_feed: Address = get(7, "price_feed").parse().expect("price_feed");
     let keeper_bond: Address = get(8, "keeper_bond").parse().expect("keeper_bond");
     let keeper = read_keypair(&get(9, "keeper_keypair"));
+    let volatility_state = volatility_pda(&vault, &program_id);
     let expected_feed = parse_feed_id(&get(10, "feed_id"));
     let max_staleness: i64 = args
         .get(11)
@@ -665,6 +688,8 @@ fn live(args: Vec<String>) {
         .unwrap_or_else(|| panic!("base mint {} not found", vault_meta.base_mint));
     let quote_decimals = rpc_mint_decimals(&rpc_url, &vault_meta.quote_mint)
         .unwrap_or_else(|| panic!("quote mint {} not found", vault_meta.quote_mint));
+    let base_mint_addr = Address::new_from_array(vault_meta.base_mint.to_bytes());
+    let quote_mint_addr = Address::new_from_array(vault_meta.quote_mint.to_bytes());
     let priority_micro_lamports_per_cu: u64 = args
         .get(13)
         .map(|v| v.parse().expect("priority"))
@@ -751,6 +776,37 @@ fn live(args: Vec<String>) {
             continue;
         };
         let slot = rpc_slot(&rpc_url);
+        // Advance the vault-bound on-chain volatility state with the new
+        // observation. Best-effort and independent of the quote: a rejected
+        // quote must never roll back a valid observation. Only attempted when
+        // the PDA exists (pre-upgrade programs have no such account).
+        let mut vol_onchain = read_volatility(&rpc_url, &volatility_state);
+        if vol_onchain.is_some() {
+            if let Some(blockhash) = rpc_blockhash(&rpc_url) {
+                let obs_plan = ObserveVolatilityPlan {
+                    program_id,
+                    observer: keeper.pubkey(),
+                    vault,
+                    config,
+                    volatility_state,
+                    price_update: price_feed,
+                    base_mint: base_mint_addr,
+                    quote_mint: quote_mint_addr,
+                    recent_blockhash: blockhash,
+                    compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
+                };
+                let tx = build_observe_volatility_transaction(
+                    &obs_plan,
+                    &keeper,
+                    priority_micro_lamports_per_cu,
+                );
+                match rpc_send_transaction(&rpc_url, &tx) {
+                    Some(s) => eprintln!("observe,sig={s}"),
+                    None => eprintln!("observe failed (continuing)"),
+                }
+                vol_onchain = read_volatility(&rpc_url, &volatility_state);
+            }
+        }
         let (Some(base), Some(quote)) = (
             rpc_token_amount(&rpc_url, &base_reserve),
             rpc_token_amount(&rpc_url, &quote_reserve),
@@ -804,10 +860,51 @@ fn live(args: Vec<String>) {
             price_q64,
             confidence_bps: conf_bps,
         };
-        let Some((next, _fee)) = core.step(tick, base_avail, quote_avail, 0, dt_millis) else {
+        let Some((mut next, _fee)) = core.step(tick, base_avail, quote_avail, 0, dt_millis) else {
             sleep(interval);
             continue;
         };
+        // When the on-chain volatility PDA is enabled, size the quote to the
+        // program's spread floor and depth cap so the transaction is accepted
+        // rather than rejected. A sigma above the configured ceiling is the
+        // program's kill-switch: quote nothing.
+        if let Some(vso) = &vol_onchain {
+            if vso.enabled {
+                let Ok(sigma_q64) = arb_math::fixed::sqrt_q64(vso.short_ewma_q64) else {
+                    skipped += 1;
+                    sleep(interval);
+                    continue;
+                };
+                if sigma_q64 > vso.max_sigma_q64 {
+                    skipped += 1;
+                    eprintln!("skip: on-chain sigma above configured ceiling");
+                    sleep(interval);
+                    continue;
+                }
+                let sigma_bps = sigma_q64.saturating_mul(10_000) / (1u128 << 64);
+                let jump_active = vso.jump_detected || slot < vso.jump_until_slot;
+                let mult = if jump_active {
+                    vso.jump_multiple as u128
+                } else {
+                    1
+                };
+                let (floor, cap) = volatility_spread_depth(
+                    sigma_bps,
+                    mult,
+                    vso.vol_spread_coeff_bps,
+                    vso.vol_depth_coeff_bps,
+                    cfg.min_spread_bps,
+                );
+                if floor > cfg.max_spread_bps {
+                    skipped += 1;
+                    eprintln!("skip: volatility floor exceeds configured max spread");
+                    sleep(interval);
+                    continue;
+                }
+                next.half_spread_bps = next.half_spread_bps.max(floor).min(cfg.max_spread_bps);
+                next.depth_mult_bps = next.depth_mult_bps.min(cap);
+            }
+        }
         let Some(blockhash) = rpc_blockhash(&rpc_url) else {
             failures += 1;
             sleep(interval);
@@ -823,8 +920,9 @@ fn live(args: Vec<String>) {
             keeper_bond,
             base_reserve,
             quote_reserve,
-            base_mint: Address::new_from_array(vault_meta.base_mint.to_bytes()),
-            quote_mint: Address::new_from_array(vault_meta.quote_mint.to_bytes()),
+            base_mint: base_mint_addr,
+            quote_mint: quote_mint_addr,
+            volatility_state: vol_onchain.as_ref().map(|_| volatility_state),
             recent_blockhash: blockhash,
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
         };

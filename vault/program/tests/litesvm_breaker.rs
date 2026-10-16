@@ -5,8 +5,8 @@ use litesvm::LiteSVM;
 
 mod common;
 use common::{
-    anchor_bid_ladder, anchor_ladder, pda, pubkey, sbf_artifact_path, set_token_account,
-    set_token_mint, to_address, ANCHOR_SQRT,
+    anchor_bid_ladder, anchor_ladder, pda, pubkey, sbf_artifact_path, set_disabled_volatility,
+    set_token_account, set_token_mint, to_address, ANCHOR_SQRT,
 };
 use pyth_solana_receiver_sdk::price_update::{PriceUpdateV2, VerificationLevel};
 use pythnet_sdk::messages::PriceFeedMessage;
@@ -402,6 +402,9 @@ fn update_quote_executes_only_with_full_pyth_account() {
     // price (identity normalization).
     set_token_mint(&mut svm, to_address(base_mint), 9, payer.pubkey());
     set_token_mint(&mut svm, to_address(quote_mint), 9, payer.pubkey());
+    // The vault-bound volatility PDA is a required account on every quote path;
+    // it is disabled here so the classic quote checks are exercised unchanged.
+    let volatility_address = set_disabled_volatility(&mut svm, vault_address);
     let ask_levels = anchor_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6], 1_000);
     let bid_levels = anchor_bid_ladder(ANCHOR_SQRT, 2, [1, 2, 3, 4, 5, 6], 1_000);
     let update = QuoteUpdate {
@@ -443,6 +446,7 @@ fn update_quote_executes_only_with_full_pyth_account() {
             AccountMeta::new_readonly(to_address(vault.quote_reserve), false),
             AccountMeta::new_readonly(to_address(vault.base_mint), false),
             AccountMeta::new_readonly(to_address(vault.quote_mint), false),
+            AccountMeta::new_readonly(volatility_address, false),
         ],
         data,
     };

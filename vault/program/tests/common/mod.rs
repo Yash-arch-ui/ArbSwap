@@ -384,6 +384,63 @@ pub fn read_state<T: anchor_lang::AccountDeserialize>(svm: &LiteSVM, key: Addres
     T::try_deserialize(&mut slice).unwrap()
 }
 
+/// The vault-bound volatility PDA `[b"vol", vault]`.
+pub fn volatility_address(vault: Address, program_id: Address) -> Address {
+    pda(&[b"vol", vault.as_ref()], &program_id).0
+}
+
+/// Install a **disabled** (non-enforcing) vault-bound volatility PDA so the now
+/// required account exists for the quote instructions. `enabled = false` keeps
+/// pre-activation behaviour identical, so legacy tests exercise the same path as
+/// before the feature. Returns the PDA address to pass as the required account.
+pub fn set_disabled_volatility(svm: &mut LiteSVM, vault: Address) -> Address {
+    install_volatility(svm, vault, false)
+}
+
+/// Install the vault-bound volatility PDA with an explicit activation flag.
+/// Used by the volatility regression tests; `baseline == false` leaves
+/// `last_price_q64 == 0` so an enabled account fails closed without an
+/// observation.
+pub fn install_volatility(svm: &mut LiteSVM, vault: Address, enabled: bool) -> Address {
+    let program_id = to_address(arbswap::ID);
+    let (addr, bump) = pda(&[b"vol", vault.as_ref()], &program_id);
+    let params = arbswap::DEFAULT_VOLATILITY_PARAMS;
+    let state = arbswap::VolatilityState {
+        vault: pubkey(vault),
+        short_ewma_q64: 0,
+        medium_ewma_q64: 0,
+        last_price_q64: 0,
+        last_publish_time: 0,
+        last_observation_slot: 0,
+        observation_nonce: 0,
+        jump_detected: false,
+        jump_until_slot: 0,
+        short_lambda_bps: params.short_lambda_bps,
+        medium_lambda_bps: params.medium_lambda_bps,
+        jump_multiple: params.jump_multiple,
+        max_sigma_q64: params.max_sigma_q64,
+        jump_cooldown_slots: params.jump_cooldown_slots,
+        vol_spread_coeff_bps: params.vol_spread_coeff_bps,
+        vol_depth_coeff_bps: params.vol_depth_coeff_bps,
+        max_observation_age_slots: params.max_observation_age_slots,
+        enabled,
+        bump,
+    };
+    let mut data = Vec::new();
+    state.try_serialize(&mut data).unwrap();
+    svm.set_account(
+        addr,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: program_id,
+            ..Account::default()
+        },
+    )
+    .unwrap();
+    addr
+}
+
 /// Build an instruction from Anchor-generated client structs so account order
 /// stays in lock-step with the program definition.
 pub fn ix<A, M>(program_id: Address, args: A, metas: M) -> Instruction

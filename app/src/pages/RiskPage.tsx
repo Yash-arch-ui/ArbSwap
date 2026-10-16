@@ -11,13 +11,26 @@ import { useProtocol } from '../context/ProtocolContext';
 import { KeeperRewards } from '../components/KeeperRewards';
 import { ACTIVE_VAULT } from '../chain/config';
 import { ReadOnlyBanner } from '../components/ReadOnlyMode';
+import { useVolatilityRegime } from '../chain/useVolatilityRegime';
+import { sigmaBpsOf } from '../chain/volatility';
 
 export const RiskPage: React.FC = () => {
-  const { quoteState, riskBreakers, status, protocolParams } = useProtocol();
+  const { quoteState, riskBreakers, status, protocolParams, currentSlot } = useProtocol();
+  const volatility = useVolatilityRegime(currentSlot, riskBreakers.minSpreadBps);
 
   const isTripped = riskBreakers.circuitBreakerTripped;
   const hasQuote = quoteState.hasQuote;
   const oracleOnline = hasQuote && quoteState.status !== 'Expired';
+  const volReady = volatility.status === 'ready' && volatility.state !== null && volatility.view !== null;
+  const volVerified = volReady && volatility.view!.verified;
+  const volLabel =
+    volatility.status === 'loading'
+      ? 'Reading…'
+      : volVerified
+        ? 'ON-CHAIN VERIFIED'
+        : volatility.status === 'ready'
+          ? 'Awaiting verified observation'
+          : 'Not initialized';
 
   return (
     <div className="risk-page-wrapper">
@@ -125,42 +138,68 @@ export const RiskPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Pillar 2: Volatility Estimator & Jump Detector */}
+          {/* Pillar 2: On-chain Volatility Regime & Jump Detector */}
           <div className="glass-card pillar-card">
             <div className="pillar-header">
               <div className="pillar-title-wrap">
                 <Activity size={16} color="var(--accent-primary)" />
-                <h3>EWMA Volatility & Jump Detector</h3>
+                <h3>Volatility Regime</h3>
               </div>
-              <span className="badge badge-neutral mono">Keeper-local (not indexed)</span>
+              <span className={`badge ${volVerified ? 'badge-fresh' : 'badge-neutral'}`}>{volLabel}</span>
             </div>
 
             <div className="pillar-metrics">
-              <div className="pillar-row">
-                <span>Short-Window Vol (σ_s, λ=0.94)</span>
-                <span className="mono text-muted">Unavailable (keeper-local)</span>
-              </div>
-              <div className="pillar-row mt-2">
-                <span>Medium-Window Vol (σ_m, λ=0.99)</span>
-                <span className="mono text-muted">Unavailable (keeper-local)</span>
-              </div>
-              <div className="pillar-row mt-2">
-                <span>Recent Price Move (1-sec window)</span>
-                <span className="mono text-muted">Unavailable (keeper-local)</span>
-              </div>
+              {volReady ? (
+                <>
+                  <div className="pillar-row">
+                    <span>Short EWMA σ (λ={((volatility.state!.shortLambdaBps ?? 0) / 10000).toFixed(2)})</span>
+                    <span className="mono font-bold">{volatility.view!.sigmaBps} bps</span>
+                  </div>
+                  <div className="pillar-row mt-2">
+                    <span>Medium EWMA σ (λ={((volatility.state!.mediumLambdaBps ?? 0) / 10000).toFixed(2)})</span>
+                    <span className="mono">{sigmaBpsOf(volatility.state!.mediumEwmaQ64)} bps</span>
+                  </div>
+                  <div className="pillar-row mt-2">
+                    <span>Spread floor · Depth cap</span>
+                    <span className="mono">
+                      {volatility.view!.spreadFloorBps} bps · {volatility.view!.depthCapBps} bps
+                    </span>
+                  </div>
+                  <div className="pillar-row mt-2">
+                    <span>Observation age</span>
+                    <span className="mono text-muted">{volatility.view!.observationAgeSlots} slots</span>
+                  </div>
+                  <div className="pillar-row mt-2">
+                    <span>Observation nonce</span>
+                    <span className="mono text-muted">{volatility.state!.observationNonce}</span>
+                  </div>
 
-              <div className="jump-detector-box">
-                <span className="jump-label">Jump Flag Status</span>
-                <span className="jump-status mono text-muted">Not observable on-chain (keeper-local)</span>
-                <p className="jump-note text-muted">
-                  Triggers 4x σ cool-down widenings if |r_t| exceeds 4·σ_s. The flag is computed
-                  off-chain by the keeper and is not written to any account.
-                </p>
-              </div>
+                  <div className="jump-detector-box">
+                    <span className="jump-label">Jump Detector</span>
+                    <span className={`badge ${volatility.view!.jumpActive ? 'badge-critical' : 'badge-fresh'}`}>
+                      {volatility.view!.jumpActive ? 'ACTIVE' : 'CLEAR'}
+                    </span>
+                    <p className="jump-note text-muted">
+                      {volatility.state!.enabled
+                        ? 'Enforcement is active: quotes must satisfy the on-chain spread floor and depth cap.'
+                        : 'Enforcement is not enabled for this vault yet; the spread floor and depth cap are shown for reference.'}
+                      {volatility.view!.stale ? ' The latest observation is stale, so quotes would be rejected.' : ''}
+                      {volatility.view!.overCeiling ? ' Sigma exceeds the configured ceiling (kill-switch).' : ''}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className="pillar-row">
+                  <span>On-chain volatility state</span>
+                  <span className="mono text-muted">Awaiting verified observation</span>
+                </div>
+              )}
             </div>
 
             <div className="pillar-footer">
-              <span className="mono text-muted">Model: Avellaneda-Baggiani Hybrid Estimator</span>
+              <span className="mono text-muted">
+                Source: Verified Pyth + on-chain calculation · PDA [b"vol", vault]
+              </span>
             </div>
           </div>
 

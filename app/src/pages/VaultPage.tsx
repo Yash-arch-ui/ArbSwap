@@ -356,6 +356,18 @@ export const VaultPage: React.FC = () => {
             <h3 style={{ fontSize: 16, fontWeight: 535, marginBottom: 12 }}>Your Position (live on-chain)</h3>
             <div style={{ color: 'var(--uni-neutral2)', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div>
+                Wallet WSOL (wrapped):{' '}
+                <strong className="mono" style={{ color: 'var(--uni-neutral1)' }}>
+                  {!publicKey ? 'connect a wallet' : `${tokens.SOL.balance} ${tokens.SOL.symbol}`}
+                </strong>{' '}
+                <span style={{ color: 'var(--uni-neutral3)' }}>
+                  · native SOL for fees: {!publicKey ? '—' : walletAtoms ? (Number(walletAtoms.sol) / 1e9).toFixed(4) : '…'}
+                </span>
+              </div>
+              <div style={{ color: 'var(--uni-neutral3)', fontSize: 12 }}>
+                Native Devnet SOL cannot be used directly as an SPL token. Deposits auto-wrap native SOL → WSOL in the same transaction; the wrapped WSOL balance above is what the vault uses.
+              </div>
+              <div>
                 Share balance:{' '}
                 <strong className="mono" style={{ color: 'var(--uni-neutral1)' }}>
                   {!publicKey

@@ -181,12 +181,12 @@ export async function fetchShareBalance(
   const v = (await accounts(program).vault.fetch(vault)) as Record<string, unknown>;
   const shareMint = v.shareMint as PublicKey;
   const ata = getAssociatedTokenAddressSync(shareMint, user);
-  try {
-    const bal = await connection.getTokenAccountBalance(ata);
-    return BigInt(bal.value.amount);
-  } catch {
-    return null;
-  }
+  // Distinguish "no share ATA yet" (null) from a real RPC failure (throws, so
+  // callers can retain the last-known value instead of showing "no account").
+  const info = await connection.getAccountInfo(ata);
+  if (!info) return null;
+  const bal = await connection.getTokenAccountBalance(ata);
+  return BigInt(bal.value.amount);
 }
 
 /** Raw DepositTicket account, or null if none exists for this user. */
@@ -196,6 +196,8 @@ export async function fetchDepositTicket(
 ): Promise<Record<string, unknown> | null> {
   const { vault } = deriveVaultAddresses();
   const ticket = depositTicket(vault, user);
+  // A network error here propagates so the caller keeps the last-known ticket;
+  // only a genuinely missing account returns null.
   const info = await connection.getAccountInfo(ticket);
   if (!info) return null;
   try {
@@ -212,6 +214,8 @@ export async function fetchWithdrawTicket(
 ): Promise<Record<string, unknown> | null> {
   const { vault } = deriveVaultAddresses();
   const ticket = withdrawTicket(vault, user);
+  // A network error here propagates so the caller keeps the last-known ticket;
+  // only a genuinely missing account returns null.
   const info = await connection.getAccountInfo(ticket);
   if (!info) return null;
   try {

@@ -17,7 +17,10 @@ const WIND_DOWN: u8 = 2;
 const MAX_LEVEL_OFFSET_BPS: u32 = 500;
 const BPS_DENOM: u32 = 10_000;
 /// Timelock between `set_params` and `apply_params` (F-17): ~1 day at 400 ms.
-const TIMELOCK_SLOTS: u64 = 216_000;
+/// Also used for the volatility-parameter proposal/apply flow. Public so an
+/// integration test can assert the on-chain activation slot against the real
+/// constant instead of a hard-coded duplicate.
+pub const TIMELOCK_SLOTS: u64 = 216_000;
 /// S2-37: upper bound on the tunable `expiry_slots` (≈2.5 min at 0.248 s/slot).
 /// Bounds the window in which a committed quote can be filled; the 2 s oracle
 /// rule is still enforced at commit (the swap itself does not re-check age).
@@ -32,6 +35,22 @@ const MAX_STAGE_AGE_SLOTS: u64 = 25;
 /// These must match the `InitializeVault` `space` expression exactly.
 const LEGACY_QUOTE_STATE_LEN: usize = 865;
 const CURRENT_QUOTE_STATE_LEN: usize = 897;
+/// On-chain volatility: the vault-bound `[b"vol", vault]` PDA holds both the
+/// EWMA/jump observation state and the risk parameters, so the feature needs no
+/// `Config` layout migration. The math is `arb_math::volatility`, shared
+/// bit-for-bit with the keeper (see `docs/VOLATILITY_MATH_SPEC.md`).
+const VOL_SEED: &[u8] = b"vol";
+/// Seed of the timelocked pending volatility-parameter PDA `[b"vol_pending", vault]`.
+const VOL_PENDING_SEED: &[u8] = b"vol_pending";
+/// Bound on the EWMA time-normalisation steps (mirrors the shared module).
+const VOL_MAX_EWMA_STEPS: u32 = arb_math::volatility::MAX_EWMA_STEPS;
+/// Allocated byte length of the `VolatilityState` account (excluding the
+/// 8-byte discriminator): 32 + 16*4 + 8*6 + 2 + 4*5 + 1.
+const VOLATILITY_STATE_LEN: usize = 32 + 16 * 4 + 8 * 6 + 2 + 4 * 5 + 1;
+/// Allocated byte length of `PendingVolatilityParams` (excluding the 8-byte
+/// discriminator): admin 32 + activate_slot 8 + params (4*3 + 16 + 8 + 4*2 + 8)
+/// + enabled 1 + bump 1.
+const PENDING_VOLATILITY_LEN: usize = 32 + 8 + (4 * 3 + 16 + 8 + 4 * 2 + 8) + 1 + 1;
 
 #[program]
 pub mod arbswap {
@@ -45,6 +64,205 @@ pub mod arbswap {
         ctx.accounts.program_config.bump = ctx.bumps.program_config;
         emit!(ProgramInitialized {
             admin: ctx.accounts.admin.key()
+        });
+        Ok(())
+    }
+
+    /// One-time creation of the vault-bound volatility PDA. Admin only. An
+    /// all-zero `params` payload selects `DEFAULT_VOLATILITY_PARAMS`.
+    pub fn initialize_volatility(
+        ctx: Context<InitializeVolatility>,
+        params: VolatilityParams,
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.vault.admin == ctx.accounts.admin.key(),
+            ErrorCode::Unauthorized
+        );
+        let params = if params == VolatilityParams::default() {
+            DEFAULT_VOLATILITY_PARAMS
+        } else {
+            params
+        };
+        validate_volatility_params(&params)?;
+        let vs = &mut ctx.accounts.volatility_state;
+        vs.vault = ctx.accounts.vault.key();
+        vs.short_ewma_q64 = 0;
+        vs.medium_ewma_q64 = 0;
+        vs.last_price_q64 = 0;
+        vs.last_publish_time = 0;
+        vs.last_observation_slot = 0;
+        vs.observation_nonce = 0;
+        vs.jump_detected = false;
+        vs.jump_until_slot = 0;
+        vs.short_lambda_bps = params.short_lambda_bps;
+        vs.medium_lambda_bps = params.medium_lambda_bps;
+        vs.jump_multiple = params.jump_multiple;
+        vs.max_sigma_q64 = params.max_sigma_q64;
+        vs.jump_cooldown_slots = params.jump_cooldown_slots;
+        vs.vol_spread_coeff_bps = params.vol_spread_coeff_bps;
+        vs.vol_depth_coeff_bps = params.vol_depth_coeff_bps;
+        vs.max_observation_age_slots = params.max_observation_age_slots;
+        // Fail closed: a freshly created PDA never enforces. Activation is a
+        // separate, timelocked `apply_volatility_params` step.
+        vs.enabled = false;
+        vs.bump = ctx.bumps.volatility_state;
+        emit!(VolatilityInitialized {
+            slot: Clock::get()?.slot,
+            vault: vs.vault,
+        });
+        Ok(())
+    }
+
+    /// Admin-only, timelocked proposal of the volatility risk parameters and the
+    /// activation switch. Nothing changes until `apply_volatility_params` runs
+    /// at least `TIMELOCK_SLOTS` later, so an activation or a loosening of the
+    /// guards is announced and observable before it takes effect.
+    pub fn propose_volatility_params(
+        ctx: Context<ProposeVolatilityParams>,
+        params: VolatilityParams,
+        enabled: bool,
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.vault.admin == ctx.accounts.admin.key(),
+            ErrorCode::Unauthorized
+        );
+        validate_volatility_params(&params)?;
+        let now = Clock::get()?.slot;
+        let pending = &mut ctx.accounts.pending_volatility;
+        pending.admin = ctx.accounts.admin.key();
+        pending.activate_slot = now.saturating_add(TIMELOCK_SLOTS);
+        pending.params = params;
+        pending.enabled = enabled;
+        pending.bump = ctx.bumps.pending_volatility;
+        emit!(VolatilityParamsProposed {
+            slot: now,
+            vault: ctx.accounts.vault.key(),
+            enabled,
+            activate_slot: pending.activate_slot,
+        });
+        Ok(())
+    }
+
+    /// Admin-only application of a proposed volatility change once the timelock
+    /// elapsed. Re-validates the payload and, when the proposal enables
+    /// enforcement, requires at least one verified observation so the guards
+    /// activate against a real baseline rather than a zero one.
+    pub fn apply_volatility_params(ctx: Context<ApplyVolatilityParams>) -> Result<()> {
+        require!(
+            ctx.accounts.vault.admin == ctx.accounts.admin.key()
+                && ctx.accounts.pending_volatility.admin == ctx.accounts.admin.key(),
+            ErrorCode::Unauthorized
+        );
+        require!(
+            Clock::get()?.slot >= ctx.accounts.pending_volatility.activate_slot,
+            ErrorCode::TimelockNotElapsed
+        );
+        let params = ctx.accounts.pending_volatility.params;
+        let enabled = ctx.accounts.pending_volatility.enabled;
+        validate_volatility_params(&params)?;
+        let vs = &mut ctx.accounts.volatility_state;
+        if enabled {
+            require!(vs.last_price_q64 > 0, ErrorCode::VolatilityNotReady);
+        }
+        vs.short_lambda_bps = params.short_lambda_bps;
+        vs.medium_lambda_bps = params.medium_lambda_bps;
+        vs.jump_multiple = params.jump_multiple;
+        vs.max_sigma_q64 = params.max_sigma_q64;
+        vs.jump_cooldown_slots = params.jump_cooldown_slots;
+        vs.vol_spread_coeff_bps = params.vol_spread_coeff_bps;
+        vs.vol_depth_coeff_bps = params.vol_depth_coeff_bps;
+        vs.max_observation_age_slots = params.max_observation_age_slots;
+        vs.enabled = enabled;
+        // Disarm the proposal so it cannot be applied twice.
+        ctx.accounts.pending_volatility.activate_slot = u64::MAX;
+        emit!(VolatilityParamsApplied {
+            slot: Clock::get()?.slot,
+            vault: vs.vault,
+            enabled,
+        });
+        Ok(())
+    }
+
+    /// Permissionless: advance the vault's EWMA volatility and jump state from a
+    /// verified, fresh, feed-matching Pyth update. Rejects an older or repeated
+    /// `publish_time`, so state is monotonic and cannot be replayed. Grants the
+    /// observer no authority over the vault or the configured parameters.
+    pub fn observe_volatility(ctx: Context<ObserveVolatility>) -> Result<()> {
+        let clock = Clock::get()?;
+        let config = &ctx.accounts.config;
+        let vs = &mut ctx.accounts.volatility_state;
+        require!(config.max_staleness_seconds >= 0, ErrorCode::InvalidOracle);
+        let feed = config.pyth_feed_id;
+        let price = ctx
+            .accounts
+            .price_update
+            .get_price_no_older_than(&clock, config.max_staleness_seconds as u64, &feed)
+            .map_err(|_| error!(ErrorCode::InvalidOracle))?;
+        require!(
+            price.price > 0 && price.publish_time > 0,
+            ErrorCode::InvalidPrice
+        );
+        require!(
+            price.publish_time > vs.last_publish_time,
+            ErrorCode::StaleVolatilityObservation
+        );
+        let decoded_conf_bps = ((price.conf as u128)
+            .saturating_mul(10_000)
+            .saturating_add(price.price as u128 - 1)
+            / price.price as u128) as u32;
+        require!(
+            decoded_conf_bps <= config.max_conf_bps,
+            ErrorCode::WideConfidence
+        );
+        let pyth_q64 =
+            pyth_price_q64(price.price, price.exponent).ok_or(ErrorCode::InvalidOracle)?;
+        let normalized = normalize_pyth_price_q64(
+            pyth_q64,
+            ctx.accounts.base_mint.decimals,
+            ctx.accounts.quote_mint.decimals,
+        )
+        .ok_or(ErrorCode::InvalidOracle)?;
+        require!(normalized > 0, ErrorCode::InvalidPrice);
+
+        let dt_millis = if vs.last_publish_time == 0 {
+            0
+        } else {
+            ((price.publish_time - vs.last_publish_time) as u64).saturating_mul(1_000)
+        };
+        let previous = arb_math::volatility::VolatilityState {
+            variance_short_q64: vs.short_ewma_q64,
+            variance_medium_q64: vs.medium_ewma_q64,
+            last_price_q64: vs.last_price_q64,
+            jump: vs.jump_detected,
+        };
+        let next = arb_math::volatility::update_with_dt(
+            previous,
+            normalized,
+            dt_millis,
+            vs.short_lambda_bps,
+            vs.medium_lambda_bps,
+            vs.jump_multiple as u128,
+            VOL_MAX_EWMA_STEPS,
+        )
+        .map_err(|_| error!(ErrorCode::MathOverflow))?;
+
+        vs.short_ewma_q64 = next.variance_short_q64;
+        vs.medium_ewma_q64 = next.variance_medium_q64;
+        vs.last_price_q64 = next.last_price_q64;
+        vs.jump_detected = next.jump;
+        if next.jump {
+            vs.jump_until_slot = clock.slot.saturating_add(vs.jump_cooldown_slots);
+        }
+        vs.last_publish_time = price.publish_time;
+        vs.last_observation_slot = clock.slot;
+        vs.observation_nonce = vs.observation_nonce.saturating_add(1);
+        emit!(VolatilityObserved {
+            slot: clock.slot,
+            publish_time: price.publish_time,
+            short_ewma_q64: vs.short_ewma_q64,
+            medium_ewma_q64: vs.medium_ewma_q64,
+            jump: vs.jump_detected,
+            nonce: vs.observation_nonce,
         });
         Ok(())
     }
@@ -589,6 +807,7 @@ pub mod arbswap {
             &ctx.accounts.vault,
             ctx.accounts.base_mint.decimals,
             ctx.accounts.quote_mint.decimals,
+            &ctx.accounts.volatility_state,
             &clock,
         )?;
         let _version = apply_quote_update(
@@ -639,6 +858,14 @@ pub mod arbswap {
                 .all(|l| l.sqrt_lo > 0 && l.sqrt_lo < l.sqrt_hi && l.liquidity > 0),
             ErrorCode::InvalidLadder
         );
+        // Fail-fast volatility guard: staging must not accept a payload the
+        // commit would reject once enforcement is enabled.
+        validate_volatility_guard(
+            &ctx.accounts.config,
+            &update,
+            &ctx.accounts.volatility_state,
+            &clock,
+        )?;
         pq.vault = ctx.accounts.vault.key();
         pq.keeper = ctx.accounts.keeper.key();
         pq.nonce = nonce;
@@ -731,6 +958,7 @@ pub mod arbswap {
             &ctx.accounts.vault,
             ctx.accounts.base_mint.decimals,
             ctx.accounts.quote_mint.decimals,
+            &ctx.accounts.volatility_state,
             &clock,
         )?;
         let version = apply_quote_update(
@@ -1614,6 +1842,69 @@ fn quote_reanchor_eligible(config: &Config, quote_state: &QuoteState, clock: &Cl
             > config.max_staleness_seconds
 }
 
+/// On-chain volatility guard, applied to every quote path (update, stage,
+/// commit). While `vs.enabled` is `false` the guard is a no-op, so a vault that
+/// has initialized but not activated the PDA behaves exactly as before. Once
+/// enabled it **fails closed**: a missing baseline or a stale observation is
+/// rejected, the sigma kill-switch is enforced, and the spread floor / depth
+/// cap are derived from the on-chain sigma (multiplied during an active jump).
+fn validate_volatility_guard(
+    config: &Config,
+    update: &QuoteUpdate,
+    vs: &VolatilityState,
+    clock: &Clock,
+) -> Result<()> {
+    volatility_guard_core(config.min_spread_bps, update, vs, clock.slot)
+}
+
+/// Pure core of the volatility guard (no `Config`), split out so the spread
+/// floor, depth cap, kill-switch, and fail-closed freshness rules are unit
+/// testable without constructing a full `Config`.
+fn volatility_guard_core(
+    min_spread_bps: u32,
+    update: &QuoteUpdate,
+    vs: &VolatilityState,
+    slot: u64,
+) -> Result<()> {
+    if !vs.enabled {
+        return Ok(());
+    }
+    require!(vs.last_price_q64 > 0, ErrorCode::StaleVolatilityObservation);
+    require!(
+        slot.saturating_sub(vs.last_observation_slot) <= vs.max_observation_age_slots,
+        ErrorCode::StaleVolatilityObservation
+    );
+    let sigma = arb_math::fixed::sqrt_q64(vs.short_ewma_q64)
+        .map_err(|_| error!(ErrorCode::MathOverflow))?;
+    // Kill-switch: quote nothing above the configured sigma ceiling.
+    require!(sigma <= vs.max_sigma_q64, ErrorCode::VolatilityTooHigh);
+    let sigma_bps = sigma.saturating_mul(BPS_DENOM as u128) / (1u128 << 64);
+    let jump_active = vs.jump_detected || slot < vs.jump_until_slot;
+    let mult = if jump_active {
+        vs.jump_multiple as u128
+    } else {
+        1
+    };
+    let effective_bps = sigma_bps.saturating_mul(mult);
+    // Spread floor grows with sigma (and is multiplied during an active jump),
+    // never dropping below the configured static minimum.
+    let vol_floor = mul_bps_ceil(effective_bps, vs.vol_spread_coeff_bps as u128);
+    let floor = (min_spread_bps as u128).max(vol_floor);
+    require!(
+        (update.half_spread_bps as u128) >= floor,
+        ErrorCode::VolatilitySpreadTooLow
+    );
+    // Depth cap shrinks with sigma: a higher volatility regime permits a smaller
+    // depth multiplier.
+    let depth_cut = mul_bps_ceil(effective_bps, vs.vol_depth_coeff_bps as u128);
+    let cap = (BPS_DENOM as u128).saturating_sub(depth_cut.min(BPS_DENOM as u128));
+    require!(
+        (update.depth_mult_bps as u128) <= cap,
+        ErrorCode::DepthAboveVolatility
+    );
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn validate_quote_update(
     config: &Config,
@@ -1625,6 +1916,7 @@ fn validate_quote_update(
     vault: &Vault,
     base_decimals: u8,
     quote_decimals: u8,
+    volatility: &VolatilityState,
     clock: &Clock,
 ) -> Result<u128> {
     require!(update.oracle_publish_time >= 0, ErrorCode::InvalidPrice);
@@ -1665,6 +1957,8 @@ fn validate_quote_update(
             && update.half_spread_bps <= config.max_spread_bps,
         ErrorCode::SpreadOutOfBounds
     );
+    // On-chain volatility enforcement (fail closed once enabled).
+    validate_volatility_guard(config, update, volatility, clock)?;
     // Honest-execution §7.3: bound the per-update spread *step* (not only the
     // absolute band) so a keeper cannot jump the spread in a single update.
     // `0` disables the step guard (used by tests and the permissive default).
@@ -2237,6 +2531,118 @@ impl LegacyQuoteState {
         }
     }
 }
+/// On-chain EWMA volatility, jump detector and risk parameters, seeded
+/// `[b"vol", vault]` and initialized once by the vault admin. `short_ewma_q64`
+/// and `medium_ewma_q64` store the `arb_math::volatility` per-second variances
+/// (Q64.64); `last_price_q64` is the normalized token-unit price of the last
+/// verified observation. Any signer may advance this account through
+/// `observe_volatility`, but no observer gains authority over the vault or the
+/// configured parameters.
+#[account]
+pub struct VolatilityState {
+    pub vault: Pubkey,
+    pub short_ewma_q64: u128,
+    pub medium_ewma_q64: u128,
+    pub last_price_q64: u128,
+    pub last_publish_time: i64,
+    pub last_observation_slot: u64,
+    pub observation_nonce: u64,
+    pub jump_detected: bool,
+    /// Slot at which an active jump's configured cooldown ends (`0` = none).
+    pub jump_until_slot: u64,
+    pub short_lambda_bps: u32,
+    pub medium_lambda_bps: u32,
+    pub jump_multiple: u32,
+    pub max_sigma_q64: u128,
+    pub jump_cooldown_slots: u64,
+    pub vol_spread_coeff_bps: u32,
+    pub vol_depth_coeff_bps: u32,
+    pub max_observation_age_slots: u64,
+    /// Fail-closed activation switch. `false` until the admin applies a
+    /// timelocked activation; while `false` the quote path behaves exactly as
+    /// it did before this feature existed. Once `true`, every quote update,
+    /// stage, and commit must supply this PDA and pass the volatility guards.
+    pub enabled: bool,
+    pub bump: u8,
+}
+
+/// Parameter payload for the vault-bound volatility PDA. Admin gated, validated,
+/// and stored entirely in the PDA (no `Config` change). Applied only through the
+/// timelocked `propose_volatility_params` / `apply_volatility_params` flow.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VolatilityParams {
+    pub short_lambda_bps: u32,
+    pub medium_lambda_bps: u32,
+    pub jump_multiple: u32,
+    pub max_sigma_q64: u128,
+    pub jump_cooldown_slots: u64,
+    pub vol_spread_coeff_bps: u32,
+    pub vol_depth_coeff_bps: u32,
+    pub max_observation_age_slots: u64,
+}
+
+/// Conservative defaults used by `initialize_volatility` when the caller passes
+/// the all-zero payload (a convenience for local/dev flows).
+pub const DEFAULT_VOLATILITY_PARAMS: VolatilityParams = VolatilityParams {
+    short_lambda_bps: 9_400,
+    medium_lambda_bps: 9_900,
+    jump_multiple: 4,
+    max_sigma_q64: 1u128 << 60,
+    jump_cooldown_slots: 1_800,
+    vol_spread_coeff_bps: 1_000,
+    vol_depth_coeff_bps: 2_000,
+    max_observation_age_slots: 3_600,
+};
+
+/// Timelocked pending volatility-parameter change, seeded `[b"vol_pending",
+/// vault]`. Mirrors the `PendingConfig` flow (F-17): the admin proposes, and the
+/// change applies only via `apply_volatility_params` at least `TIMELOCK_SLOTS`
+/// slots later. `enabled` is part of the payload, so activation itself is
+/// timelocked and observable before it takes effect.
+#[account]
+pub struct PendingVolatilityParams {
+    pub admin: Pubkey,
+    pub activate_slot: u64,
+    pub params: VolatilityParams,
+    pub enabled: bool,
+    pub bump: u8,
+}
+
+fn validate_volatility_params(p: &VolatilityParams) -> Result<()> {
+    require!(
+        p.short_lambda_bps > 0 && p.short_lambda_bps < 10_000,
+        ErrorCode::InvalidVolatilityParams
+    );
+    require!(
+        p.medium_lambda_bps >= p.short_lambda_bps && p.medium_lambda_bps < 10_000,
+        ErrorCode::InvalidVolatilityParams
+    );
+    require!(
+        p.jump_multiple >= 1 && p.jump_multiple <= 10_000,
+        ErrorCode::InvalidVolatilityParams
+    );
+    require!(p.max_sigma_q64 > 0, ErrorCode::InvalidVolatilityParams);
+    require!(
+        p.vol_spread_coeff_bps <= 10_000,
+        ErrorCode::InvalidVolatilityParams
+    );
+    require!(
+        p.vol_depth_coeff_bps <= 10_000,
+        ErrorCode::InvalidVolatilityParams
+    );
+    require!(
+        p.max_observation_age_slots > 0,
+        ErrorCode::InvalidVolatilityParams
+    );
+    Ok(())
+}
+
+/// `ceil(a * bps / 10_000)` in u128 (used by the volatility spread floor and
+/// depth cap so a non-zero coefficient is never floored away).
+fn mul_bps_ceil(a: u128, bps: u128) -> u128 {
+    a.saturating_mul(bps).saturating_add(BPS_DENOM as u128 - 1) / BPS_DENOM as u128
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
 pub struct Level {
     pub offset_bps: u32,
@@ -2329,6 +2735,70 @@ pub struct InitializeVault<'info> {
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeVolatility<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + VOLATILITY_STATE_LEN,
+        seeds = [VOL_SEED, vault.key().as_ref()],
+        bump
+    )]
+    pub volatility_state: Box<Account<'info, VolatilityState>>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Admin-only timelocked proposal of volatility parameters/activation.
+#[derive(Accounts)]
+pub struct ProposeVolatilityParams<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + PENDING_VOLATILITY_LEN,
+        seeds = [VOL_PENDING_SEED, vault.key().as_ref()],
+        bump
+    )]
+    pub pending_volatility: Box<Account<'info, PendingVolatilityParams>>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Admin-only application of a previously proposed volatility change once the
+/// timelock elapsed.
+#[derive(Accounts)]
+pub struct ApplyVolatilityParams<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(mut, seeds = [VOL_SEED, vault.key().as_ref()], bump = volatility_state.bump)]
+    pub volatility_state: Box<Account<'info, VolatilityState>>,
+    #[account(mut, seeds = [VOL_PENDING_SEED, vault.key().as_ref()], bump = pending_volatility.bump)]
+    pub pending_volatility: Box<Account<'info, PendingVolatilityParams>>,
+}
+
+/// Permissionless observation. The observer only funds the transaction; the
+/// instruction requires a fresh, feed-matching `PriceUpdateV2` and a strictly
+/// newer `publish_time`, and can never touch the vault, reserves, or params.
+#[derive(Accounts)]
+pub struct ObserveVolatility<'info> {
+    pub observer: Signer<'info>,
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(seeds = [b"config", vault.key().as_ref()], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut, seeds = [VOL_SEED, vault.key().as_ref()], bump = volatility_state.bump)]
+    pub volatility_state: Box<Account<'info, VolatilityState>>,
+    pub price_update: Box<Account<'info, PriceUpdateV2>>,
+    #[account(address = vault.base_mint)]
+    pub base_mint: Box<Account<'info, Mint>>,
+    #[account(address = vault.quote_mint)]
+    pub quote_mint: Box<Account<'info, Mint>>,
 }
 
 #[derive(Accounts)]
@@ -2473,6 +2943,13 @@ pub struct UpdateQuote<'info> {
     pub base_mint: Box<Account<'info, Mint>>,
     #[account(address = vault.quote_mint)]
     pub quote_mint: Box<Account<'info, Mint>>,
+    /// Required, vault-bound volatility PDA. When its `enabled` flag is set the
+    /// committed quote must satisfy the on-chain volatility spread floor, depth
+    /// cap, and sigma kill-switch, and its observation must be fresh; a stale
+    /// observation is rejected (fail closed). Required — not optional — so
+    /// enforcement cannot be bypassed by omitting the account.
+    #[account(seeds = [VOL_SEED, vault.key().as_ref()], bump = volatility_state.bump)]
+    pub volatility_state: Box<Account<'info, VolatilityState>>,
 }
 /// S2-11: accounts for staging a quote into the `PendingQuote` PDA. The record
 /// is created on first use and reused thereafter (`init_if_needed`).
@@ -2501,6 +2978,11 @@ pub struct StageQuote<'info> {
     /// MVP allowlist path pays no PDA-derivation CU; the body checks it only when
     /// `min_bond > 0`.
     pub keeper_bond: UncheckedAccount<'info>,
+    /// Required, vault-bound volatility PDA; see `UpdateQuote::volatility_state`.
+    /// Staging is guarded too so a staged payload cannot be built that the
+    /// program would refuse to commit.
+    #[account(seeds = [VOL_SEED, vault.key().as_ref()], bump = volatility_state.bump)]
+    pub volatility_state: Box<Account<'info, VolatilityState>>,
     pub system_program: Program<'info, System>,
 }
 /// S2-11: accounts for committing a staged quote. The `price_update` account must
@@ -2528,6 +3010,9 @@ pub struct CommitQuote<'info> {
     pub base_mint: Box<Account<'info, Mint>>,
     #[account(address = vault.quote_mint)]
     pub quote_mint: Box<Account<'info, Mint>>,
+    /// Required, vault-bound volatility PDA; see `UpdateQuote::volatility_state`.
+    #[account(seeds = [VOL_SEED, vault.key().as_ref()], bump = volatility_state.bump)]
+    pub volatility_state: Box<Account<'info, VolatilityState>>,
 }
 #[derive(Accounts)]
 pub struct Swap<'info> {
@@ -2954,6 +3439,42 @@ pub struct ParamsApplied {
     pub slot: u64,
 }
 
+/// The vault-bound volatility PDA was created.
+#[event]
+pub struct VolatilityInitialized {
+    pub slot: u64,
+    pub vault: Pubkey,
+}
+
+/// A timelocked volatility-parameter/activation change was proposed.
+#[event]
+pub struct VolatilityParamsProposed {
+    pub slot: u64,
+    pub vault: Pubkey,
+    pub enabled: bool,
+    pub activate_slot: u64,
+}
+
+/// A proposed volatility-parameter/activation change was applied (observation
+/// state kept).
+#[event]
+pub struct VolatilityParamsApplied {
+    pub slot: u64,
+    pub vault: Pubkey,
+    pub enabled: bool,
+}
+
+/// A verified, fresh Pyth observation advanced the on-chain EWMA/jump state.
+#[event]
+pub struct VolatilityObserved {
+    pub slot: u64,
+    pub publish_time: i64,
+    pub short_ewma_q64: u128,
+    pub medium_ewma_q64: u128,
+    pub jump: bool,
+    pub nonce: u64,
+}
+
 /// B4: admin rotation proposed (timelocked).
 #[event]
 pub struct AdminProposed {
@@ -3108,6 +3629,18 @@ pub enum ErrorCode {
     InvalidAccountDiscriminator,
     #[msg("Unsupported account length for this operation")]
     UnsupportedAccountLength,
+    #[msg("Invalid volatility parameters")]
+    InvalidVolatilityParams,
+    #[msg("Volatility exceeds the configured ceiling")]
+    VolatilityTooHigh,
+    #[msg("Quote spread is below the volatility-derived floor")]
+    VolatilitySpreadTooLow,
+    #[msg("Quote depth exceeds the volatility-derived cap")]
+    DepthAboveVolatility,
+    #[msg("Volatility observation publish time is not newer than the stored one")]
+    StaleVolatilityObservation,
+    #[msg("Volatility enforcement cannot activate before a verified observation exists")]
+    VolatilityNotReady,
 }
 
 #[cfg(test)]
@@ -3134,5 +3667,164 @@ mod tests {
         assert_eq!(q64, 150u128 << 64);
         let q64_fraction = pyth_price_q64(15000, -2).unwrap();
         assert_eq!(q64_fraction, 150u128 << 64);
+    }
+
+    #[test]
+    fn volatility_params_validation_accepts_defaults() {
+        validate_volatility_params(&DEFAULT_VOLATILITY_PARAMS).unwrap();
+    }
+
+    #[test]
+    fn volatility_params_validation_rejects_bad_ranges() {
+        let ok = DEFAULT_VOLATILITY_PARAMS;
+        let mut p = ok;
+        p.short_lambda_bps = 0;
+        assert!(validate_volatility_params(&p).is_err());
+        let mut p = ok;
+        p.short_lambda_bps = 9_950;
+        p.medium_lambda_bps = 9_900; // medium < short
+        assert!(validate_volatility_params(&p).is_err());
+        let mut p = ok;
+        p.jump_multiple = 0;
+        assert!(validate_volatility_params(&p).is_err());
+        let mut p = ok;
+        p.max_sigma_q64 = 0;
+        assert!(validate_volatility_params(&p).is_err());
+        let mut p = ok;
+        p.vol_spread_coeff_bps = 10_001;
+        assert!(validate_volatility_params(&p).is_err());
+        let mut p = ok;
+        p.vol_depth_coeff_bps = 10_001;
+        assert!(validate_volatility_params(&p).is_err());
+        let mut p = ok;
+        p.max_observation_age_slots = 0;
+        assert!(validate_volatility_params(&p).is_err());
+    }
+
+    #[test]
+    fn mul_bps_ceil_rounds_up() {
+        // 1 bps of 1 should round up to 1 rather than floor to 0.
+        assert_eq!(mul_bps_ceil(1, 1), 1);
+        assert_eq!(mul_bps_ceil(10_000, 0), 0);
+        assert_eq!(mul_bps_ceil(10_000, 10_000), 10_000);
+        assert_eq!(mul_bps_ceil(5, 2_000), 1);
+    }
+
+    fn volatility_state_for_test() -> VolatilityState {
+        VolatilityState {
+            vault: Pubkey::default(),
+            short_ewma_q64: 0,
+            medium_ewma_q64: 0,
+            last_price_q64: 0,
+            last_publish_time: 0,
+            last_observation_slot: 0,
+            observation_nonce: 0,
+            jump_detected: false,
+            jump_until_slot: 0,
+            short_lambda_bps: DEFAULT_VOLATILITY_PARAMS.short_lambda_bps,
+            medium_lambda_bps: DEFAULT_VOLATILITY_PARAMS.medium_lambda_bps,
+            jump_multiple: DEFAULT_VOLATILITY_PARAMS.jump_multiple,
+            max_sigma_q64: u128::MAX,
+            jump_cooldown_slots: DEFAULT_VOLATILITY_PARAMS.jump_cooldown_slots,
+            vol_spread_coeff_bps: 0,
+            vol_depth_coeff_bps: 0,
+            max_observation_age_slots: 100,
+            enabled: false,
+            bump: 0,
+        }
+    }
+
+    #[test]
+    fn volatility_guard_is_noop_when_disabled() {
+        // Disabled: even an unset baseline and a zero spread pass.
+        let vs = volatility_state_for_test();
+        let update = QuoteUpdate::default();
+        volatility_guard_core(2, &update, &vs, 0).unwrap();
+    }
+
+    #[test]
+    fn volatility_guard_fails_closed_without_baseline_or_when_stale() {
+        let mut vs = volatility_state_for_test();
+        vs.enabled = true;
+        let update = QuoteUpdate::default();
+        // No baseline observation yet.
+        assert!(volatility_guard_core(2, &update, &vs, 10).is_err());
+        vs.last_price_q64 = 1 << 64;
+        vs.last_observation_slot = 0;
+        // Baseline present but observation older than the allowed age.
+        assert!(volatility_guard_core(2, &update, &vs, 101).is_err());
+        // Fresh enough: passes with a wide sigma ceiling and zero coefficients.
+        volatility_guard_core(0, &update, &vs, 100).unwrap();
+    }
+
+    #[test]
+    fn volatility_guard_enforces_kill_switch() {
+        let mut vs = volatility_state_for_test();
+        vs.enabled = true;
+        vs.last_price_q64 = 1 << 64;
+        vs.last_observation_slot = 5;
+        vs.short_ewma_q64 = 1u128 << 64; // sigma = 1.0
+        vs.max_sigma_q64 = 1u128 << 50; // ceiling below sigma
+        let update = QuoteUpdate::default();
+        assert!(volatility_guard_core(2, &update, &vs, 5).is_err());
+    }
+
+    #[test]
+    fn volatility_guard_enforces_spread_floor_and_depth_cap() {
+        let mut vs = volatility_state_for_test();
+        vs.enabled = true;
+        vs.last_price_q64 = 1 << 64;
+        vs.last_observation_slot = 5;
+        vs.short_ewma_q64 = 1u128 << 64; // sigma = 1.0 => sigma_bps = 10_000
+        vs.max_sigma_q64 = u128::MAX;
+        vs.vol_spread_coeff_bps = 1_000; // floor = 10_000 * 0.10 = 1_000 bps
+        vs.vol_depth_coeff_bps = 2_000; // cap = 10_000 - 2_000 = 8_000 bps
+
+        let too_low = QuoteUpdate {
+            half_spread_bps: 999,
+            depth_mult_bps: 8_000,
+            ..QuoteUpdate::default()
+        };
+        assert!(volatility_guard_core(2, &too_low, &vs, 5).is_err());
+
+        let too_deep = QuoteUpdate {
+            half_spread_bps: 1_000,
+            depth_mult_bps: 8_001,
+            ..QuoteUpdate::default()
+        };
+        assert!(volatility_guard_core(2, &too_deep, &vs, 5).is_err());
+
+        let compliant = QuoteUpdate {
+            half_spread_bps: 1_000,
+            depth_mult_bps: 8_000,
+            ..QuoteUpdate::default()
+        };
+        volatility_guard_core(2, &compliant, &vs, 5).unwrap();
+    }
+
+    #[test]
+    fn volatility_guard_jump_scales_effective_sigma() {
+        let mut vs = volatility_state_for_test();
+        vs.enabled = true;
+        vs.last_price_q64 = 1 << 64;
+        vs.last_observation_slot = 5;
+        vs.short_ewma_q64 = 1u128 << 64; // sigma_bps = 10_000
+        vs.vol_spread_coeff_bps = 1_000; // base floor = 1_000 bps
+        vs.jump_multiple = 4;
+        // A spread that clears the base floor but not the jump-multiplied floor.
+        let update = QuoteUpdate {
+            half_spread_bps: 2_000,
+            depth_mult_bps: 10_000,
+            ..QuoteUpdate::default()
+        };
+        volatility_guard_core(2, &update, &vs, 5).unwrap();
+        vs.jump_detected = true; // effective sigma_bps = 40_000 => floor 4_000
+        assert!(volatility_guard_core(2, &update, &vs, 5).is_err());
+    }
+
+    #[test]
+    fn pending_volatility_account_len_matches_layout() {
+        // 32 + 8 + params (52) + enabled (1) + bump (1).
+        assert_eq!(PENDING_VOLATILITY_LEN, 94);
     }
 }

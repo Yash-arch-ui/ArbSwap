@@ -595,6 +595,9 @@ fn run_loop(
         &[b"keeper", vault.as_ref(), keeper.pubkey().as_ref()],
         &program_id,
     );
+    // Required vault-bound volatility PDA. The e2e runner must run against a
+    // program where `initialize_volatility` has created this account.
+    let volatility_state = pda(&[b"vol", vault.as_ref()], &program_id);
     // S2-19: per-keeper reward PDA (attribution lives in QuoteState.keeper).
     let (keeper_reward, _) = Address::find_program_address(
         &[b"reward", vault.as_ref(), keeper.pubkey().as_ref()],
@@ -614,6 +617,7 @@ fn run_loop(
             quote_reserve,
             base_mint,
             quote_mint,
+            volatility_state,
         },
     );
     let sig = send(rpc_url, payer, &[payer], vec![uq]);

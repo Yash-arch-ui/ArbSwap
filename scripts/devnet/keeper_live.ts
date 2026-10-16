@@ -38,6 +38,17 @@ import {
 import { resolveRpcConfig, redactUrl, RpcPool } from "./rpc";
 import { broadcastTransaction, type RpcEndpoint } from "./broadcast";
 import { reclaimStaleVaas } from "./keeper_reclaim";
+import {
+  buildCommitKeys,
+  buildObserveIx,
+  buildStageKeys,
+  clampQuoteBody,
+  decodeVolatilityState,
+  volatilityAction,
+  volatilityLimits,
+  volatilityPda,
+  type OnChainVolatility,
+} from "./volatility";
 
 const PROGRAM = new PublicKey("2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm");
 const VAULT = new PublicKey("8yvFBv9gxiTWRF2vAa6Z5i1DGzpYgNETSP6z8yp82XPt");
@@ -53,6 +64,12 @@ const PUSH_ORACLE = "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT";
 const WORMHOLE = "HDwcJBJXjL9FpJ7UBsYBtaDjsBUhuLCUYoz3zr8SWWaQ";
 const SYSTEM = PublicKey.default;
 const KEEPER_BIN = process.env.KEEPER_BIN ?? "/home/ash10/solana/arbswap/target/debug/arbswap-keeper";
+// The vault-bound volatility PDA `[b"vol", vault]` (required by the upgraded
+// program on stage/commit/observe). Derived, never hardcoded.
+const VOLATILITY = volatilityPda(VAULT, PROGRAM);
+// Config byte offsets (verified against the program's `Config` layout).
+const CONFIG_MIN_SPREAD_OFFSET = 204;
+const CONFIG_MAX_SPREAD_OFFSET = 208;
 
 const disc = (name: string): Buffer => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
 const u64le = (n: bigint): Buffer => {
@@ -303,7 +320,68 @@ async function main() {
   );
   const baseDec = 9;
   const quoteDec = 6;
-  console.log("feed_account", priceUpdate.toBase58(), "pending_quote", pending.toBase58());
+  console.log("feed_account", priceUpdate.toBase58(), "pending_quote", pending.toBase58(), "volatility", VOLATILITY.toBase58());
+
+  /** Read the vault-bound volatility PDA (owner-checked). */
+  const readVolatility = async (): Promise<{ exists: boolean; state: OnChainVolatility | null }> => {
+    const info = await connection.getAccountInfo(VOLATILITY, "processed").catch(() => null);
+    if (!info) return { exists: false, state: null };
+    if (!info.owner.equals(PROGRAM)) return { exists: true, state: null };
+    return { exists: true, state: decodeVolatilityState(info.data) };
+  };
+
+  /**
+   * Submit `observe_volatility` in its OWN transaction (its own Pyth push), so a
+   * later quote rejection can never roll back a valid observation. Returns true
+   * only after the on-chain state is re-read and verified to be a usable
+   * baseline at or after `expectedPublishTime`. Never initializes the PDA.
+   */
+  const observeVolatility = async (binaryData: string[], expectedPublishTime: number): Promise<boolean> => {
+    try {
+      const built = await receiver.buildUpdatePriceFeedInstructions(binaryData, 0);
+      const vaaItems = built.postInstructions.filter((p: any) => p.instruction.programId.toBase58() !== PUSH_ORACLE);
+      const pushItems = built.postInstructions.filter((p: any) => p.instruction.programId.toBase58() === PUSH_ORACLE);
+      if (pushItems.length !== 1) throw new Error(`observe: expected 1 push instruction, got ${pushItems.length}`);
+      const { blockhash } = await connection.getLatestBlockhash("processed");
+      const vaaTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
+      vaaTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+      if (priorityFeeMicroLamports > 0) vaaTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }));
+      const vaaSigners: any[] = [];
+      for (const item of vaaItems) {
+        vaaTx.add(item.instruction);
+        vaaSigners.push(...(item.signers ?? []));
+      }
+      vaaTx.sign(keeper, ...vaaSigners);
+      const observeTx = new Transaction({ feePayer: keeper.publicKey, recentBlockhash: blockhash });
+      observeTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+      if (priorityFeeMicroLamports > 0) observeTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }));
+      observeTx.add(pushItems[0].instruction);
+      observeTx.add(buildObserveIx({
+        programId: PROGRAM, observer: keeper.publicKey, vault: VAULT, config: CONFIG,
+        volatilityState: VOLATILITY, priceUpdate, baseMint: WSOL, quoteMint: USDC,
+      }));
+      observeTx.sign(keeper);
+      if (dryRun) {
+        console.log(JSON.stringify({ dry_run_observe: true, vaa_size: vaaTx.serialize().length, observe_size: observeTx.serialize().length }));
+        return false;
+      }
+      await broadcastKeeperTx(vaaTx);
+      const res = await broadcastKeeperTx(observeTx);
+      // The account — not the log — is authoritative.
+      const after = await readVolatility();
+      const s = after.state;
+      const ok = !!s && s.lastPriceQ64 > 0n && s.lastPublishTime >= BigInt(expectedPublishTime);
+      console.log(JSON.stringify({
+        observe_sig: res.signature, observed: ok,
+        nonce: s?.observationNonce?.toString() ?? null,
+        last_publish_time: s?.lastPublishTime?.toString() ?? null,
+      }));
+      return ok;
+    } catch (e) {
+      console.error(`observe failed: ${(e as Error).message}`);
+      return false;
+    }
+  };
 
   const vaultInfo = await connection.getAccountInfo(VAULT, "processed");
   if (!vaultInfo) throw new Error("vault missing");
@@ -380,6 +458,37 @@ async function main() {
       continue;
     }
 
+    // 1b. Volatility gate. The upgraded program requires the vault-bound
+    // volatility PDA on stage/commit/observe. If it is absent, stop quote
+    // maintenance cleanly — never fall back to legacy layouts or treat
+    // volatility as zero. When a baseline is missing or the observation is
+    // stale, submit a permissionless observation first, in its own transaction.
+    const volRead = await readVolatility();
+    const volAction = volatilityAction(volRead.state, BigInt(slot));
+    if (volAction === "blocked-absent") {
+      failures += 1;
+      console.error(
+        `attempt=${attempt} VolatilityStateNotInitialized: PDA ${VOLATILITY.toBase58()} absent; ` +
+          `quote maintenance stopped (initialize_volatility required)`,
+      );
+      await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
+      continue;
+    }
+    let volState = volRead.state!;
+    if (volAction !== "quote") {
+      const observed = await observeVolatility(updates.binary.data, publishTime);
+      if (observed) {
+        volState = (await readVolatility()).state ?? volState;
+      } else if (volState.enabled && !dryRun) {
+        // Enforcement is active but the observation could not be established:
+        // fail closed rather than quote on an unusable state.
+        failures += 1;
+        console.error(`attempt=${attempt} observation not established while enforcement is enabled; skipping quote (fail closed)`);
+        await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
+        continue;
+      }
+    }
+
     // 2. Quote engine. Returns no quote (non-zero exit) when its own depth
     // throttle fails closed (e.g. confidence at the cap); skip and retry.
     let quote: any;
@@ -395,10 +504,34 @@ async function main() {
       continue;
     }
     const engineMs = Date.now() - tE;
-    const body = Buffer.from(quote.body_hex, "hex");
+    let body = Buffer.from(quote.body_hex, "hex");
     if (body.length !== 692) throw new Error(`unexpected quote body length ${body.length}`);
     const oraclePublishTime = BigInt(quote.oracle_publish_time);
     if (oraclePublishTime !== BigInt(publishTime)) throw new Error("quote publish_time mismatch");
+
+    // 2b. Respect the on-chain volatility limits while the guard is active.
+    // The local math only anticipates a rejection; the program stays the
+    // authority. A quote that cannot satisfy the guard is skipped, never loosened.
+    if (volState.enabled) {
+      const cfg = (await connection.getAccountInfo(CONFIG, "processed"))!.data;
+      const minSpread = BigInt(cfg.readUInt32LE(CONFIG_MIN_SPREAD_OFFSET));
+      const maxSpread = BigInt(cfg.readUInt32LE(CONFIG_MAX_SPREAD_OFFSET));
+      const lim = volatilityLimits(volState, BigInt(slot), minSpread);
+      if (lim.overCeiling) {
+        failures += 1;
+        console.error(`attempt=${attempt} volatility kill-switch: sigma above ceiling; skipping quote`);
+        await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
+        continue;
+      }
+      if (lim.floorBps > maxSpread) {
+        failures += 1;
+        console.error(`attempt=${attempt} volatility floor ${lim.floorBps}bps exceeds max spread ${maxSpread}bps; risk-blocked`);
+        await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
+        continue;
+      }
+      body = clampQuoteBody(body, lim.floorBps, lim.capBps);
+      console.log(`attempt=${attempt} volatility enabled: floor_bps=${lim.floorBps} cap_bps=${lim.capBps} nonce=${volState.observationNonce}`);
+    }
 
     const nonce = BigInt(Date.now());
     const stageData = Buffer.concat([disc("stage_quote"), body, u64le(nonce)]);
@@ -408,24 +541,27 @@ async function main() {
     const stageIx = new TransactionInstruction({
       programId: PROGRAM,
       data: stageData,
-      keys: [
-        meta(keeper.publicKey, true, true), meta(VAULT), meta(CONFIG), meta(QUOTE_STATE),
-        meta(pending, true), meta(BASE_RESERVE), meta(QUOTE_RESERVE), meta(KEEPER_BOND), meta(SYSTEM),
-      ],
+      // The volatility PDA is required immediately before `system_program`.
+      keys: buildStageKeys({
+        programId: PROGRAM, keeper: keeper.publicKey, vault: VAULT, config: CONFIG,
+        quoteState: QUOTE_STATE, pendingQuote: pending, baseReserve: BASE_RESERVE,
+        quoteReserve: QUOTE_RESERVE, keeperBond: KEEPER_BOND, volatilityState: VOLATILITY,
+        systemProgram: SYSTEM,
+      }),
     });
     const commitIx = new TransactionInstruction({
       programId: PROGRAM,
       data: commitData,
-      keys: [
-        meta(keeper.publicKey, true, true), meta(VAULT), meta(CONFIG), meta(QUOTE_STATE, true),
-        meta(pending, true), meta(priceUpdate), meta(BASE_RESERVE), meta(QUOTE_RESERVE),
-        meta(KEEPER_BOND), meta(WSOL), meta(USDC),
-        // The Pyth receiver (CPI'd by the push oracle) verifies against the
-        // Wormhole program, which must be present in the transaction's account
-        // list; the SDK adds it to its own push transaction for the same reason.
-        // Extra trailing accounts are ignored by our Anchor `commit_quote`.
-        meta(new PublicKey(WORMHOLE)),
-      ],
+      // The volatility PDA is the last of the 12 `commit_quote` accounts. The
+      // Pyth receiver (CPI'd by the push oracle) verifies against the Wormhole
+      // program, which must be present in the transaction's account list; it is
+      // an extra trailing account Anchor ignores, kept after the PDA.
+      keys: buildCommitKeys({
+        programId: PROGRAM, keeper: keeper.publicKey, vault: VAULT, config: CONFIG,
+        quoteState: QUOTE_STATE, pendingQuote: pending, priceUpdate, baseReserve: BASE_RESERVE,
+        quoteReserve: QUOTE_RESERVE, keeperBond: KEEPER_BOND, baseMint: WSOL, quoteMint: USDC,
+        volatilityState: VOLATILITY, extraTrailing: [new PublicKey(WORMHOLE)],
+      }),
     });
 
     const { postInstructions, closeInstructions } = await receiver.buildUpdatePriceFeedInstructions(updates.binary.data, 0);

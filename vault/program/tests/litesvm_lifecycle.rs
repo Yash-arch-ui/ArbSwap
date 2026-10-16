@@ -111,6 +111,7 @@ struct Fixture {
     vault: Address,
     config: Address,
     quote_state: Address,
+    volatility_state: Address,
     base_reserve: Address,
     quote_reserve: Address,
     share_mint: Address,
@@ -230,6 +231,7 @@ impl Fixture {
         );
         let (config, _) = pda(&[b"config", vault.as_ref()], &program_id);
         let (quote_state, _) = pda(&[b"quote", vault.as_ref()], &program_id);
+        let (volatility_state, _) = pda(&[b"vol", vault.as_ref()], &program_id);
         let (deposit_ticket, _) = pda(&[b"dep", vault.as_ref(), lp_address.as_ref()], &program_id);
         let (withdraw_ticket, _) = pda(&[b"wd", vault.as_ref(), lp_address.as_ref()], &program_id);
 
@@ -281,6 +283,7 @@ impl Fixture {
             vault,
             config,
             quote_state,
+            volatility_state,
             base_reserve: to_address(base_reserve_kp.pubkey()),
             quote_reserve: to_address(quote_reserve_kp.pubkey()),
             share_mint: to_address(share_mint_kp.pubkey()),
@@ -303,6 +306,7 @@ impl Fixture {
         };
         fixture.initialize_program(&keys.admin);
         fixture.initialize_vault(&keys.admin);
+        fixture.initialize_volatility(&keys.admin);
         set_token_account(
             &mut fixture.svm,
             fixture.lp_shares,
@@ -679,6 +683,108 @@ impl Fixture {
         send(&mut self.svm, &signers, instruction).expect("initialize_vault failed");
     }
 
+    fn initialize_volatility(&mut self, admin: &Keypair) {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::InitializeVolatility {
+                params: arbswap::VolatilityParams::default(),
+            },
+            arbswap::accounts::InitializeVolatility {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+                volatility_state: self.volatility_state,
+                system_program: anchor_lang::system_program::ID,
+            },
+        );
+        send(&mut self.svm, &[admin], instruction).expect("initialize_volatility failed");
+    }
+
+    fn pending_volatility(&self) -> Address {
+        pda(&[b"vol_pending", self.vault.as_ref()], &self.program_id).0
+    }
+
+    fn volatility_state_value(&self) -> arbswap::VolatilityState {
+        read_state(&self.svm, self.volatility_state)
+    }
+
+    fn observe_volatility(
+        &mut self,
+        observer: &Keypair,
+        price_update: Address,
+    ) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::ObserveVolatility {},
+            arbswap::accounts::ObserveVolatility {
+                observer: to_address(observer.pubkey()),
+                vault: self.vault,
+                config: self.config,
+                volatility_state: self.volatility_state,
+                price_update,
+                base_mint: self.base_mint,
+                quote_mint: self.quote_mint,
+            },
+        );
+        send(&mut self.svm, &[observer], instruction)
+    }
+
+    fn propose_volatility_params(
+        &mut self,
+        admin: &Keypair,
+        params: arbswap::VolatilityParams,
+        enabled: bool,
+    ) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::ProposeVolatilityParams { params, enabled },
+            arbswap::accounts::ProposeVolatilityParams {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+                pending_volatility: self.pending_volatility(),
+                system_program: anchor_lang::system_program::ID,
+            },
+        );
+        send(&mut self.svm, &[admin], instruction)
+    }
+
+    fn apply_volatility_params(&mut self, admin: &Keypair) -> litesvm::types::TransactionResult {
+        let instruction = ix(
+            self.program_id,
+            arbswap::instruction::ApplyVolatilityParams {},
+            arbswap::accounts::ApplyVolatilityParams {
+                admin: to_address(admin.pubkey()),
+                vault: self.vault,
+                volatility_state: self.volatility_state,
+                pending_volatility: self.pending_volatility(),
+            },
+        );
+        send(&mut self.svm, &[admin], instruction)
+    }
+
+    fn current_slot(&self) -> u64 {
+        self.svm.get_sysvar::<Clock>().slot
+    }
+
+    fn set_unix_timestamp(&mut self, ts: i64) {
+        let mut clock = self.svm.get_sysvar::<Clock>();
+        clock.unix_timestamp = ts;
+        self.svm.set_sysvar(&clock);
+    }
+
+    fn pending_volatility_value(&self) -> arbswap::PendingVolatilityParams {
+        read_state(&self.svm, self.pending_volatility())
+    }
+
+    /// Propose, wait out the timelock, and apply `params` with enforcement on.
+    fn arm_volatility(&mut self, admin: &Keypair, params: arbswap::VolatilityParams) {
+        self.propose_volatility_params(admin, params, true)
+            .expect("propose volatility params");
+        let pending = self.pending_volatility_value();
+        self.warp_to_slot(pending.activate_slot);
+        self.apply_volatility_params(admin)
+            .expect("apply volatility params");
+    }
+
     fn deposit(
         &mut self,
         user: &Keypair,
@@ -928,6 +1034,7 @@ impl Fixture {
                 base_reserve: self.base_reserve,
                 quote_reserve: self.quote_reserve,
                 keeper_bond: self.keeper_bond(keeper),
+                volatility_state: self.volatility_state,
                 system_program: anchor_lang::system_program::ID,
             },
         );
@@ -955,6 +1062,7 @@ impl Fixture {
                 keeper_bond: self.keeper_bond(keeper),
                 base_mint: self.base_mint,
                 quote_mint: self.quote_mint,
+                volatility_state: self.volatility_state,
             },
         );
         send(&mut self.svm, &[keeper], instruction)
@@ -986,6 +1094,7 @@ impl Fixture {
                 quote_reserve: self.quote_reserve,
                 base_mint: self.base_mint,
                 quote_mint: self.quote_mint,
+                volatility_state: self.volatility_state,
             },
         );
         send(&mut self.svm, &[keeper], instruction)
@@ -4681,6 +4790,7 @@ fn commit_rejects_expired_and_foreign_staging() {
             keeper_bond: fixture.keeper_bond(&foreign),
             base_mint: fixture.base_mint,
             quote_mint: fixture.quote_mint,
+            volatility_state: fixture.volatility_state,
         },
     );
     let result = send(&mut fixture.svm, &[&foreign], instruction);
@@ -5431,4 +5541,694 @@ fn long_expiry_quote_still_bounded_by_flow_cap() {
     }
     assert!(fills > 1, "the cap must not bind on the first fill");
     assert_anchor_error(result, "FlowCapExceeded");
+}
+
+// ---------------------------------------------------------------------------
+// On-chain volatility lifecycle: permissionless observations and the
+// timelocked parameter/activation flow.
+// ---------------------------------------------------------------------------
+
+/// Discriminator of an Anchor `#[event]` is `sha256("event:<Name>")[..8]`.
+fn event_discriminator(name: &str) -> [u8; 8] {
+    let mut hash = Sha256::new();
+    hash.update(format!("event:{name}").as_bytes());
+    let digest = hash.finalize();
+    let mut out = [0u8; 8];
+    out.copy_from_slice(&digest[..8]);
+    out
+}
+
+/// Return the payload (after the 8-byte discriminator) of a named Anchor event
+/// found in transaction logs, or `None` if it was not emitted.
+fn event_payload(logs: &[String], name: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    let discriminator = event_discriminator(name);
+    for line in logs {
+        let Some(encoded) = line.strip_prefix("Program data: ") else {
+            continue;
+        };
+        let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(encoded.trim()) else {
+            continue;
+        };
+        if bytes.len() > 8 && bytes[..8] == discriminator {
+            return Some(bytes[8..].to_vec());
+        }
+    }
+    None
+}
+
+fn assert_event(logs: &[String], name: &str) {
+    assert!(
+        event_payload(logs, name).is_some(),
+        "event `{name}` not present in logs:\n{}",
+        logs.join("\n")
+    );
+}
+
+/// The program's `VolatilityState` has no `PartialEq`; compare every field.
+fn assert_vol_state_same(a: &arbswap::VolatilityState, b: &arbswap::VolatilityState) {
+    assert_eq!(a.vault, b.vault);
+    assert_eq!(a.short_ewma_q64, b.short_ewma_q64);
+    assert_eq!(a.medium_ewma_q64, b.medium_ewma_q64);
+    assert_eq!(a.last_price_q64, b.last_price_q64);
+    assert_eq!(a.last_publish_time, b.last_publish_time);
+    assert_eq!(a.last_observation_slot, b.last_observation_slot);
+    assert_eq!(a.observation_nonce, b.observation_nonce);
+    assert_eq!(a.jump_detected, b.jump_detected);
+    assert_eq!(a.jump_until_slot, b.jump_until_slot);
+    assert_eq!(a.short_lambda_bps, b.short_lambda_bps);
+    assert_eq!(a.medium_lambda_bps, b.medium_lambda_bps);
+    assert_eq!(a.jump_multiple, b.jump_multiple);
+    assert_eq!(a.max_sigma_q64, b.max_sigma_q64);
+    assert_eq!(a.jump_cooldown_slots, b.jump_cooldown_slots);
+    assert_eq!(a.vol_spread_coeff_bps, b.vol_spread_coeff_bps);
+    assert_eq!(a.vol_depth_coeff_bps, b.vol_depth_coeff_bps);
+    assert_eq!(a.max_observation_age_slots, b.max_observation_age_slots);
+    assert_eq!(a.enabled, b.enabled);
+}
+
+/// `150.0` (the fixture's 9/9 oracle price) as Q64.64.
+const PRICE_150_Q64: u128 = 150u128 << 64;
+
+/// A valid observation seeds the baseline, advances both EWMAs on the next
+/// move, increments the nonce, and emits `VolatilityObserved` with the state.
+#[test]
+fn observe_volatility_seeds_baseline_updates_ewma_and_emits_event() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+
+    let vs0 = fixture.volatility_state_value();
+    assert!(!vs0.enabled, "a freshly initialized PDA is disarmed");
+    assert_eq!(vs0.last_price_q64, 0);
+    assert_eq!(vs0.observation_nonce, 0);
+
+    // First observation seeds the last price, leaving the variance series zero.
+    let first = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    let meta = fixture
+        .observe_volatility(&keys.keeper, first)
+        .expect("first observe");
+    let payload = event_payload(&meta.logs, "VolatilityObserved").expect("event");
+    assert_eq!(u64::from_le_bytes(payload[0..8].try_into().unwrap()), SLOT);
+    assert_eq!(
+        i64::from_le_bytes(payload[8..16].try_into().unwrap()),
+        PUBLISH_TIME
+    );
+    assert_eq!(u128::from_le_bytes(payload[16..32].try_into().unwrap()), 0);
+    assert_eq!(u128::from_le_bytes(payload[32..48].try_into().unwrap()), 0);
+    assert_eq!(payload[48], 0, "no jump on the seeded observation");
+    assert_eq!(u64::from_le_bytes(payload[49..57].try_into().unwrap()), 1);
+
+    let vs1 = fixture.volatility_state_value();
+    assert_eq!(vs1.last_price_q64, PRICE_150_Q64);
+    assert_eq!(vs1.short_ewma_q64, 0);
+    assert_eq!(vs1.medium_ewma_q64, 0);
+    assert_eq!(vs1.observation_nonce, 1);
+    assert_eq!(vs1.last_publish_time, PUBLISH_TIME);
+    assert_eq!(vs1.last_observation_slot, SLOT);
+
+    // Second observation, a 1% move one second later: both EWMAs advance.
+    fixture.advance_slot(1);
+    fixture.set_unix_timestamp(PUBLISH_TIME + 1);
+    let second = fixture.post_pyth(
+        PYTH_PRICE + 150_000_000,
+        1,
+        PUBLISH_TIME + 1,
+        VerificationLevel::Full,
+    );
+    fixture
+        .observe_volatility(&keys.keeper, second)
+        .expect("second observe");
+    let vs2 = fixture.volatility_state_value();
+    assert!(vs2.short_ewma_q64 > 0, "short variance must advance");
+    assert!(vs2.medium_ewma_q64 > 0, "medium variance must advance");
+    // 151.5 = 303/2, so the Q64 price is exactly `303 << 63`.
+    assert_eq!(vs2.last_price_q64, 303u128 << 63);
+    assert_eq!(vs2.observation_nonce, 2);
+    // The first move away from a flat series is always a jump: with `lambda=0.94`
+    // the threshold is `4*sqrt(0.06)*ret ≈ 0.98*ret < ret`.
+    assert!(
+        vs2.jump_detected,
+        "the first move off a flat series flags a jump"
+    );
+}
+
+/// Every rejection path returns the documented error and leaves the persisted
+/// state byte-for-byte unchanged.
+#[test]
+fn observe_volatility_rejections_leave_state_unchanged() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let base = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .observe_volatility(&keys.keeper, base)
+        .expect("baseline");
+    let snapshot = fixture.volatility_state_value();
+
+    // Wrong feed.
+    let wrong_feed = fixture.post_pyth_with_feed([9u8; 32], PYTH_PRICE, 1, PUBLISH_TIME + 1);
+    assert_anchor_error(
+        fixture.observe_volatility(&keys.keeper, wrong_feed),
+        "InvalidOracle",
+    );
+
+    // Repeated publish time (not strictly newer than the stored one).
+    fixture.set_unix_timestamp(PUBLISH_TIME + 1);
+    let repeated = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.observe_volatility(&keys.keeper, repeated),
+        "StaleVolatilityObservation",
+    );
+
+    // Newer than the stored publish time, but stale relative to the clock.
+    fixture.set_unix_timestamp(PUBLISH_TIME + 1_000);
+    let stale = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME + 1, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.observe_volatility(&keys.keeper, stale),
+        "InvalidOracle",
+    );
+
+    // Excessive confidence.
+    fixture.set_unix_timestamp(PUBLISH_TIME + 2);
+    let wide = fixture.post_pyth(
+        PYTH_PRICE,
+        100_000_000,
+        PUBLISH_TIME + 2,
+        VerificationLevel::Full,
+    );
+    assert_anchor_error(
+        fixture.observe_volatility(&keys.keeper, wide),
+        "WideConfidence",
+    );
+
+    // Non-positive price.
+    fixture.set_unix_timestamp(PUBLISH_TIME + 3);
+    let zero = fixture.post_pyth(0, 1, PUBLISH_TIME + 3, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.observe_volatility(&keys.keeper, zero),
+        "InvalidPrice",
+    );
+
+    assert_vol_state_same(&fixture.volatility_state_value(), &snapshot);
+}
+
+/// Any signer may observe, but observation changes nothing but the EWMA/jump
+/// state: no configuration, authority, or risk-parameter change.
+#[test]
+fn observe_volatility_is_permissionless_but_grants_no_authority() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let outsider = Keypair::new();
+    airdrop(&mut fixture.svm, &outsider, 1_000_000_000);
+
+    let config_before = fixture.config_state();
+    let vault_before = fixture.vault_state();
+    let params_before = fixture.volatility_state_value();
+
+    let pyth = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .observe_volatility(&outsider, pyth)
+        .expect("permissionless observe");
+
+    let config_after = fixture.config_state();
+    assert_eq!(config_after.admin, config_before.admin);
+    assert_eq!(config_after.keeper, config_before.keeper);
+    assert_eq!(config_after.min_spread_bps, config_before.min_spread_bps);
+    assert_eq!(config_after.max_spread_bps, config_before.max_spread_bps);
+    assert_eq!(config_after.pyth_feed_id, config_before.pyth_feed_id);
+    let vault_after = fixture.vault_state();
+    assert_eq!(vault_after.admin, vault_before.admin);
+    assert_eq!(vault_after.status, vault_before.status);
+
+    let after = fixture.volatility_state_value();
+    assert_eq!(after.observation_nonce, 1);
+    assert!(!after.enabled);
+    assert_eq!(after.short_lambda_bps, params_before.short_lambda_bps);
+    assert_eq!(after.medium_lambda_bps, params_before.medium_lambda_bps);
+    assert_eq!(after.jump_multiple, params_before.jump_multiple);
+    assert_eq!(after.max_sigma_q64, params_before.max_sigma_q64);
+    assert_eq!(
+        after.vol_spread_coeff_bps,
+        params_before.vol_spread_coeff_bps
+    );
+    assert_eq!(after.vol_depth_coeff_bps, params_before.vol_depth_coeff_bps);
+    assert_eq!(
+        after.max_observation_age_slots,
+        params_before.max_observation_age_slots
+    );
+}
+
+/// An arithmetic overflow (an extreme price ratio) rejects the observation
+/// without writing a partial result.
+#[test]
+fn observe_volatility_overflow_is_atomic() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+
+    // Seed an extremely small baseline. `price == 1000` at exponent -8 is the
+    // smallest value whose confidence rounds within `max_conf_bps`.
+    let tiny = fixture.post_pyth(1_000, 0, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .observe_volatility(&keys.keeper, tiny)
+        .expect("baseline");
+    let snapshot = fixture.volatility_state_value();
+    assert_eq!(snapshot.observation_nonce, 1);
+
+    fixture.advance_slot(1);
+    fixture.set_unix_timestamp(PUBLISH_TIME + 1);
+    // An ~1e15x move makes the squared return exceed `u128` -> MathOverflow,
+    // with no partial write.
+    let huge = fixture.post_pyth(i64::MAX, 1, PUBLISH_TIME + 1, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.observe_volatility(&keys.keeper, huge),
+        "MathOverflow",
+    );
+    assert_vol_state_same(&fixture.volatility_state_value(), &snapshot);
+}
+
+/// A large single move flags a jump and opens the cooldown; the next calm
+/// observation clears the flag but the cooldown window persists.
+#[test]
+fn observe_volatility_sets_and_extends_jump_cooldown() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+
+    let b = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .observe_volatility(&keys.keeper, b)
+        .expect("baseline");
+    fixture.advance_slot(1);
+    fixture.set_unix_timestamp(PUBLISH_TIME + 1);
+    let small = fixture.post_pyth(
+        PYTH_PRICE + 150_000_000,
+        1,
+        PUBLISH_TIME + 1,
+        VerificationLevel::Full,
+    );
+    fixture
+        .observe_volatility(&keys.keeper, small)
+        .expect("small move");
+
+    // A near-doubling move far exceeds `4 * sigma` -> jump + cooldown.
+    fixture.advance_slot(1);
+    fixture.set_unix_timestamp(PUBLISH_TIME + 2);
+    let big = fixture.post_pyth(PYTH_PRICE * 2, 1, PUBLISH_TIME + 2, VerificationLevel::Full);
+    fixture
+        .observe_volatility(&keys.keeper, big)
+        .expect("big move");
+    let jumped = fixture.volatility_state_value();
+    assert!(jumped.jump_detected, "a large move must flag a jump");
+    assert_eq!(
+        jumped.jump_until_slot,
+        jumped
+            .last_observation_slot
+            .saturating_add(jumped.jump_cooldown_slots)
+    );
+
+    // A calmer follow-up clears the flag but cannot clear the cooldown window.
+    fixture.advance_slot(1);
+    fixture.set_unix_timestamp(PUBLISH_TIME + 3);
+    let calm = fixture.post_pyth(
+        PYTH_PRICE * 2 + 150_000_000,
+        1,
+        PUBLISH_TIME + 3,
+        VerificationLevel::Full,
+    );
+    fixture
+        .observe_volatility(&keys.keeper, calm)
+        .expect("calm move");
+    let after = fixture.volatility_state_value();
+    assert!(
+        !after.jump_detected,
+        "the flag clears on the next calm move"
+    );
+    assert_eq!(
+        after.jump_until_slot, jumped.jump_until_slot,
+        "the jump cooldown must not be cleared by a later observation"
+    );
+}
+
+/// A valid proposal records the activation slot's timelock and leaves the live
+/// account untouched.
+#[test]
+fn propose_volatility_params_records_timelocked_activation() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let start = fixture.current_slot();
+    let params = arbswap::VolatilityParams {
+        short_lambda_bps: 9_000,
+        medium_lambda_bps: 9_800,
+        jump_multiple: 5,
+        max_sigma_q64: 1u128 << 50,
+        jump_cooldown_slots: 60,
+        vol_spread_coeff_bps: 500,
+        vol_depth_coeff_bps: 1_500,
+        max_observation_age_slots: 50,
+    };
+    let meta = fixture
+        .propose_volatility_params(&keys.admin, params, true)
+        .expect("propose");
+    assert_event(&meta.logs, "VolatilityParamsProposed");
+
+    let pending = fixture.pending_volatility_value();
+    assert_eq!(pending.admin, keys.admin.pubkey());
+    assert_eq!(pending.activate_slot, start + arbswap::TIMELOCK_SLOTS);
+    assert!(pending.enabled);
+    assert!(
+        pending.params == params,
+        "proposed params must be stored verbatim"
+    );
+
+    let vs = fixture.volatility_state_value();
+    assert_eq!(
+        vs.short_lambda_bps,
+        arbswap::DEFAULT_VOLATILITY_PARAMS.short_lambda_bps
+    );
+    assert!(!vs.enabled);
+}
+
+/// Application before the timelock elapses is rejected.
+#[test]
+fn apply_volatility_before_timelock_is_rejected() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .propose_volatility_params(&keys.admin, arbswap::DEFAULT_VOLATILITY_PARAMS, true)
+        .expect("propose");
+    assert_anchor_error(
+        fixture.apply_volatility_params(&keys.admin),
+        "TimelockNotElapsed",
+    );
+    assert!(!fixture.volatility_state_value().enabled);
+}
+
+/// Application after the timelock arms the guard, copies the params, keeps the
+/// observed EWMA history, and cannot be replayed.
+#[test]
+fn apply_volatility_after_timelock_arms_guard_and_keeps_history() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+
+    let base = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .observe_volatility(&keys.keeper, base)
+        .expect("baseline");
+    fixture.advance_slot(1);
+    fixture.set_unix_timestamp(PUBLISH_TIME + 1);
+    let moved = fixture.post_pyth(
+        PYTH_PRICE + 1_500_000_000,
+        1,
+        PUBLISH_TIME + 1,
+        VerificationLevel::Full,
+    );
+    fixture
+        .observe_volatility(&keys.keeper, moved)
+        .expect("move");
+    let before = fixture.volatility_state_value();
+    assert_eq!(before.observation_nonce, 2);
+    assert!(before.short_ewma_q64 > 0);
+
+    let params = arbswap::VolatilityParams {
+        short_lambda_bps: 9_000,
+        medium_lambda_bps: 9_900,
+        jump_multiple: 4,
+        max_sigma_q64: 1u128 << 62,
+        jump_cooldown_slots: 1_800,
+        vol_spread_coeff_bps: 1_000,
+        vol_depth_coeff_bps: 2_000,
+        max_observation_age_slots: 3_600,
+    };
+    fixture
+        .propose_volatility_params(&keys.admin, params, true)
+        .expect("propose");
+    let pending = fixture.pending_volatility_value();
+    fixture.warp_to_slot(pending.activate_slot);
+    let meta = fixture.apply_volatility_params(&keys.admin).expect("apply");
+    assert_event(&meta.logs, "VolatilityParamsApplied");
+
+    let after = fixture.volatility_state_value();
+    assert!(after.enabled);
+    assert_eq!(after.short_lambda_bps, 9_000);
+    assert_eq!(after.max_sigma_q64, 1u128 << 62);
+    // Observation history is preserved; only the parameters/activation changed.
+    assert_eq!(after.short_ewma_q64, before.short_ewma_q64);
+    assert_eq!(after.medium_ewma_q64, before.medium_ewma_q64);
+    assert_eq!(after.last_price_q64, before.last_price_q64);
+    assert_eq!(after.last_publish_time, before.last_publish_time);
+    assert_eq!(after.last_observation_slot, before.last_observation_slot);
+    assert_eq!(after.observation_nonce, before.observation_nonce);
+    assert_eq!(after.jump_until_slot, before.jump_until_slot);
+
+    // The proposal is consumed: a replay cannot be applied.
+    assert_anchor_error(
+        fixture.apply_volatility_params(&keys.admin),
+        "TimelockNotElapsed",
+    );
+}
+
+/// Enabling requires a verified baseline; disabling does not.
+#[test]
+fn apply_volatility_enabling_requires_a_verified_observation() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    assert_eq!(fixture.volatility_state_value().last_price_q64, 0);
+
+    fixture
+        .propose_volatility_params(&keys.admin, arbswap::DEFAULT_VOLATILITY_PARAMS, true)
+        .expect("propose enable");
+    let pending = fixture.pending_volatility_value();
+    fixture.warp_to_slot(pending.activate_slot);
+    assert_anchor_error(
+        fixture.apply_volatility_params(&keys.admin),
+        "VolatilityNotReady",
+    );
+    assert!(!fixture.volatility_state_value().enabled);
+
+    // A disable proposal applies without any observation.
+    fixture
+        .propose_volatility_params(&keys.admin, arbswap::DEFAULT_VOLATILITY_PARAMS, false)
+        .expect("propose disable");
+    let pending = fixture.pending_volatility_value();
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture
+        .apply_volatility_params(&keys.admin)
+        .expect("apply disable");
+    assert!(!fixture.volatility_state_value().enabled);
+}
+
+/// Invalid parameters and wrong authorities are rejected on both propose and
+/// apply.
+#[test]
+fn propose_and_apply_volatility_reject_invalid_params_and_wrong_authority() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let outsider = Keypair::new();
+    airdrop(&mut fixture.svm, &outsider, 1_000_000_000);
+
+    let mut bad = arbswap::DEFAULT_VOLATILITY_PARAMS;
+    bad.short_lambda_bps = 0;
+    assert_anchor_error(
+        fixture.propose_volatility_params(&keys.admin, bad, true),
+        "InvalidVolatilityParams",
+    );
+
+    assert_anchor_error(
+        fixture.propose_volatility_params(&outsider, arbswap::DEFAULT_VOLATILITY_PARAMS, true),
+        "Unauthorized",
+    );
+
+    fixture
+        .propose_volatility_params(&keys.admin, arbswap::DEFAULT_VOLATILITY_PARAMS, true)
+        .expect("propose");
+    let pending = fixture.pending_volatility_value();
+    fixture.warp_to_slot(pending.activate_slot);
+    assert_anchor_error(fixture.apply_volatility_params(&outsider), "Unauthorized");
+}
+
+/// Enforcement can only be turned off through the same timelocked path.
+#[test]
+fn volatility_can_be_disabled_only_through_the_timelocked_path() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let base = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .observe_volatility(&keys.keeper, base)
+        .expect("baseline");
+
+    fixture
+        .propose_volatility_params(&keys.admin, arbswap::DEFAULT_VOLATILITY_PARAMS, true)
+        .expect("propose enable");
+    let pending = fixture.pending_volatility_value();
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture
+        .apply_volatility_params(&keys.admin)
+        .expect("apply enable");
+    assert!(fixture.volatility_state_value().enabled);
+
+    fixture
+        .propose_volatility_params(&keys.admin, arbswap::DEFAULT_VOLATILITY_PARAMS, false)
+        .expect("propose disable");
+    let pending = fixture.pending_volatility_value();
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture
+        .apply_volatility_params(&keys.admin)
+        .expect("apply disable");
+    assert!(!fixture.volatility_state_value().enabled);
+}
+
+/// While the volatility PDA is disabled (the pre-activation state, but with the
+/// now-required account supplied) quotes behave exactly as before.
+#[test]
+fn legacy_quote_commits_while_volatility_is_disabled() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+    assert!(!fixture.volatility_state_value().enabled);
+
+    let honest = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, honest, quote_update(SLOT))
+        .expect("a disabled PDA must not change quote behaviour");
+    assert_eq!(fixture.quote_state_value().version, 1);
+}
+
+/// End-to-end activation: enabling via the timelock makes the volatility floor
+/// binding (fail-closed) while a compliant quote still commits.
+#[test]
+fn volatility_activation_lifecycle_gates_quotes_end_to_end() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    // Build a real volatility regime: baseline then a 10% move.
+    let b = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .observe_volatility(&keys.keeper, b)
+        .expect("baseline");
+    fixture.advance_slot(1);
+    fixture.set_unix_timestamp(PUBLISH_TIME + 1);
+    let big = fixture.post_pyth(
+        PYTH_PRICE + 1_500_000_000,
+        1,
+        PUBLISH_TIME + 1,
+        VerificationLevel::Full,
+    );
+    fixture.observe_volatility(&keys.keeper, big).expect("move");
+    assert!(fixture.volatility_state_value().short_ewma_q64 > 0);
+
+    // Arm enforcement through the timelocked path with a small spread
+    // coefficient so the derived floor stays inside the fixture's 50 bps cap.
+    let params = arbswap::VolatilityParams {
+        vol_spread_coeff_bps: 500,
+        vol_depth_coeff_bps: 2_000,
+        max_sigma_q64: 1u128 << 62,
+        ..arbswap::DEFAULT_VOLATILITY_PARAMS
+    };
+    fixture
+        .propose_volatility_params(&keys.admin, params, true)
+        .expect("propose");
+    let pending = fixture.pending_volatility_value();
+    fixture.warp_to_slot(pending.activate_slot);
+    fixture.apply_volatility_params(&keys.admin).expect("apply");
+    assert!(fixture.volatility_state_value().enabled);
+
+    // Refresh the observation at the post-timelock slot so the guard sees a
+    // fresh baseline (a calm follow-up also clears the earlier jump flag).
+    fixture.set_unix_timestamp(PUBLISH_TIME + 2);
+    let refresh = fixture.post_pyth(
+        PYTH_PRICE + 1_515_000_000,
+        1,
+        PUBLISH_TIME + 2,
+        VerificationLevel::Full,
+    );
+    fixture
+        .observe_volatility(&keys.keeper, refresh)
+        .expect("refresh");
+    let slot = fixture.current_slot();
+
+    // A low-spread update is now rejected (fail closed)...
+    let low = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    assert_anchor_error(
+        fixture.update_quote(&keys.keeper, low, quote_update(slot)),
+        "VolatilitySpreadTooLow",
+    );
+
+    // ...while a wide-enough, shallow-enough quote still commits.
+    let mut compliant = quote_update(slot);
+    compliant.half_spread_bps = 50;
+    compliant.depth_mult_bps = 9_900;
+    let ok = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, ok, compliant)
+        .expect("compliant quote commits under enforcement");
+    assert_eq!(fixture.quote_state_value().version, 1);
+}
+
+/// The staged-quote path enforces the same guard: a low-spread stage is
+/// rejected fail-fast, and a compliant stage+commit advances the quote.
+#[test]
+fn stage_and_commit_enforce_the_volatility_guard() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, LP_BASE_DEPOSIT, LP_QUOTE_DEPOSIT, 1)
+        .expect("deposit");
+
+    let b = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .observe_volatility(&keys.keeper, b)
+        .expect("baseline");
+    fixture.advance_slot(1);
+    fixture.set_unix_timestamp(PUBLISH_TIME + 1);
+    let big = fixture.post_pyth(
+        PYTH_PRICE + 1_500_000_000,
+        1,
+        PUBLISH_TIME + 1,
+        VerificationLevel::Full,
+    );
+    fixture.observe_volatility(&keys.keeper, big).expect("move");
+
+    let params = arbswap::VolatilityParams {
+        vol_spread_coeff_bps: 500,
+        vol_depth_coeff_bps: 2_000,
+        max_sigma_q64: 1u128 << 62,
+        ..arbswap::DEFAULT_VOLATILITY_PARAMS
+    };
+    fixture.arm_volatility(&keys.admin, params);
+    assert!(fixture.volatility_state_value().enabled);
+
+    // Refresh at the armed slot so the guard sees a fresh baseline.
+    fixture.set_unix_timestamp(PUBLISH_TIME + 2);
+    let refresh = fixture.post_pyth(
+        PYTH_PRICE + 1_515_000_000,
+        1,
+        PUBLISH_TIME + 2,
+        VerificationLevel::Full,
+    );
+    fixture
+        .observe_volatility(&keys.keeper, refresh)
+        .expect("refresh");
+    let slot = fixture.current_slot();
+
+    // Staging rejects a below-floor spread fail-fast (before any commit).
+    assert_anchor_error(
+        fixture.stage_quote(&keys.keeper, quote_update(slot), 1),
+        "VolatilitySpreadTooLow",
+    );
+
+    // A compliant stage succeeds and the matching commit advances the quote.
+    let mut compliant = quote_update(slot);
+    compliant.half_spread_bps = 50;
+    compliant.depth_mult_bps = 9_900;
+    fixture
+        .stage_quote(&keys.keeper, compliant, 1)
+        .expect("stage compliant");
+    let price = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .commit_quote(&keys.keeper, price, 1)
+        .expect("commit compliant");
+    assert_eq!(fixture.quote_state_value().version, 1);
 }

@@ -62,6 +62,7 @@ const manifest = {
       "cargo test --workspace",
       "cd scripts/devnet && npx tsx rpc.test.ts",
       "cd scripts/devnet && npx tsx keeper_commit.test.ts",
+      "cd scripts/devnet && npx tsx volatility.test.ts",
       "cd app && yarn test && yarn lint && yarn build",
       ".venv/bin/python -m pytest simulation/analytics/tests -q",
     ],

@@ -304,6 +304,9 @@ fn send_update(h: &mut Harness, update: &QuoteUpdate) -> litesvm::types::Transac
         &h.program_id,
     )
     .0;
+    // Required vault-bound volatility PDA; disabled so the recovery paths under
+    // test keep their pre-feature behaviour.
+    let volatility = set_disabled_volatility(&mut h.svm, h.vault_address);
     let ix = Instruction {
         program_id: h.program_id,
         accounts: vec![
@@ -317,6 +320,7 @@ fn send_update(h: &mut Harness, update: &QuoteUpdate) -> litesvm::types::Transac
             AccountMeta::new_readonly(h.quote_reserve, false),
             AccountMeta::new_readonly(h.base_mint, false),
             AccountMeta::new_readonly(h.quote_mint, false),
+            AccountMeta::new_readonly(volatility, false),
         ],
         data,
     };

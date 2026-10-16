@@ -14,6 +14,7 @@
 
 pub mod fixed;
 pub mod quote;
+pub mod volatility;
 pub mod wide;
 
 pub use fixed::{
@@ -24,6 +25,11 @@ pub use quote::{
     base_capacity_from_inverse_sqrts, deposit_shares, fee_amount, first_deposit_shares,
     inv_sqrt_is_conservative, inv_sqrt_q64_ceil, mean_price_q64, walk_ladder, withdrawal_amounts,
     Level, Side, SwapResult,
+};
+pub use volatility::{
+    pow_bps as volatility_pow_bps, sigma_short_q64, steps_from_millis, update as volatility_update,
+    update_with_dt as volatility_update_with_dt, VolatilityState, DEFAULT_JUMP_MULTIPLE,
+    DEFAULT_LAMBDA_MEDIUM_BPS, DEFAULT_LAMBDA_SHORT_BPS, MAX_EWMA_STEPS,
 };
 
 /// Basis-point denominator: 1 bps = 1/10,000.

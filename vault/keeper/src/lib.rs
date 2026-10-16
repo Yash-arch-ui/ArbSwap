@@ -77,6 +77,12 @@ impl VolatilityState {
     /// previous tick. The decay is `lambda^n` (n = whole seconds, rounded) and
     /// the innovation is the per-second variance `r²/n`, so an irregularly
     /// sampled path estimates the same per-second volatility as a 1 s path.
+    ///
+    /// Delegates to the canonical `arb_math::volatility` module so the keeper
+    /// and the program share one implementation (see
+    /// `docs/VOLATILITY_MATH_SPEC.md`). The keeper's public contract stays
+    /// infallible: an invalid observation (zero price, overflow) leaves the
+    /// state unchanged.
     pub fn update_with_dt(
         self,
         price_q64: u128,
@@ -85,61 +91,34 @@ impl VolatilityState {
         medium_lambda_bps: u32,
         jump_multiple: u128,
     ) -> Self {
-        if self.previous_price_q64 == 0 {
-            return Self {
-                previous_price_q64: price_q64,
-                ..self
-            };
-        }
-        let ret = if price_q64 >= self.previous_price_q64 {
-            ((price_q64 - self.previous_price_q64) << 64) / self.previous_price_q64
-        } else {
-            ((self.previous_price_q64 - price_q64) << 64) / self.previous_price_q64
+        let previous = arb_math::volatility::VolatilityState {
+            variance_short_q64: self.variance_short_q64,
+            variance_medium_q64: self.variance_medium_q64,
+            last_price_q64: self.previous_price_q64,
+            jump: self.jump,
         };
-        let ret2 = mul_q64(ret, ret);
-        let n = ((dt_millis + 500) / 1_000).max(1) as u32;
-        let ret2_per_second = ret2 / n as u128;
-        let short = ewma_dt(
-            self.variance_short_q64,
-            ret2_per_second,
+        match arb_math::volatility::update_with_dt(
+            previous,
+            price_q64,
+            dt_millis,
             short_lambda_bps,
-            n,
-        );
-        let medium = ewma_dt(
-            self.variance_medium_q64,
-            ret2_per_second,
             medium_lambda_bps,
-            n,
-        );
-        let sigma = sqrt_q64(short).unwrap_or(u128::MAX);
-        Self {
-            variance_short_q64: short,
-            variance_medium_q64: medium,
-            previous_price_q64: price_q64,
-            jump: sigma > 0 && ret > sigma.saturating_mul(jump_multiple),
+            jump_multiple,
+            arb_math::volatility::MAX_EWMA_STEPS,
+        ) {
+            Ok(next) => Self {
+                variance_short_q64: next.variance_short_q64,
+                variance_medium_q64: next.variance_medium_q64,
+                previous_price_q64: next.last_price_q64,
+                jump: next.jump,
+            },
+            Err(_) => self,
         }
     }
 
     pub fn sigma_q64(self) -> u128 {
         sqrt_q64(self.variance_short_q64).unwrap_or(u128::MAX)
     }
-}
-
-/// `lambda^n` in bps (lambda in bps, n whole steps).
-fn pow_bps(lambda_bps: u32, n: u32) -> u32 {
-    let mut decay: u128 = BPS;
-    for _ in 0..n {
-        decay = decay * lambda_bps as u128 / BPS;
-    }
-    decay as u32
-}
-
-/// One EWMA step with an `n`-second decay: `decay·old + (1-decay)·sample`.
-fn ewma_dt(old: u128, sample: u128, lambda_bps: u32, n: u32) -> u128 {
-    let decay_bps = pow_bps(lambda_bps, n);
-    let decay = ((decay_bps as u128) << 64) / BPS;
-    let one_minus = ((BPS - decay_bps as u128) << 64) / BPS;
-    mul_q64(decay, old).saturating_add(mul_q64(one_minus, sample))
 }
 
 fn mul_q64(a: u128, b: u128) -> u128 {
@@ -1224,6 +1203,11 @@ pub struct UpdateQuotePlan {
     /// token-unit price on-chain from the real decimals.
     pub base_mint: Address,
     pub quote_mint: Address,
+    /// Vault-bound volatility PDA `[b"vol", vault]`. `None` against a program
+    /// build that predates the account (omitted from the meta list); `Some`
+    /// once the account exists on-chain, so a post-upgrade program's required
+    /// account is always supplied.
+    pub volatility_state: Option<Address>,
     pub recent_blockhash: Hash,
     pub compute_unit_limit: u32,
 }
@@ -1238,20 +1222,24 @@ pub fn build_update_quote_transaction(
     priority_fee_micro_lamports_per_cu: u64,
 ) -> Transaction {
     let data = encode_update_quote_instruction(quote);
+    let mut accounts = vec![
+        AccountMeta::new(plan.keeper, true),
+        AccountMeta::new(plan.vault, false),
+        AccountMeta::new_readonly(plan.config, false),
+        AccountMeta::new(plan.quote_state, false),
+        AccountMeta::new_readonly(plan.price_update, false),
+        AccountMeta::new_readonly(plan.keeper_bond, false),
+        AccountMeta::new_readonly(plan.base_reserve, false),
+        AccountMeta::new_readonly(plan.quote_reserve, false),
+        AccountMeta::new_readonly(plan.base_mint, false),
+        AccountMeta::new_readonly(plan.quote_mint, false),
+    ];
+    if let Some(volatility_state) = plan.volatility_state {
+        accounts.push(AccountMeta::new_readonly(volatility_state, false));
+    }
     let update_quote = Instruction {
         program_id: plan.program_id,
-        accounts: vec![
-            AccountMeta::new(plan.keeper, true),
-            AccountMeta::new(plan.vault, false),
-            AccountMeta::new_readonly(plan.config, false),
-            AccountMeta::new(plan.quote_state, false),
-            AccountMeta::new_readonly(plan.price_update, false),
-            AccountMeta::new_readonly(plan.keeper_bond, false),
-            AccountMeta::new_readonly(plan.base_reserve, false),
-            AccountMeta::new_readonly(plan.quote_reserve, false),
-            AccountMeta::new_readonly(plan.base_mint, false),
-            AccountMeta::new_readonly(plan.quote_mint, false),
-        ],
+        accounts,
         data,
     };
     let instructions = vec![
@@ -1283,6 +1271,10 @@ pub struct StageQuotePlan {
     pub base_reserve: Address,
     pub quote_reserve: Address,
     pub keeper_bond: Address,
+    /// Vault-bound volatility PDA; see `UpdateQuotePlan::volatility_state`. When
+    /// present it is inserted immediately before `system_program` to match the
+    /// program's declared account order.
+    pub volatility_state: Option<Address>,
     pub system_program: Address,
     pub recent_blockhash: Hash,
     pub compute_unit_limit: u32,
@@ -1298,19 +1290,23 @@ pub fn build_stage_quote_transaction(
     priority_fee_micro_lamports_per_cu: u64,
 ) -> Transaction {
     let data = encode_stage_quote_instruction(quote, nonce);
+    let mut accounts = vec![
+        AccountMeta::new(plan.keeper, true),
+        AccountMeta::new_readonly(plan.vault, false),
+        AccountMeta::new_readonly(plan.config, false),
+        AccountMeta::new_readonly(plan.quote_state, false),
+        AccountMeta::new(plan.pending_quote, false),
+        AccountMeta::new_readonly(plan.base_reserve, false),
+        AccountMeta::new_readonly(plan.quote_reserve, false),
+        AccountMeta::new_readonly(plan.keeper_bond, false),
+    ];
+    if let Some(volatility_state) = plan.volatility_state {
+        accounts.push(AccountMeta::new_readonly(volatility_state, false));
+    }
+    accounts.push(AccountMeta::new_readonly(plan.system_program, false));
     let stage = Instruction {
         program_id: plan.program_id,
-        accounts: vec![
-            AccountMeta::new(plan.keeper, true),
-            AccountMeta::new_readonly(plan.vault, false),
-            AccountMeta::new_readonly(plan.config, false),
-            AccountMeta::new_readonly(plan.quote_state, false),
-            AccountMeta::new(plan.pending_quote, false),
-            AccountMeta::new_readonly(plan.base_reserve, false),
-            AccountMeta::new_readonly(plan.quote_reserve, false),
-            AccountMeta::new_readonly(plan.keeper_bond, false),
-            AccountMeta::new_readonly(plan.system_program, false),
-        ],
+        accounts,
         data,
     };
     let instructions = vec![
@@ -1344,28 +1340,123 @@ pub struct CommitQuotePlan {
     pub keeper_bond: Address,
     pub base_mint: Address,
     pub quote_mint: Address,
+    /// Vault-bound volatility PDA; see `UpdateQuotePlan::volatility_state`.
+    pub volatility_state: Option<Address>,
 }
 
 /// S2-11: the `commit_quote` instruction (no compute budget). Pair it with the
 /// fresh Pyth price-update instruction in the same transaction.
 pub fn build_commit_quote_instruction(plan: &CommitQuotePlan, nonce: u64) -> Instruction {
+    let mut accounts = vec![
+        AccountMeta::new(plan.keeper, true),
+        AccountMeta::new_readonly(plan.vault, false),
+        AccountMeta::new_readonly(plan.config, false),
+        AccountMeta::new(plan.quote_state, false),
+        AccountMeta::new(plan.pending_quote, false),
+        AccountMeta::new_readonly(plan.price_update, false),
+        AccountMeta::new_readonly(plan.base_reserve, false),
+        AccountMeta::new_readonly(plan.quote_reserve, false),
+        AccountMeta::new_readonly(plan.keeper_bond, false),
+        AccountMeta::new_readonly(plan.base_mint, false),
+        AccountMeta::new_readonly(plan.quote_mint, false),
+    ];
+    if let Some(volatility_state) = plan.volatility_state {
+        accounts.push(AccountMeta::new_readonly(volatility_state, false));
+    }
     Instruction {
         program_id: plan.program_id,
+        accounts,
+        data: encode_commit_quote_instruction(nonce),
+    }
+}
+
+/// The vault-bound volatility PDA `[b"vol", vault]`.
+pub fn volatility_pda(vault: &Address, program_id: &Address) -> Address {
+    Address::find_program_address(&[b"vol", vault.as_ref()], program_id).0
+}
+
+/// Everything needed to build a permissionless `observe_volatility`
+/// transaction. The observer only funds it and gains no authority.
+#[derive(Clone, Debug)]
+pub struct ObserveVolatilityPlan {
+    pub program_id: Address,
+    pub observer: Address,
+    pub vault: Address,
+    pub config: Address,
+    pub volatility_state: Address,
+    pub price_update: Address,
+    pub base_mint: Address,
+    pub quote_mint: Address,
+    pub recent_blockhash: Hash,
+    pub compute_unit_limit: u32,
+}
+
+/// The `observe_volatility()` payload: discriminator only (no arguments).
+pub fn encode_observe_volatility_instruction() -> Vec<u8> {
+    Sha256::digest(b"global:observe_volatility")[..8].to_vec()
+}
+
+/// Build the signed `observe_volatility` transaction: a compute-budget limit and
+/// price instruction followed by the observation. Kept separate from
+/// `update_quote` so a rejected quote can never roll back a valid observation.
+pub fn build_observe_volatility_transaction(
+    plan: &ObserveVolatilityPlan,
+    observer: &Keypair,
+    priority_fee_micro_lamports_per_cu: u64,
+) -> Transaction {
+    let observe = Instruction {
+        program_id: plan.program_id,
         accounts: vec![
-            AccountMeta::new(plan.keeper, true),
+            AccountMeta::new(plan.observer, true),
             AccountMeta::new_readonly(plan.vault, false),
             AccountMeta::new_readonly(plan.config, false),
-            AccountMeta::new(plan.quote_state, false),
-            AccountMeta::new(plan.pending_quote, false),
+            AccountMeta::new(plan.volatility_state, false),
             AccountMeta::new_readonly(plan.price_update, false),
-            AccountMeta::new_readonly(plan.base_reserve, false),
-            AccountMeta::new_readonly(plan.quote_reserve, false),
-            AccountMeta::new_readonly(plan.keeper_bond, false),
             AccountMeta::new_readonly(plan.base_mint, false),
             AccountMeta::new_readonly(plan.quote_mint, false),
         ],
-        data: encode_commit_quote_instruction(nonce),
-    }
+        data: encode_observe_volatility_instruction(),
+    };
+    let instructions = vec![
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+            plan.compute_unit_limit,
+        ),
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_price(
+            priority_fee_micro_lamports_per_cu,
+        ),
+        observe,
+    ];
+    let mut transaction = Transaction::new_with_payer(&instructions, Some(&plan.observer));
+    #[allow(clippy::clone_on_copy)]
+    transaction.sign(&[observer], plan.recent_blockhash.clone());
+    transaction
+}
+
+/// Keeper-side mirror of the program's volatility spread floor and depth cap,
+/// so a keeper proposes a quote the program accepts instead of discovering it
+/// via a rejected transaction. `sigma_bps` is the on-chain sigma in bps and
+/// `mult` is 1 (calm) or `jump_multiple` (active jump). Returns
+/// `(half_spread_floor_bps, depth_cap_bps)`.
+pub fn volatility_spread_depth(
+    sigma_bps: u128,
+    mult: u128,
+    spread_coeff_bps: u32,
+    depth_coeff_bps: u32,
+    min_spread_bps: u32,
+) -> (u32, u32) {
+    let effective = sigma_bps.saturating_mul(mult);
+    let vol_floor = mul_bps_ceil(effective, spread_coeff_bps as u128);
+    let floor = (min_spread_bps as u128)
+        .max(vol_floor)
+        .min(u32::MAX as u128) as u32;
+    let depth_cut = mul_bps_ceil(effective, depth_coeff_bps as u128).min(10_000);
+    let cap = (10_000u128).saturating_sub(depth_cut) as u32;
+    (floor, cap)
+}
+
+/// `ceil(a * bps / 10_000)` in u128; mirrors the program helper.
+fn mul_bps_ceil(a: u128, bps: u128) -> u128 {
+    a.saturating_mul(bps).saturating_add(9_999) / 10_000
 }
 
 /// A keeper sender for a live RPC: the caller injects the transport (a closure
@@ -1625,6 +1716,7 @@ mod tests {
             quote_reserve: Address::new_from_array([8u8; 32]),
             base_mint: Address::new_from_array([9u8; 32]),
             quote_mint: Address::new_from_array([10u8; 32]),
+            volatility_state: None,
             recent_blockhash: Hash::default(),
             compute_unit_limit: 60_000,
         };
@@ -1689,6 +1781,7 @@ mod tests {
             quote_reserve: Address::new_from_array([8u8; 32]),
             base_mint: Address::new_from_array([9u8; 32]),
             quote_mint: Address::new_from_array([10u8; 32]),
+            volatility_state: None,
             recent_blockhash: Hash::default(),
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
         };
@@ -1770,6 +1863,7 @@ mod tests {
             base_reserve: Address::new_from_array([7u8; 32]),
             quote_reserve: Address::new_from_array([8u8; 32]),
             keeper_bond: Address::new_from_array([6u8; 32]),
+            volatility_state: None,
             system_program: Address::default(),
             recent_blockhash: Hash::default(),
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
@@ -1814,12 +1908,152 @@ mod tests {
             keeper_bond: Address::new_from_array([10u8; 32]),
             base_mint: Address::new_from_array([11u8; 32]),
             quote_mint: Address::new_from_array([12u8; 32]),
+            volatility_state: None,
         };
         let ix = build_commit_quote_instruction(&plan, 9);
         assert_eq!(ix.accounts.len(), 11);
         assert!(ix.accounts[0].is_signer);
         assert!(ix.accounts[3].is_writable);
         assert_eq!(ix.data, encode_commit_quote_instruction(9));
+    }
+
+    #[test]
+    fn commit_quote_appends_required_volatility_account() {
+        let mut plan = CommitQuotePlan {
+            program_id: Address::new_from_array([1u8; 32]),
+            keeper: Address::new_from_array([2u8; 32]),
+            vault: Address::new_from_array([3u8; 32]),
+            config: Address::new_from_array([4u8; 32]),
+            quote_state: Address::new_from_array([5u8; 32]),
+            pending_quote: Address::new_from_array([6u8; 32]),
+            price_update: Address::new_from_array([7u8; 32]),
+            base_reserve: Address::new_from_array([8u8; 32]),
+            quote_reserve: Address::new_from_array([9u8; 32]),
+            keeper_bond: Address::new_from_array([10u8; 32]),
+            base_mint: Address::new_from_array([11u8; 32]),
+            quote_mint: Address::new_from_array([12u8; 32]),
+            volatility_state: None,
+        };
+        assert_eq!(build_commit_quote_instruction(&plan, 9).accounts.len(), 11);
+        let vol = Address::new_from_array([13u8; 32]);
+        plan.volatility_state = Some(vol);
+        let ix = build_commit_quote_instruction(&plan, 9);
+        assert_eq!(ix.accounts.len(), 12);
+        assert_eq!(ix.accounts[11].pubkey, vol);
+        assert!(!ix.accounts[11].is_writable);
+    }
+
+    #[test]
+    fn stage_quote_inserts_volatility_before_system_program() {
+        use solana_signer::Signer;
+        let keeper = Keypair::new();
+        let mut plan = StageQuotePlan {
+            program_id: Address::new_from_array([1u8; 32]),
+            keeper: keeper.pubkey(),
+            vault: Address::new_from_array([3u8; 32]),
+            config: Address::new_from_array([4u8; 32]),
+            quote_state: Address::new_from_array([5u8; 32]),
+            pending_quote: Address::new_from_array([6u8; 32]),
+            base_reserve: Address::new_from_array([7u8; 32]),
+            quote_reserve: Address::new_from_array([8u8; 32]),
+            keeper_bond: Address::new_from_array([9u8; 32]),
+            volatility_state: Some(Address::new_from_array([13u8; 32])),
+            system_program: Address::default(),
+            recent_blockhash: Hash::default(),
+            compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
+        };
+        let quote = compute_quote(
+            OracleTick {
+                slot: 1,
+                publish_time: 1,
+                price_q64: 150 * Q64,
+                confidence_bps: 1,
+            },
+            VolatilityState::default(),
+            1_000,
+            150_000,
+            0,
+            0,
+            KeeperParams::default(),
+        )
+        .unwrap();
+        let tx = build_stage_quote_transaction(&plan, &keeper, &quote, 1, 1_000);
+        // Budget, priority fee, stage: the stage ix is last.
+        let stage_ix = &tx.message.instructions[2];
+        let keys = &tx.message.account_keys;
+        let last = keys[stage_ix.accounts[stage_ix.accounts.len() - 1] as usize];
+        assert_eq!(last, Address::default(), "system_program stays last");
+        let vol_pos = stage_ix.accounts.len() - 2;
+        assert_eq!(
+            keys[stage_ix.accounts[vol_pos] as usize],
+            plan.volatility_state.unwrap()
+        );
+
+        // Without a volatility account the stage ix still ends at system_program.
+        plan.volatility_state = None;
+        let tx = build_stage_quote_transaction(&plan, &keeper, &quote, 1, 1_000);
+        let stage_ix = &tx.message.instructions[2];
+        let keys = &tx.message.account_keys;
+        let last = keys[stage_ix.accounts[stage_ix.accounts.len() - 1] as usize];
+        assert_eq!(last, Address::default(), "system_program stays last");
+    }
+
+    #[test]
+    fn volatility_pda_is_vault_bound_and_deterministic() {
+        let program_id = Address::new_from_array([7u8; 32]);
+        let v1 = Address::new_from_array([1u8; 32]);
+        let v2 = Address::new_from_array([2u8; 32]);
+        assert_eq!(
+            volatility_pda(&v1, &program_id),
+            volatility_pda(&v1, &program_id)
+        );
+        assert_ne!(
+            volatility_pda(&v1, &program_id),
+            volatility_pda(&v2, &program_id)
+        );
+    }
+
+    #[test]
+    fn volatility_spread_depth_mirrors_program_formula() {
+        // sigma_bps = 10_000, no jump, coeffs spread 1_000 / depth 2_000.
+        let (floor, cap) = volatility_spread_depth(10_000, 1, 1_000, 2_000, 2);
+        assert_eq!(floor, 1_000);
+        assert_eq!(cap, 8_000);
+        // min_spread dominates when it exceeds the volatility floor.
+        let (floor, _) = volatility_spread_depth(0, 1, 1_000, 0, 25);
+        assert_eq!(floor, 25);
+        // A jump multiplies effective sigma before the coefficients apply.
+        let (jump_floor, jump_cap) = volatility_spread_depth(10_000, 4, 1_000, 2_000, 2);
+        assert_eq!(jump_floor, 4_000);
+        assert_eq!(jump_cap, 2_000);
+    }
+
+    #[test]
+    fn observe_volatility_transaction_has_expected_shape() {
+        use solana_signer::Signer;
+        let observer = Keypair::new();
+        let plan = ObserveVolatilityPlan {
+            program_id: Address::new_from_array([1u8; 32]),
+            observer: observer.pubkey(),
+            vault: Address::new_from_array([2u8; 32]),
+            config: Address::new_from_array([3u8; 32]),
+            volatility_state: Address::new_from_array([4u8; 32]),
+            price_update: Address::new_from_array([5u8; 32]),
+            base_mint: Address::new_from_array([6u8; 32]),
+            quote_mint: Address::new_from_array([7u8; 32]),
+            recent_blockhash: Hash::default(),
+            compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
+        };
+        let tx = build_observe_volatility_transaction(&plan, &observer, 1_000);
+        assert_eq!(tx.message.instructions.len(), 3);
+        let observe = &tx.message.instructions[2];
+        assert_eq!(observe.data, encode_observe_volatility_instruction());
+        assert_eq!(observe.accounts.len(), 7);
+        assert_eq!(
+            tx.message.account_keys[observe.accounts[0] as usize],
+            observer.pubkey(),
+            "the observer signs first"
+        );
     }
 
     #[test]
@@ -1865,6 +2099,7 @@ mod tests {
             quote_reserve: Address::new_from_array([8u8; 32]),
             base_mint: Address::new_from_array([9u8; 32]),
             quote_mint: Address::new_from_array([10u8; 32]),
+            volatility_state: None,
             recent_blockhash: Hash::default(),
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
         };
@@ -2356,6 +2591,7 @@ mod tests {
             quote_reserve: Address::new_from_array([8u8; 32]),
             base_mint: Address::new_from_array([9u8; 32]),
             quote_mint: Address::new_from_array([10u8; 32]),
+            volatility_state: None,
             recent_blockhash: Hash::new_from_array([9u8; 32]),
             compute_unit_limit: MAX_UPDATE_COMPUTE_UNITS,
         };

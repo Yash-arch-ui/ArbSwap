@@ -239,6 +239,12 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const pollDelayRef = useRef(POLL_BASE_MS);
   const pausedRef = useRef(false);
   const lastSuccessMsRef = useRef<number | null>(null);
+  // Last-known position values, so a transient RPC failure never renders an
+  // existing share balance / ticket as "none".
+  const sharesRef = useRef<bigint | null>(null);
+  const depRef = useRef<DepositTicketView | null>(null);
+  const wdRef = useRef<WithdrawTicketView | null>(null);
+  const currentSlotRef = useRef(0);
 
   const refreshBalances = useCallback(async () => {
     if (!publicKey) {
@@ -253,21 +259,39 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const balances = await RPC_FAILOVER.runKeyed(`walletBalances:${publicKey.toBase58()}`, (c) =>
         loadWalletBalances(c, publicKey),
       );
-      const shares = await RPC_FAILOVER
-        .runKeyed(`shareBalance:${publicKey.toBase58()}`, (c) => fetchShareBalance(c, publicKey))
-        .catch(() => null);
       setTokens((prev) => ({
         SOL: { ...prev.SOL, balance: Number(balances.base.toFixed(4)) },
         USDC: { ...prev.USDC, balance: Number(balances.quote.toFixed(2)) },
       }));
       setWalletAtoms({ base: balances.baseAtoms, quote: balances.quoteAtoms, sol: balances.solAtoms });
-      setShareBalanceAtoms(shares);
       setBalancesSource(
         liveSource<WalletBalances>(
           { base: balances.baseAtoms, quote: balances.quoteAtoms, sol: balances.sol, solAtoms: balances.solAtoms },
           Date.now(),
         ),
       );
+      // Position (share balance + tickets) is fetched independently of the
+      // wallet-balance sub-read: a transient RPC failure retains the last-known
+      // value rather than rendering an existing position as "none", and a missing
+      // account (a user who never deposited) still reads as null.
+      try {
+        const shares = await RPC_FAILOVER.runKeyed(`shareBalance:${publicKey.toBase58()}`, (c) => fetchShareBalance(c, publicKey));
+        setShareBalanceAtoms(shares);
+        sharesRef.current = shares;
+      } catch { /* keep last-known share balance */ }
+      try {
+        const dt = await RPC_FAILOVER.runKeyed(`depositTicket:${publicKey.toBase58()}`, (c) => fetchDepositTicket(c, publicKey));
+        const activate = Number((dt?.activateSlot as { toString(): string } | undefined)?.toString() ?? '0');
+        const dep = dt ? { shares: BigInt((dt.shares as { toString(): string }).toString()), activateSlot: activate, active: currentSlotRef.current >= activate } : null;
+        setDepositTicket(dep);
+        depRef.current = dep;
+      } catch { /* keep last-known deposit ticket */ }
+      try {
+        const wt = await RPC_FAILOVER.runKeyed(`withdrawTicket:${publicKey.toBase58()}`, (c) => fetchWithdrawTicket(c, publicKey));
+        const wd = wt ? { shares: BigInt((wt.shares as { toString(): string }).toString()), requestedEpoch: Number((wt.epoch as { toString(): string } | undefined)?.toString() ?? '0') } : null;
+        setWithdrawTicket(wd);
+        wdRef.current = wd;
+      } catch { /* keep last-known withdraw ticket */ }
     } catch (error) {
       const { kind, reason } = sourceErrorFromException(error);
       setBalancesSource((prev) =>
@@ -317,12 +341,16 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
       }
       setCurrentSlot((prev) => (prev === 0 ? slot : prev));
+      currentSlotRef.current = currentSlotRef.current === 0 ? slot : currentSlotRef.current;
       setBlockTime(extra.blockTime);
       setGenesisVerified(extra.genesisVerified);
       setProgramVerified(extra.programVerified);
       setShareBalanceAtoms(extra.shares);
+      sharesRef.current = extra.shares;
       setDepositTicket(extra.dep);
+      depRef.current = extra.dep;
       setWithdrawTicket(extra.wd);
+      wdRef.current = extra.wd;
       setTokens((prev) => ({
         SOL: { ...prev.SOL, priceUsd: quote.oraclePrice || prev.SOL.priceUsd },
         USDC: { ...prev.USDC, priceUsd: 1 },
@@ -464,29 +492,35 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (seq !== refreshSeqRef.current) return;
       lastGoodRef.current = { state, slot };
 
-      let shares: bigint | null = null;
-      let dep: DepositTicketView | null = null;
-      let wd: WithdrawTicketView | null = null;
+      // Start from last-known values; overwrite only on a successful read (or a
+      // confirmed-absent account). A transient RPC failure must never turn an
+      // existing position into "none".
+      let shares: bigint | null = sharesRef.current;
+      let dep: DepositTicketView | null = depRef.current;
+      let wd: WithdrawTicketView | null = wdRef.current;
       if (publicKey && state.vaultData) {
-        shares = await RPC_FAILOVER
-          .runKeyed(`shareBalance:${publicKey.toBase58()}`, (c) => fetchShareBalance(c, publicKey))
-          .catch(() => null);
-        const dt = await RPC_FAILOVER
-          .runKeyed(`depositTicket:${publicKey.toBase58()}`, (c) => fetchDepositTicket(c, publicKey))
-          .catch(() => null);
-        if (dt) {
-          const activate = Number((dt.activateSlot as { toString(): string } | undefined)?.toString() ?? '0');
-          dep = { shares: BigInt((dt.shares as { toString(): string }).toString()), activateSlot: activate, active: slot >= activate };
-        }
-        const wt = await RPC_FAILOVER
-          .runKeyed(`withdrawTicket:${publicKey.toBase58()}`, (c) => fetchWithdrawTicket(c, publicKey))
-          .catch(() => null);
-        if (wt) {
-          wd = {
-            shares: BigInt((wt.shares as { toString(): string }).toString()),
-            requestedEpoch: Number((wt.epoch as { toString(): string } | undefined)?.toString() ?? '0'),
-          };
-        }
+        try {
+          shares = await RPC_FAILOVER.runKeyed(`shareBalance:${publicKey.toBase58()}`, (c) => fetchShareBalance(c, publicKey));
+        } catch { shares = sharesRef.current; }
+        try {
+          const dt = await RPC_FAILOVER.runKeyed(`depositTicket:${publicKey.toBase58()}`, (c) => fetchDepositTicket(c, publicKey));
+          if (dt) {
+            const activate = Number((dt.activateSlot as { toString(): string } | undefined)?.toString() ?? '0');
+            dep = { shares: BigInt((dt.shares as { toString(): string }).toString()), activateSlot: activate, active: slot >= activate };
+          } else {
+            dep = null;
+          }
+        } catch { dep = depRef.current; }
+        try {
+          const wt = await RPC_FAILOVER.runKeyed(`withdrawTicket:${publicKey.toBase58()}`, (c) => fetchWithdrawTicket(c, publicKey));
+          wd = wt
+            ? { shares: BigInt((wt.shares as { toString(): string }).toString()), requestedEpoch: Number((wt.epoch as { toString(): string } | undefined)?.toString() ?? '0') }
+            : null;
+        } catch { wd = wdRef.current; }
+      } else {
+        shares = null;
+        dep = null;
+        wd = null;
       }
       if (seq !== refreshSeqRef.current) return;
       const bt = slot > 0
