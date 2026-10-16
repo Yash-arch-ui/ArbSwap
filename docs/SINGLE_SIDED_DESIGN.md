@@ -6,6 +6,14 @@ instructions (`deposit_single`, `claim_withdraw_single`), two events
 (`DepositSingleEvent`, `WithdrawSingleEvent`), no account-layout change, no
 redeploy in this window (program-upgrade remains a gated Task 6 action).
 
+Status (frontend): **wired behind `VITE_ENABLE_SINGLE_SIDED` (default off)** —
+`app/src/chain/singleSided.ts` mirrors `single_eval`/`solve_deposit_single` and
+the `claim_withdraw_single` amount plan with integer arithmetic and uses golden
+vectors emitted by the program's own unit tests; `app/src/pages/VaultPage.tsx`
+exposes Deposit "Deposit with" and Withdraw "Receive as" toggles with a
+build → simulate → preview → confirm flow that re-reads the quote at submission.
+See `docs/DECISIONS.md` D-017.
+
 Two deviations from the text below, applied during implementation:
 `deposit_single` transfers the **full** `amount_in` in one transfer (the §1.1
 "only `dB` is pulled" wording was a leftover error — pulling only `dB` breaks

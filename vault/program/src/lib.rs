@@ -4516,4 +4516,181 @@ mod tests {
         // 32 + 8 + params (52) + enabled (1) + bump (1).
         assert_eq!(PENDING_VOLATILITY_LEN, 94);
     }
+
+    /// A `QuoteState` with one valid ladder level on each side (price in [1, 4]),
+    /// used to produce integer golden vectors for the frontend mirror.
+    fn single_sided_vector_state() -> QuoteState {
+        let level = Level {
+            offset_bps: 0,
+            weight_bps: 10_000,
+            sqrt_lo: 1u128 << 64,
+            sqrt_hi: 2u128 << 64,
+            liquidity: 10u128.pow(28),
+        };
+        let mut ask = [Level::default(); LEVELS];
+        let mut bid = [Level::default(); LEVELS];
+        ask[0] = level;
+        bid[0] = level;
+        QuoteState {
+            version: 1,
+            update_slot: 0,
+            expiry_slot: 0,
+            anchor_sqrt_price: 0,
+            p_res_sqrt: 0,
+            half_spread_bps: 0,
+            ask_extra_bps: 0,
+            bid_extra_bps: 0,
+            depth_mult_bps: 10_000,
+            window_start_slot: 0,
+            window_base_sold: 0,
+            window_base_bought: 0,
+            oracle_publish_time: 0,
+            oracle_conf_bps: 0,
+            oracle_price: 0,
+            edge_window_start_slot: 0,
+            realized_edge: 0,
+            flow_n: 0,
+            ask_levels: ask,
+            bid_levels: bid,
+            bump: 0,
+            keeper: Pubkey::default(),
+        }
+    }
+
+    /// A `Config` with only `fee_bps` relevant to the single-sided solver.
+    fn single_sided_vector_config() -> Config {
+        Config {
+            admin: Pubkey::default(),
+            keeper: Pubkey::default(),
+            treasury: Pubkey::default(),
+            pyth_feed_id: [0u8; 32],
+            fee_bps: 30,
+            insurance_bps: 3333,
+            keeper_bps: 3333,
+            protocol_bps: 3334,
+            min_liquidity: 0,
+            warmup_slots: 0,
+            epoch_slots: 216_000,
+            grace_slots: 9_000,
+            expiry_slots: 120,
+            max_staleness_seconds: 2,
+            max_conf_bps: 10,
+            max_anchor_step_bps: 50,
+            max_spread_step_bps: 10,
+            min_spread_bps: 2,
+            max_spread_bps: 50,
+            max_quote_size: 1_000_000_000,
+            max_inventory_bps: 6000,
+            utilization_max_bps: 9000,
+            min_bond: 0,
+            unbond_cooldown_slots: 216_000,
+            max_update_slot_age: 25,
+            edge_window_slots: 216_000,
+            max_edge_loss_bps: 50,
+            max_anchor_dev_bps: 25,
+            flow_window_slots: 216_000,
+            max_window_flow_bps: 10_000,
+            pending_admin: Pubkey::default(),
+            admin_activate_slot: 0,
+            bump: 0,
+        }
+    }
+
+    #[test]
+    fn single_sided_golden_vectors() {
+        let qs = single_sided_vector_state();
+        let config = single_sided_vector_config();
+        let (fee_bps, amount_in, base_net, quote_net, total_shares) = (
+            30u16,
+            100_000_000u64,
+            1_000_000_000u64,
+            2_000_000_000u64,
+            1_000_000_000u64,
+        );
+        assert_eq!(config.fee_bps, fee_bps);
+        for (name, side) in [
+            ("sellBase", SwapSide::SellBase),
+            ("buyBase", SwapSide::BuyBase),
+        ] {
+            let plan = solve_deposit_single(
+                &config,
+                &qs,
+                side,
+                amount_in,
+                base_net,
+                quote_net,
+                total_shares,
+            )
+            .expect("vector must be feasible");
+            println!(
+                "VECTOR {name} s={} fee={} swap_out={} db={} dq={} shares={} diff={}",
+                plan.s, plan.fee, plan.swap_out, plan.db, plan.dq, plan.shares, plan.diff
+            );
+            // Conservation and no-dilution invariants, independent of the exact root.
+            assert_eq!(
+                plan.fee as u128,
+                ((plan.s as u128 * fee_bps as u128) + 9_999) / 10_000
+            );
+            match side {
+                SwapSide::SellBase => {
+                    assert_eq!(plan.db + plan.s, amount_in);
+                    assert_eq!(plan.dq, plan.swap_out);
+                    let by_base = plan.db as u128 * total_shares as u128
+                        / (base_net as u128 + (plan.s - plan.fee) as u128);
+                    let by_quote = plan.dq as u128 * total_shares as u128
+                        / (quote_net as u128 - plan.swap_out as u128);
+                    assert!(plan.shares as u128 <= by_base && plan.shares as u128 <= by_quote);
+                }
+                SwapSide::BuyBase => {
+                    assert_eq!(plan.dq + plan.s, amount_in);
+                    assert_eq!(plan.db, plan.swap_out);
+                    let by_base = plan.db as u128 * total_shares as u128
+                        / (base_net as u128 - plan.swap_out as u128);
+                    let by_quote = plan.dq as u128 * total_shares as u128
+                        / (quote_net as u128 + (plan.s - plan.fee) as u128);
+                    assert!(plan.shares as u128 <= by_base && plan.shares as u128 <= by_quote);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn single_sided_withdraw_golden_vectors() {
+        let qs = single_sided_vector_state();
+        let (fee_bps, shares, total_shares, base_net, quote_net) = (
+            30u16,
+            100_000_000u64,
+            1_000_000_000u64,
+            1_000_000_000u64,
+            2_000_000_000u64,
+        );
+        let base_out = shares as u128 * base_net as u128 / total_shares as u128;
+        let quote_out = shares as u128 * quote_net as u128 / total_shares as u128;
+        for (name, side) in [
+            ("buyBase", SwapSide::BuyBase),
+            ("sellBase", SwapSide::SellBase),
+        ] {
+            let unwanted = match side {
+                SwapSide::BuyBase => quote_out,
+                SwapSide::SellBase => base_out,
+            } as u64;
+            let (fee, net) = charge_fee(unwanted, fee_bps).unwrap();
+            let converted = if net > 0 {
+                walk_committed_ladder(&qs, side, net).unwrap()
+            } else {
+                0
+            };
+            let payout = match side {
+                SwapSide::BuyBase => base_out as u64 + converted,
+                SwapSide::SellBase => quote_out as u64 + converted,
+            };
+            println!(
+                "WITHDRAW {name} base_out={base_out} quote_out={quote_out} unwanted={unwanted} fee={fee} net={net} converted={converted} payout={payout}"
+            );
+            assert_eq!(
+                fee as u128,
+                (unwanted as u128 * fee_bps as u128 + 9_999) / 10_000
+            );
+        }
+    }
 }

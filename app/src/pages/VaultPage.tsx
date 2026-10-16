@@ -3,18 +3,34 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { useProtocol } from '../context/ProtocolContext';
-import { deposit as depositOnChain, requestWithdraw as requestWithdrawOnChain, claimWithdraw as claimWithdrawOnChain, withdrawTicket as deriveWithdrawTicket, expectedDepositShares } from '../chain/program';
+import {
+  requestWithdraw as requestWithdrawOnChain,
+  withdrawTicket as deriveWithdrawTicket, expectedDepositShares,
+  buildDepositTransaction, buildClaimWithdrawTransaction,
+  buildDepositSingleTransaction, buildClaimWithdrawSingleTransaction,
+  crankEpoch, simulateSwap, fetchFreshQuote, sendSwapTransaction,
+} from '../chain/program';
 import { parseUnits, formatUnits } from '../chain/amounts';
-import { claimWithdrawState } from '../chain/gating';
-import { ACTIVE_VAULT, BASE_MINT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON, explorerTxUrl } from '../chain/config';
+import { claimWithdrawState, submitFreshnessReason } from '../chain/gating';
+import {
+  depositSinglePlan, withdrawSinglePlan, conversionImpactBps, minWithSlippage,
+  type SingleSide,
+} from '../chain/singleSided';
+import { maxGrossInput, quoteCountdown, type LadderLevel } from '../chain/swapMath';
+import {
+  ACTIVE_VAULT, BASE_MINT, TRANSACTIONS_ENABLED, TRANSACTION_DISABLED_REASON,
+  SINGLE_SIDED_ENABLED, SINGLE_SIDED_DISABLED_REASON, explorerTxUrl,
+} from '../chain/config';
 import { MIN_SOL_FOR_FEES } from '../chain/wrappedSol';
 import { NATIVE_MINT } from '@solana/spl-token';
 import { ReadOnlyBanner } from '../components/ReadOnlyMode';
+import type { Transaction } from '@solana/web3.js';
 
 export const VaultPage: React.FC = () => {
   const {
     vaultState,
     quoteState,
+    protocolParams,
     tokens,
     refreshBalances,
     refreshProtocol,
@@ -36,6 +52,29 @@ export const VaultPage: React.FC = () => {
   // Notice carries a severity so the UI never shows a success check on a failure.
   const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
+  // Task 4.1/4.2: single-sided deposit ("Deposit with") and withdrawal
+  // ("Receive as") are opt-in; 0.5% slippage is the documented default.
+  const [depositMode, setDepositMode] = useState<'both' | 'single'>('both');
+  const [depositInputSide, setDepositInputSide] = useState<SingleSide>('sellBase');
+  const [depositSingleAmount, setDepositSingleAmount] = useState<string>('0.1');
+  const [warmupAck, setWarmupAck] = useState(false);
+  const [withdrawMode, setWithdrawMode] = useState<'both' | 'single'>('both');
+  const [withdrawPayoutSide, setWithdrawPayoutSide] = useState<SingleSide>('buyBase');
+  // Task 4.1/4.2 default slippage floor (0.5%).
+  const slippageBps = 50;
+  const [isWorking, setIsWorking] = useState(false);
+  // Result of build + simulate, shown before any wallet prompt (Task 4.4).
+  const [depPreview, setDepPreview] = useState<{
+    tx: Transaction;
+    summary: string;
+    lines: string[];
+  } | null>(null);
+  const [claimPreview, setClaimPreview] = useState<{
+    tx: Transaction;
+    summary: string;
+    lines: string[];
+  } | null>(null);
+
 
   const disabledReason = TRANSACTION_DISABLED_REASON;
   const blocked = (): boolean => {
@@ -79,13 +118,103 @@ export const VaultPage: React.FC = () => {
       ? (Number(sharesToWithdrawAtoms) / 10 ** ACTIVE_VAULT.shareDecimals) * (vaultState.quoteReserve / vaultState.totalShares)
       : 0;
 
+  // ---- Task 4.1/4.2: single-sided plans (integer exact, mirrors the program) ----
+  const feeBps = protocolParams?.feeBps ?? 1;
+  const ladderLevelsFor = (side: SingleSide): LadderLevel[] => {
+    try {
+      // sellBase converts base (bid ladder); buyBase converts quote (ask ladder).
+      const raw = side === 'sellBase' ? quoteState.bidLevelsRaw : quoteState.askLevelsRaw;
+      return raw.map((l) => ({ sqrtLo: BigInt(l.sqrtLo), sqrtHi: BigInt(l.sqrtHi), liquidity: BigInt(l.liquidity) }));
+    } catch {
+      return [];
+    }
+  };
+  const depositInputDecimals = depositInputSide === 'sellBase' ? tokens.SOL.decimals : tokens.USDC.decimals;
+  const depositInputSymbol = depositInputSide === 'sellBase' ? tokens.SOL.symbol : tokens.USDC.symbol;
+  const depositDustSymbol = depositInputSide === 'sellBase' ? tokens.USDC.symbol : tokens.SOL.symbol;
+  const depositSingleAmountAtoms = (() => {
+    try { return parseUnits(depositSingleAmount || '0', depositInputDecimals); } catch { return 0n; }
+  })();
+  const depositLevels = ladderLevelsFor(depositInputSide);
+  const singleDeposit = vaultAtoms && quoteState.hasQuote
+    ? depositSinglePlan({
+        side: depositInputSide,
+        amountIn: depositSingleAmountAtoms,
+        feeBps,
+        baseNet: vaultAtoms.baseNet,
+        quoteNet: vaultAtoms.quoteNet,
+        totalShares: vaultAtoms.totalShares,
+        levels: depositLevels,
+      })
+    : null;
+  const singleDepositMinShares = minWithSlippage(singleDeposit?.shares ?? 0n, slippageBps);
+  const singleDepositMinSwapOut = minWithSlippage(singleDeposit?.swapOut ?? 0n, slippageBps);
+  const singleDepositImpact = singleDeposit
+    ? conversionImpactBps({
+        side: depositInputSide,
+        swapNet: singleDeposit.swapNet,
+        converted: singleDeposit.swapOut,
+        pResSqrtQ64: BigInt(quoteState.pResSqrt || '0'),
+      })
+    : null;
+  const depositSwapMax = maxGrossInput(depositLevels, depositInputSide, feeBps);
+  const depositCountdown = quoteCountdown(quoteState.expirySlot, quoteState.currentSlot);
+  const quoteFresh = quoteState.hasQuote && quoteState.status === 'Fresh';
+
+  const singleDepositReason =
+    !SINGLE_SIDED_ENABLED ? SINGLE_SIDED_DISABLED_REASON :
+    !TRANSACTIONS_ENABLED ? (TRANSACTION_DISABLED_REASON ?? 'Transactions are disabled in this build.') :
+    !vaultInitialized ? 'Vault not initialized.' :
+    !quoteFresh ? `Single-sided deposit needs a fresh quote (current: ${quoteState.hasQuote ? quoteState.status : 'Unavailable'}). ${depositCountdown.label}.` :
+    depositSingleAmountAtoms <= 0n ? 'Enter an amount.' :
+    singleDeposit === null
+      ? `No feasible single-sided deposit at this size (internal swap cannot balance).${depositSwapMax > 0n ? ` Max swap depth now: ${formatUnits(depositSwapMax, depositInputDecimals, 6)} ${depositInputSymbol}.` : ''}`
+      : !warmupAck ? 'Tick the warm-up notice before depositing.' :
+      null;
+
+  const withdrawSharesAtomsForPlan = sharesToWithdrawAtoms > 0n ? sharesToWithdrawAtoms : (withdrawTicket?.shares ?? 0n);
+  const singleWithdraw = withdrawTicket && vaultAtoms && quoteState.hasQuote
+    ? withdrawSinglePlan({
+        side: withdrawPayoutSide,
+        shares: withdrawSharesAtomsForPlan,
+        totalShares: vaultAtoms.totalShares,
+        baseNet: vaultAtoms.baseNet,
+        quoteNet: vaultAtoms.quoteNet,
+        feeBps,
+        levels: ladderLevelsFor(withdrawPayoutSide),
+      })
+    : null;
+  const withdrawPayoutSymbol = withdrawPayoutSide === 'buyBase' ? tokens.SOL.symbol : tokens.USDC.symbol;
+  const withdrawPayoutDecimals = withdrawPayoutSide === 'buyBase' ? tokens.SOL.decimals : tokens.USDC.decimals;
+  const singleWithdrawMinOut = minWithSlippage(singleWithdraw?.payout ?? 0n, slippageBps);
+  const singleWithdrawImpact = singleWithdraw
+    ? conversionImpactBps({
+        side: withdrawPayoutSide,
+        swapNet: singleWithdraw.swapNet,
+        converted: singleWithdraw.converted,
+        pResSqrtQ64: BigInt(quoteState.pResSqrt || '0'),
+      })
+    : null;
+  const singleWithdrawReason =
+    !SINGLE_SIDED_ENABLED ? SINGLE_SIDED_DISABLED_REASON :
+    !TRANSACTIONS_ENABLED ? (TRANSACTION_DISABLED_REASON ?? 'Transactions are disabled in this build.') :
+    !vaultInitialized ? 'Vault not initialized.' :
+    !quoteFresh ? `Single-token claim needs a fresh quote. Quote expired: claim both tokens instead. (${depositCountdown.label})` :
+    !claimState.allowed ? claimState.reason :
+    singleWithdraw === null ? 'No withdrawal ticket to convert.' :
+    singleWithdraw.capacityExceeded ? `Exceeds quoted depth: the conversion leg cannot be filled. Claim both tokens instead.` :
+    null;
+  const epochSecs = vaultState.epochSlotsRemaining * 0.248;
+
   const handleDeposit = async () => {
     if (blocked()) return;
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
     }
-    setNotice({ text: 'Submitting deposit…', ok: false });
+    setIsWorking(true);
+    setNotice(null);
+    setDepPreview(null);
     try {
       const base = parseUnits(depositSol, tokens.SOL.decimals);
       const quote = parseUnits(depositUsdc, tokens.USDC.decimals);
@@ -97,23 +226,101 @@ export const VaultPage: React.FC = () => {
         }
       }
       if (!vaultAtoms) throw new Error('vault state not loaded yet');
-      const expected = expectedDepositShares({
-        baseAmount: base,
-        quoteAmount: quote,
-        ...vaultAtoms,
-      });
+      const expected = expectedDepositShares({ baseAmount: base, quoteAmount: quote, ...vaultAtoms });
       if (expected <= 0n) throw new Error('deposit too small for the current vault');
-      const minShares = (expected * 9950n) / 10000n; // 0.5% slippage floor
-      const signature = await depositOnChain(connection, wallet, base, quote, minShares);
-      setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}... Shares activate after warm-up. ${explorerTxUrl(signature)}`, ok: true });
-      await refreshProtocol();
-      await refreshBalances();
+      const minShares = minWithSlippage(expected, slippageBps);
+      setNotice({ text: 'Simulating deposit before signing…', ok: false });
+      const tx = await buildDepositTransaction(connection, wallet, base, quote, minShares);
+      const sim = await simulateSwap(connection, tx);
+      if (!sim.ok) throw new Error(sim.reason ?? 'The transaction simulation failed.');
+      setNotice(null);
+      setDepPreview({
+        tx,
+        summary: `Deposit pro-rata: ${depositSol} SOL + ${depositUsdc} USDC`,
+        lines: [
+          `Instruction: deposit (both tokens)`,
+          `Base in: ${depositSol} ${tokens.SOL.symbol} → vault base reserve`,
+          `Quote in: ${depositUsdc} ${tokens.USDC.symbol} → vault quote reserve`,
+          `Expected shares: ~${formatUnits(expected, ACTIVE_VAULT.shareDecimals, 6)}`,
+          `Minimum shares (${(slippageBps / 100).toFixed(2)}%): ${formatUnits(minShares, ACTIVE_VAULT.shareDecimals, 6)}`,
+          `Shares mint to: your share account`,
+        ],
+      });
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
       const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
         ? 'Deposit signing was cancelled by user.'
-        : `Deposit failed: ${msg.slice(0, 120)}`;
+        : `Deposit failed: ${msg.slice(0, 160)}`;
       setNotice({ text: human, ok: false });
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  // Task 4.1: single-sided deposit preview (build + simulate, no signing).
+  const handleDepositSinglePreview = async () => {
+    if (!SINGLE_SIDED_ENABLED) { setNotice({ text: SINGLE_SIDED_DISABLED_REASON ?? 'Single-sided is disabled.', ok: false }); return; }
+    if (!connected || !publicKey || !wallet) { setVisible(true); return; }
+    if (singleDepositReason) { setNotice({ text: singleDepositReason, ok: false }); return; }
+    setIsWorking(true);
+    setNotice(null);
+    setDepPreview(null);
+    try {
+      if (!vaultAtoms) throw new Error('vault state not loaded yet');
+      const fresh = await fetchFreshQuote(connection);
+      const freshReason = submitFreshnessReason(fresh);
+      if (!fresh || freshReason) throw new Error(freshReason ?? 'A fresh quote is required.');
+      const levels: LadderLevel[] = (depositInputSide === 'sellBase' ? fresh.bidLevels : fresh.askLevels).map((l) => ({
+        sqrtLo: BigInt(l.sqrtLo.toString()), sqrtHi: BigInt(l.sqrtHi.toString()), liquidity: BigInt(l.liquidity.toString()),
+      }));
+      const plan = depositSinglePlan({
+        side: depositInputSide, amountIn: depositSingleAmountAtoms, feeBps,
+        baseNet: vaultAtoms.baseNet, quoteNet: vaultAtoms.quoteNet, totalShares: vaultAtoms.totalShares, levels,
+      });
+      if (!plan) throw new Error('No feasible single-sided deposit at this size.');
+      const minShares = minWithSlippage(plan.shares, slippageBps);
+      const minSwapOut = minWithSlippage(plan.swapOut, slippageBps);
+      const tx = await buildDepositSingleTransaction(connection, wallet, depositInputSide, depositSingleAmountAtoms, minShares, minSwapOut);
+      const sim = await simulateSwap(connection, tx);
+      if (!sim.ok) throw new Error(sim.reason ?? 'The transaction simulation failed.');
+      setNotice(null);
+      setDepPreview({
+        tx,
+        summary: `Deposit single token: ${depositSingleAmount} ${depositInputSymbol}`,
+        lines: [
+          `Instruction: deposit_single (${depositInputSide})`,
+          `Input in: ${depositSingleAmount} ${depositInputSymbol} → vault reserves`,
+          `Swap portion: ${formatUnits(plan.swapIn, depositInputDecimals, 6)} ${depositInputSymbol} (fee ${formatUnits(plan.fee, depositInputDecimals, 6)})`,
+          `Internal swap out: ~${formatUnits(plan.swapOut, depositInputSide === 'sellBase' ? tokens.USDC.decimals : tokens.SOL.decimals, 6)} ${depositDustSymbol}`,
+          `Deposited: ${formatUnits(plan.baseDeposited, tokens.SOL.decimals, 6)} SOL + ${formatUnits(plan.quoteDeposited, tokens.USDC.decimals, 6)} USDC`,
+          `Expected shares: ~${formatUnits(plan.shares, ACTIVE_VAULT.shareDecimals, 6)}`,
+          `Min swap out (${(slippageBps / 100).toFixed(2)}%): ${formatUnits(minSwapOut, depositInputSide === 'sellBase' ? tokens.USDC.decimals : tokens.SOL.decimals, 6)}`,
+          `Min shares: ${formatUnits(minShares, ACTIVE_VAULT.shareDecimals, 6)}`,
+        ],
+      });
+    } catch (error) {
+      const msg = (error as Error).message ?? 'unknown error';
+      setNotice({ text: /user rejected|declined|cancel/i.test(msg) ? 'Deposit signing was cancelled by user.' : `Single-sided deposit failed: ${msg.slice(0, 160)}`, ok: false });
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const runDepositConfirm = async () => {
+    if (!depPreview || !wallet) return;
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const signature = await sendSwapTransaction(connection, wallet, depPreview.tx);
+      setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}... Shares activate after warm-up. ${explorerTxUrl(signature)}`, ok: true });
+      setDepPreview(null);
+      await refreshProtocol();
+      await refreshBalances();
+    } catch (error) {
+      const msg = (error as Error).message ?? 'unknown error';
+      setNotice({ text: /user rejected|declined|cancel/i.test(msg) ? 'Deposit signing was cancelled by user.' : `Deposit failed: ${msg.slice(0, 160)}`, ok: false });
+    } finally {
+      setIsWorking(false);
     }
   };
 
@@ -138,32 +345,117 @@ export const VaultPage: React.FC = () => {
     }
   };
 
-  const handleClaim = async () => {
+  const handleCrank = async () => {
     if (blocked()) return;
-    if (!connected || !publicKey || !wallet) {
-      setVisible(true);
-      return;
-    }
-    if (!claimState.allowed) {
-      setNotice({ text: claimState.reason, ok: false });
-      return;
-    }
-    setIsClaiming(true);
-    setNotice({ text: 'Claiming settled withdrawal…', ok: false });
+    if (!connected || !publicKey || !wallet) { setVisible(true); return; }
+    setNotice({ text: 'Advancing epoch (crank)…', ok: false });
     try {
-      const signature = await claimWithdrawOnChain(connection, wallet);
+      const signature = await crankEpoch(connection, wallet);
+      setNotice({ text: `Epoch cranked ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, ok: true });
+      await refreshProtocol();
+    } catch (error) {
+      setNotice({ text: `Crank failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`, ok: false });
+    }
+  };
+
+  // Build + simulate the claim (both-token or single-token), never signs here.
+  const handleClaimPreview = async () => {
+    if (blocked()) return;
+    if (!connected || !publicKey || !wallet) { setVisible(true); return; }
+    if (!claimState.allowed) { setNotice({ text: claimState.reason, ok: false }); return; }
+    setIsWorking(true);
+    setNotice(null);
+    setClaimPreview(null);
+    try {
+      let tx: Transaction;
+      let summary: string;
+      let lines: string[];
+      if (withdrawMode === 'single') {
+        if (!SINGLE_SIDED_ENABLED) { setNotice({ text: SINGLE_SIDED_DISABLED_REASON ?? 'Single-sided is disabled.', ok: false }); return; }
+        if (singleWithdrawReason) { setNotice({ text: singleWithdrawReason, ok: false }); return; }
+        if (!vaultAtoms) throw new Error('vault state not loaded yet');
+        const fresh = await fetchFreshQuote(connection);
+        const freshReason = submitFreshnessReason(fresh);
+        if (!fresh || freshReason) throw new Error(`${freshReason ?? 'A fresh quote is required.'} Claim both tokens instead.`);
+        const levels: LadderLevel[] = (withdrawPayoutSide === 'buyBase' ? fresh.askLevels : fresh.bidLevels).map((l) => ({
+          sqrtLo: BigInt(l.sqrtLo.toString()), sqrtHi: BigInt(l.sqrtHi.toString()), liquidity: BigInt(l.liquidity.toString()),
+        }));
+        const plan = withdrawSinglePlan({
+          side: withdrawPayoutSide, shares: sharesToWithdrawAtoms, totalShares: vaultAtoms.totalShares,
+          baseNet: vaultAtoms.baseNet, quoteNet: vaultAtoms.quoteNet, feeBps, levels,
+        });
+        if (plan.capacityExceeded) throw new Error('Exceeds quoted depth: claim both tokens instead.');
+        const minOut = minWithSlippage(plan.payout, slippageBps);
+        tx = await buildClaimWithdrawSingleTransaction(connection, wallet, withdrawPayoutSide, minOut);
+        summary = `Claim withdrawal as one token: ${withdrawPayoutSymbol}`;
+        lines = [
+          `Instruction: claim_withdraw_single (${withdrawPayoutSide})`,
+          `Shares redeemed: ${withdrawSharesAtomsForPlan.toString()} (atoms)`,
+          `Base leg out: ${formatUnits(plan.baseOut, tokens.SOL.decimals, 6)} SOL`,
+          `Quote leg out: ${formatUnits(plan.quoteOut, tokens.USDC.decimals, 6)} USDC`,
+          `Converted leg: ${formatUnits(plan.converted, withdrawPayoutDecimals, 6)} ${withdrawPayoutSymbol} (fee ${formatUnits(plan.fee, withdrawPayoutSide === 'buyBase' ? tokens.USDC.decimals : tokens.SOL.decimals, 6)})`,
+          `Expected payout: ~${formatUnits(plan.payout, withdrawPayoutDecimals, 6)} ${withdrawPayoutSymbol}`,
+          `Minimum out (${(slippageBps / 100).toFixed(2)}%): ${formatUnits(minOut, withdrawPayoutDecimals, 6)} ${withdrawPayoutSymbol}`,
+          `Payout to: your ${withdrawPayoutSymbol} account`,
+        ];
+      } else {
+        tx = await buildClaimWithdrawTransaction(connection, wallet);
+        const estSol = sharesToWithdrawAtoms > 0n && vaultAtoms
+          ? (sharesToWithdrawAtoms * vaultAtoms.baseNet) / vaultAtoms.totalShares : 0n;
+        const estQuote = sharesToWithdrawAtoms > 0n && vaultAtoms
+          ? (sharesToWithdrawAtoms * vaultAtoms.quoteNet) / vaultAtoms.totalShares : 0n;
+        summary = 'Claim withdrawal as both tokens (pro-rata)';
+        lines = [
+          `Instruction: claim_withdraw (both tokens)`,
+          `Shares redeemed: ${sharesToWithdrawAtoms.toString()} (atoms)`,
+          `Estimated base out: ${formatUnits(estSol, tokens.SOL.decimals, 6)} SOL`,
+          `Estimated quote out: ${formatUnits(estQuote, tokens.USDC.decimals, 6)} USDC`,
+          `Payout to: your SOL and USDC accounts`,
+        ];
+      }
+      const sim = await simulateSwap(connection, tx);
+      if (!sim.ok) throw new Error(sim.reason ?? 'The transaction simulation failed.');
+      setNotice(null);
+      setClaimPreview({ tx, summary, lines });
+    } catch (error) {
+      setNotice({ text: `Claim preparation failed: ${(error as Error).message?.slice(0, 160) ?? 'unknown error'}`, ok: false });
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const handleClaimConfirm = async () => {
+    if (!claimPreview || !wallet) return;
+    setIsClaiming(true);
+    setNotice(null);
+    try {
+      // Re-validate against a freshly read quote immediately before signing.
+      const fresh = await fetchFreshQuote(connection);
+      const freshReason = submitFreshnessReason(fresh);
+      if (freshReason) {
+        // A quote that expired between preview and confirm fails closed; never
+        // resubmit the stale transaction.
+        setNotice({ text: `${freshReason} The prepared claim was discarded.`, ok: false });
+        setClaimPreview(null);
+        return;
+      }
+      const signature = await sendSwapTransaction(connection, wallet, claimPreview.tx);
       setNotice({ text: `Claim confirmed ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, ok: true });
+      setClaimPreview(null);
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
-      const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
-        ? 'Claim signing was cancelled by user.'
-        : `Claim failed: ${msg.slice(0, 120)}`;
-      setNotice({ text: human, ok: false });
+      setNotice({ text: /user rejected|declined|cancel/i.test(msg) ? 'Claim signing was cancelled by user.' : `Claim failed: ${msg.slice(0, 120)}`, ok: false });
     } finally {
       setIsClaiming(false);
     }
+  };
+
+  const setWithdrawPercent = (pct: number) => {
+    if (shareBalanceAtoms === null) return;
+    const next = (shareBalanceAtoms * BigInt(pct)) / 100n;
+    setWithdrawShares(formatUnits(next, ACTIVE_VAULT.shareDecimals));
   };
 
   return (
@@ -311,89 +603,239 @@ export const VaultPage: React.FC = () => {
 
           {activeTab === 'deposit' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <p style={{ fontSize: 13, color: 'var(--uni-neutral2)', lineHeight: 1.6 }}>
-                <strong>Pro-Rata Two-Token Accounting (D-05):</strong> Deposits contribute both SOL and USDC proportional to current pool reserves. No oracle is used in share calculation.
-                <br />
-                <span style={{ color: 'var(--uni-accent1)' }}>Your SOL is auto-wrapped to WSOL in the same transaction. No manual wrap needed.</span>
-              </p>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Deposit with:</span>
+                <button type="button" data-testid="deposit-mode-both" className={`uni-max ${depositMode === 'both' ? 'active' : ''}`} onClick={() => { setDepositMode('both'); setDepPreview(null); }}>Both tokens</button>
+                <button type="button" data-testid="deposit-mode-single" className={`uni-max ${depositMode === 'single' ? 'active' : ''}`} onClick={() => { setDepositMode('single'); setDepPreview(null); }} disabled={!SINGLE_SIDED_ENABLED} title={SINGLE_SIDED_DISABLED_REASON ?? undefined}>Single token</button>
+              </div>
 
-              <div className="uni-panel uni-panel-sell">
-                <span className="uni-panel-label">SOL Deposit</span>
-                <div className="uni-panel-row">
-                  <input 
-                    className="uni-amount mono" 
-                    value={depositSol} 
-                    onChange={(e) => {
-                      setDepositSol(e.target.value);
-                      const n = parseFloat(e.target.value) || 0;
-                      setDepositUsdc((n * quoteState.oraclePrice).toFixed(2));
-                    }}
-                  />
-                  <div className="uni-token-pill">
-                    {tokens.SOL.logo && <img src={tokens.SOL.logo} alt={tokens.SOL.symbol} />}
-                    <span>SOL</span>
+              {depositMode === 'both' ? (
+                <>
+                  <p style={{ fontSize: 13, color: 'var(--uni-neutral2)', lineHeight: 1.6 }}>
+                    <strong>Pro-Rata Two-Token Accounting (D-05):</strong> Deposits contribute both SOL and USDC proportional to current pool reserves. No oracle is used in share calculation.
+                    <br />
+                    <span style={{ color: 'var(--uni-accent1)' }}>Your SOL is auto-wrapped to WSOL in the same transaction. No manual wrap needed.</span>
+                  </p>
+
+                  <div className="uni-panel uni-panel-sell">
+                    <span className="uni-panel-label">SOL Deposit</span>
+                    <div className="uni-panel-row">
+                      <input
+                        className="uni-amount mono"
+                        value={depositSol}
+                        onChange={(e) => {
+                          setDepositSol(e.target.value);
+                          setDepPreview(null);
+                          const n = parseFloat(e.target.value) || 0;
+                          setDepositUsdc((n * quoteState.oraclePrice).toFixed(2));
+                        }}
+                      />
+                      <div className="uni-token-pill">
+                        {tokens.SOL.logo && <img src={tokens.SOL.logo} alt={tokens.SOL.symbol} />}
+                        <span>SOL</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="uni-panel uni-panel-sell">
+                    <span className="uni-panel-label">USDC Deposit</span>
+                    <div className="uni-panel-row">
+                      <input
+                        className="uni-amount mono"
+                        value={depositUsdc}
+                        onChange={(e) => {
+                          setDepositUsdc(e.target.value);
+                          setDepPreview(null);
+                          const n = parseFloat(e.target.value) || 0;
+                          setDepositSol((n / quoteState.oraclePrice).toFixed(4));
+                        }}
+                      />
+                      <div className="uni-token-pill">
+                        {tokens.USDC.logo && <img src={tokens.USDC.logo} alt={tokens.USDC.symbol} />}
+                        <span>USDC</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ color: 'var(--uni-neutral2)' }}>Shares to Mint:</span>
+                    <span className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>~{estimatedShares.toLocaleString()} shares</span>
+                  </div>
+
+                  <button type="button" className="uni-main-button accent" onClick={handleDeposit} disabled={!TRANSACTIONS_ENABLED || !vaultInitialized || isWorking}>
+                    {!TRANSACTIONS_ENABLED ? 'Transactions disabled' : !vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : isWorking ? 'Simulating…' : 'Preview deposit pro-rata'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p style={{ fontSize: 13, color: 'var(--uni-neutral2)', lineHeight: 1.6 }}>
+                    <strong>Single-Token Deposit:</strong> Deposit only one token. The vault converts part of it through the committed ladder and deposits the balanced remainder, so no second token is needed. The program charges its normal fee on the swapped portion; any unswapped dust of the other token stays in your wallet.
+                  </p>
+
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Token:</span>
+                    <button type="button" data-testid="deposit-side-sol" className={`uni-max ${depositInputSide === 'sellBase' ? 'active' : ''}`} onClick={() => { setDepositInputSide('sellBase'); setDepPreview(null); }}>SOL</button>
+                    <button type="button" data-testid="deposit-side-usdc" className={`uni-max ${depositInputSide === 'buyBase' ? 'active' : ''}`} onClick={() => { setDepositInputSide('buyBase'); setDepPreview(null); }}>USDC</button>
+                  </div>
+
+                  <div className="uni-panel uni-panel-sell">
+                    <span className="uni-panel-label">{depositInputSymbol} Deposit</span>
+                    <div className="uni-panel-row">
+                      <input className="uni-amount mono" value={depositSingleAmount} onChange={(e) => { setDepositSingleAmount(e.target.value); setDepPreview(null); }} />
+                      <div className="uni-token-pill">
+                        {(depositInputSide === 'sellBase' ? tokens.SOL.logo : tokens.USDC.logo) && <img src={depositInputSide === 'sellBase' ? tokens.SOL.logo : tokens.USDC.logo} alt={depositInputSymbol} />}
+                        <span>{depositInputSymbol}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Swap portion:</span>
+                      <span className="mono">{singleDeposit ? `${formatUnits(singleDeposit.swapIn, depositInputDecimals, 6)} ${depositInputSymbol}` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Internal swap out:</span>
+                      <span className="mono">{singleDeposit ? `~${formatUnits(singleDeposit.swapOut, depositInputSide === 'sellBase' ? tokens.USDC.decimals : tokens.SOL.decimals, 6)} ${depositDustSymbol}` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Fee (on swap portion):</span>
+                      <span className="mono">{singleDeposit ? `${formatUnits(singleDeposit.fee, depositInputDecimals, 6)} ${depositInputSymbol}` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Price impact (vs reservation mid):</span>
+                      <span className="mono">{singleDepositImpact === null ? '—' : `${(singleDepositImpact / 100).toFixed(2)}%`}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Expected shares:</span>
+                      <span className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>{singleDeposit ? `~${formatUnits(singleDeposit.shares, ACTIVE_VAULT.shareDecimals, 6)}` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Min shares ({slippageBps / 100}%):</span>
+                      <span className="mono">{singleDeposit ? formatUnits(singleDepositMinShares, ACTIVE_VAULT.shareDecimals, 6) : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Min swap out ({slippageBps / 100}%):</span>
+                      <span className="mono">{singleDeposit ? formatUnits(singleDepositMinSwapOut, depositInputSide === 'sellBase' ? tokens.USDC.decimals : tokens.SOL.decimals, 6) : '—'}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: 12, color: quoteFresh ? 'var(--uni-success)' : 'var(--uni-warning)' }} data-testid="deposit-freshness">
+                    Quote: {depositCountdown.label}
+                  </div>
+
+                  <label style={{ fontSize: 12, color: 'var(--uni-neutral2)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <input type="checkbox" data-testid="warmup-ack" checked={warmupAck} onChange={(e) => setWarmupAck(e.target.checked)} />
+                    <span>I understand minted shares activate only after the {vaultState.warmupSlots}-slot warm-up (top-ups included); they cannot be withdrawn before then.</span>
+                  </label>
+
+                  {singleDepositReason && (
+                    <div style={{ fontSize: 12, color: 'var(--uni-warning)' }} role="status" data-testid="deposit-single-reason">{singleDepositReason}</div>
+                  )}
+
+                  <button type="button" className="uni-main-button accent" onClick={handleDepositSinglePreview} disabled={!!singleDepositReason || isWorking} data-testid="deposit-single-button">
+                    {!SINGLE_SIDED_ENABLED ? 'Single-sided disabled' : !connected ? 'Connect wallet' : isWorking ? 'Simulating…' : 'Preview single-token deposit'}
+                  </button>
+                </>
+              )}
+
+              {depPreview && (
+                <div className="uni-card" data-testid="deposit-preview" role="status" style={{ borderColor: 'var(--uni-accent1)' }}>
+                  <strong>Transaction preview (simulated).</strong>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}>{depPreview.summary}</p>
+                  <ul style={{ margin: '6px 0 10px 18px', fontSize: 12, lineHeight: 1.7, color: 'var(--uni-neutral2)' }}>
+                    {depPreview.lines.map((l) => <li key={l} className="mono">{l}</li>)}
+                  </ul>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" className="uni-main-button accent" onClick={runDepositConfirm} disabled={isWorking}>Confirm &amp; sign in wallet</button>
+                    <button type="button" className="uni-max" onClick={() => setDepPreview(null)}>Cancel</button>
                   </div>
                 </div>
-              </div>
-
-              <div className="uni-panel uni-panel-sell">
-                <span className="uni-panel-label">USDC Deposit</span>
-                <div className="uni-panel-row">
-                  <input 
-                    className="uni-amount mono" 
-                    value={depositUsdc} 
-                    onChange={(e) => {
-                      setDepositUsdc(e.target.value);
-                      const n = parseFloat(e.target.value) || 0;
-                      setDepositSol((n / quoteState.oraclePrice).toFixed(4));
-                    }}
-                  />
-                  <div className="uni-token-pill">
-                    {tokens.USDC.logo && <img src={tokens.USDC.logo} alt={tokens.USDC.symbol} />}
-                    <span>USDC</span>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--uni-neutral2)' }}>Shares to Mint:</span>
-                <span className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>~{estimatedShares.toLocaleString()} shares</span>
-              </div>
-
-              <button type="button" className="uni-main-button accent" onClick={handleDeposit} disabled={!TRANSACTIONS_ENABLED || !vaultInitialized}>
-                {!TRANSACTIONS_ENABLED ? 'Transactions disabled' : !vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Deposit pro-rata'}
-              </button>
+              )}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <p style={{ fontSize: 13, color: 'var(--uni-neutral2)', lineHeight: 1.6 }}>
-                <strong>Epoch Queue (M10):</strong> Withdrawals request in Epoch {vaultState.epoch} and settle in Epoch {vaultState.epoch + 1} pro-rata against actual reserves to prevent sandwich attacks.
+                <strong>Epoch Queue (M10):</strong> Withdrawals request in Epoch {vaultState.epoch} and settle in Epoch {vaultState.epoch + 1}, settling in ~{vaultState.epochSlotsRemaining} slots (~{epochSecs.toFixed(1)}s), pro-rata against actual net reserves to prevent sandwich attacks.
               </p>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Receive as:</span>
+                <button type="button" data-testid="withdraw-mode-both" className={`uni-max ${withdrawMode === 'both' ? 'active' : ''}`} onClick={() => { setWithdrawMode('both'); setClaimPreview(null); }}>Both tokens</button>
+                <button type="button" data-testid="withdraw-mode-single" className={`uni-max ${withdrawMode === 'single' ? 'active' : ''}`} onClick={() => { setWithdrawMode('single'); setClaimPreview(null); }} disabled={!SINGLE_SIDED_ENABLED} title={SINGLE_SIDED_DISABLED_REASON ?? undefined}>One token</button>
+              </div>
 
               <div className="uni-panel uni-panel-sell">
                 <span className="uni-panel-label">Shares to Redeem</span>
                 <div className="uni-panel-row">
-                  <input 
-                    className="uni-amount mono" 
-                    value={withdrawShares} 
-                    onChange={(e) => setWithdrawShares(e.target.value)}
+                  <input
+                    className="uni-amount mono"
+                    value={withdrawShares}
+                    onChange={(e) => { setWithdrawShares(e.target.value); setClaimPreview(null); }}
                   />
-                  <button type="button" className="uni-max" onClick={() => setWithdrawShares(vaultState.userShares.toString())}>
-                    Max
-                  </button>
+                  <button type="button" className="uni-max" onClick={() => setWithdrawShares(vaultState.userShares.toString())}>Max</button>
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  {[25, 50, 75, 100].map((pct) => (
+                    <button key={pct} type="button" className="uni-max" data-testid={`withdraw-pct-${pct}`} onClick={() => setWithdrawPercent(pct)}>{pct}%</button>
+                  ))}
                 </div>
               </div>
 
-              <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--uni-neutral2)' }}>Est. Base Output:</span>
-                  <span className="mono">{withdrawEstSol.toFixed(4)} SOL</span>
+              {withdrawMode === 'both' ? (
+                <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--uni-neutral2)' }}>Est. Base Output:</span>
+                    <span className="mono">{withdrawEstSol.toFixed(4)} SOL</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--uni-neutral2)' }}>Est. Quote Output:</span>
+                    <span className="mono">${withdrawEstUsdc.toFixed(2)} USDC</span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--uni-neutral2)' }}>Est. Quote Output:</span>
-                  <span className="mono">${withdrawEstUsdc.toFixed(2)} USDC</span>
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Token:</span>
+                    <button type="button" data-testid="withdraw-payout-sol" className={`uni-max ${withdrawPayoutSide === 'buyBase' ? 'active' : ''}`} onClick={() => { setWithdrawPayoutSide('buyBase'); setClaimPreview(null); }}>SOL</button>
+                    <button type="button" data-testid="withdraw-payout-usdc" className={`uni-max ${withdrawPayoutSide === 'sellBase' ? 'active' : ''}`} onClick={() => { setWithdrawPayoutSide('sellBase'); setClaimPreview(null); }}>USDC</button>
+                  </div>
+                  <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Base leg:</span>
+                      <span className="mono">{singleWithdraw ? `${formatUnits(singleWithdraw.baseOut, tokens.SOL.decimals, 6)} SOL` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Quote leg:</span>
+                      <span className="mono">{singleWithdraw ? `${formatUnits(singleWithdraw.quoteOut, tokens.USDC.decimals, 6)} USDC` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Converted leg:</span>
+                      <span className="mono">{singleWithdraw ? `~${formatUnits(singleWithdraw.converted, withdrawPayoutDecimals, 6)} ${withdrawPayoutSymbol}` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Fee (on converted leg):</span>
+                      <span className="mono">{singleWithdraw ? formatUnits(singleWithdraw.fee, withdrawPayoutSide === 'buyBase' ? tokens.USDC.decimals : tokens.SOL.decimals, 6) : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Price impact (vs reservation mid):</span>
+                      <span className="mono">{singleWithdrawImpact === null ? '—' : `${(singleWithdrawImpact / 100).toFixed(2)}%`}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Expected payout:</span>
+                      <span className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>{singleWithdraw ? `~${formatUnits(singleWithdraw.payout, withdrawPayoutDecimals, 6)} ${withdrawPayoutSymbol}` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--uni-neutral2)' }}>Min out ({slippageBps / 100}%):</span>
+                      <span className="mono">{singleWithdraw ? formatUnits(singleWithdrawMinOut, withdrawPayoutDecimals, 6) : '—'}</span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: quoteFresh ? 'var(--uni-success)' : 'var(--uni-warning)' }} data-testid="withdraw-freshness">
+                    Quote: {depositCountdown.label}
+                    {!quoteFresh && ' Quote expired: claim both tokens instead.'}
+                  </div>
+                </>
+              )}
 
               <button type="button" className="uni-main-button accent" onClick={handleWithdraw} disabled={!TRANSACTIONS_ENABLED || !vaultInitialized}>
                 {!TRANSACTIONS_ENABLED ? 'Transactions disabled' : !vaultInitialized ? 'Vault not initialized' : !connected ? 'Connect wallet' : 'Queue withdrawal for next epoch'}
@@ -406,15 +848,36 @@ export const VaultPage: React.FC = () => {
                     {claimState.reason}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className={`uni-main-button ${claimState.allowed && TRANSACTIONS_ENABLED ? 'accent' : 'disabled'}`}
-                  onClick={handleClaim}
-                  disabled={!TRANSACTIONS_ENABLED || !claimState.allowed || isClaiming}
-                >
-                  {!TRANSACTIONS_ENABLED ? 'Transactions disabled' : isClaiming ? 'Claiming…' : claimState.allowed ? 'Claim settled withdrawal' : 'Claim unavailable'}
-                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className={`uni-main-button ${claimState.allowed && TRANSACTIONS_ENABLED && !(withdrawMode === 'single' && singleWithdrawReason) ? 'accent' : 'disabled'}`}
+                    onClick={handleClaimPreview}
+                    disabled={!TRANSACTIONS_ENABLED || !claimState.allowed || isWorking || isClaiming || (withdrawMode === 'single' && !!singleWithdrawReason)}
+                    data-testid="claim-button"
+                  >
+                    {!TRANSACTIONS_ENABLED ? 'Transactions disabled' : isWorking ? 'Simulating…' : claimState.allowed ? (withdrawMode === 'single' ? 'Preview one-token claim' : 'Preview claim') : 'Claim unavailable'}
+                  </button>
+                  <button type="button" className="uni-max" onClick={handleCrank} disabled={!TRANSACTIONS_ENABLED || !connected} title="Advance the epoch once its slots have elapsed, enabling settled claims">Crank epoch</button>
+                </div>
+                {withdrawMode === 'single' && singleWithdrawReason && (
+                  <div style={{ fontSize: 12, color: 'var(--uni-warning)' }} role="status" data-testid="claim-single-reason">{singleWithdrawReason}</div>
+                )}
               </div>
+
+              {claimPreview && (
+                <div className="uni-card" data-testid="claim-preview" role="status" style={{ borderColor: 'var(--uni-accent1)' }}>
+                  <strong>Transaction preview (simulated).</strong>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}>{claimPreview.summary}</p>
+                  <ul style={{ margin: '6px 0 10px 18px', fontSize: 12, lineHeight: 1.7, color: 'var(--uni-neutral2)' }}>
+                    {claimPreview.lines.map((l) => <li key={l} className="mono">{l}</li>)}
+                  </ul>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" className="uni-main-button accent" onClick={handleClaimConfirm} disabled={isClaiming}>{isClaiming ? 'Claiming…' : 'Confirm & sign in wallet'}</button>
+                    <button type="button" className="uni-max" onClick={() => setClaimPreview(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

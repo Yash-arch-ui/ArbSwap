@@ -491,7 +491,7 @@ any use with real funds.
 
 ## Testing, CU, and verification
 
-Current suite: **282 Rust / 233 Python** tests (single source of truth:
+Current suite: **284 Rust / 233 Python** tests (single source of truth:
 `simulation/data/results/artifacts.json`), plus the frontend (Vite/Vitest) suite,
 keeper TypeScript tests, and the browser E2E.
 

@@ -11,7 +11,7 @@
 | 1 design doc | DONE (NO-GO overridden) | `docs/SINGLE_SIDED_DESIGN.md` (commit `abfd9c5`); D-011, D-015 |
 | 2 reference + vectors | NOT DONE | see roadmap |
 | 3 program | DONE (code+proofs; no redeploy) | helpers + `deposit_single`/`claim_withdraw_single` in `vault/program/src/lib.rs`; `vault/program/tests/litesvm_single_sided.rs` (22 pass); 6 existing LiteSVM suites unmodified; CU 161,693 / 50,855 (<200k); IDL regenerated; D-015/D-016 |
-| 4 frontend | NOT DONE | — |
+| 4 frontend | DONE (flag off by default) | `app/src/chain/singleSided.ts` (integer mirror + Rust golden vectors); `app/src/pages/VaultPage.tsx` Deposit "Deposit with" / Withdraw "Receive as" toggles; `VITE_ENABLE_SINGLE_SIDED` fail-closed (`app/src/chain/config.ts`); tx preview+simulate+submit-time fresh-quote re-read; `app/test/singleSided.test.ts` (15), `app/test/task4-single-sided-ui.test.ts` (18); D-017 |
 | 5 docs | NOT DONE | — |
 | 6 deploy | NOT DONE | — |
 | 7 demo/evidence | NOT DONE | verify offline demo mode + evidence page |
