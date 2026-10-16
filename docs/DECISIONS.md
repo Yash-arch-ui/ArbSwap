@@ -110,6 +110,18 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
 - **Rejected:** Allow-listing `.env.production` in the secrets gate (weakens a
   security tool); keeping the committed file (red gate).
 
+### D-013 — CSP keeps `script-src 'unsafe-inline'` (Task 9.1 deviation)
+- **Decision:** Keep `script-src 'self' 'unsafe-inline'` and
+  `style-src 'self' 'unsafe-inline'`; **no `unsafe-eval`** anywhere.
+- **Reason:** Browser wallet extensions (Phantom/Solflare) inject an inline
+  provider script for detection; a bare `script-src 'self'` blocks that on a
+  deployed origin (`app/test/vercel-headers.test.ts` pins this deliberately).
+  `style-src 'unsafe-inline'` covers React inline styles. The task's "no
+  unsafe-inline" therefore cannot be met without breaking wallet connect.
+- **Rejected:** Removing `unsafe-inline` (breaks wallet detection); adding a
+  nonce/hash pipeline (needs a custom server; Vercel static hosting can't set a
+  per-request nonce).
+
 ### D-011 — Single-sided program work: NO-GO for the 2026-10-16 window
 - **Decision:** Complete the design (`docs/SINGLE_SIDED_DESIGN.md`) but do **not**
   implement or deploy `deposit_single`/`claim_withdraw_single` on-chain in this
