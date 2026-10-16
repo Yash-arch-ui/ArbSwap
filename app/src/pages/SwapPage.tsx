@@ -164,7 +164,7 @@ export const SwapPage: React.FC = () => {
     if (vaultSource.state === 'invalid') return 'BOOK INVALID';
     if (!quoteState.hasQuote) return 'QUOTE UNAVAILABLE';
     if (quoteState.status === 'Fresh') return '6-LEVEL ACTIVE BOOK';
-    return `LAST-KNOWN BOOK — ${quoteState.status.toUpperCase()}`;
+    return `LAST-KNOWN BOOK (${quoteState.status.toUpperCase()})`;
   })();
 
   // Exactly one primary status message (no duplicated error paragraphs).
@@ -291,7 +291,7 @@ export const SwapPage: React.FC = () => {
       const signature = await sendSwapTransaction(connection, wallet, r.plan.tx);
       const minOutHuman = formatUnits(r.plan.minOut, outToken.decimals, 6);
       setSwapNote({
-        text: `Swap confirmed ${signature.slice(0, 8)}… — minimum received enforced on-chain (${minOutHuman} ${outTokenSymbol}).`,
+        text: `Swap confirmed ${signature.slice(0, 8)}... Minimum received enforced on-chain (${minOutHuman} ${outTokenSymbol}).`,
         ok: true,
       });
       setPreview(null);
@@ -381,7 +381,7 @@ export const SwapPage: React.FC = () => {
               </strong>
               <p className="mono">
                 {rpcRateLimited || transportError
-                  ? 'The quote account could not be read, so no price, spread, or depth is shown. This is an endpoint error — not proof that the vault or quote is absent.'
+                  ? 'The quote account could not be read, so no price, spread, or depth is shown. This is an endpoint error, not proof that the vault or quote is absent.'
                   : vaultUninitialized
                     ? 'No vault account exists for the configured mints, so there is nothing to quote.'
                     : 'No readable on-chain quote was found for this vault, so no price, spread, or depth is shown.'}
@@ -437,7 +437,7 @@ export const SwapPage: React.FC = () => {
           )}
 
           <div className="depth-footer mono">
-            <span>Version {quoteState.hasQuote ? `v${quoteState.version}` : '—'}</span>
+            <span>Version {quoteState.hasQuote ? `v${quoteState.version}` : 'n/a'}</span>
             <span
               className={`depth-status-badge ${quoteState.status === 'Fresh' ? 'fresh' : quoteState.status === 'Unavailable' ? 'unavailable' : 'aging'}`}
             >
@@ -504,12 +504,14 @@ export const SwapPage: React.FC = () => {
             </div>
             <div className="uni-panel-foot">
               <span>{inTokenSymbol === 'SOL' ? (priceAvailable ? `~$${(parsedInAmount * quoteState.oraclePrice).toFixed(2)} USD` : 'N/A') : `~$${parsedInAmount.toFixed(2)} USD`}</span>
-              <span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 Balance: {!connected ? 'connect wallet' : balancesAvailable ? `${inToken.balance} ${inToken.symbol}` : 'Balance unavailable'}
-                {connected && balancesAvailable && (
-                  <button type="button" className="uni-max" onClick={() => setInAmount(inToken.balance.toString())}>
-                    Max
-                  </button>
+                {connected && balancesAvailable && inToken.balance > 0 && (
+                  <span style={{ display: 'inline-flex', gap: 4, marginLeft: 4 }}>
+                    <button type="button" className="uni-max" onClick={() => setInAmount((inToken.balance * 0.25).toFixed(inTokenSymbol === 'SOL' ? 4 : 2))}>25%</button>
+                    <button type="button" className="uni-max" onClick={() => setInAmount((inToken.balance * 0.50).toFixed(inTokenSymbol === 'SOL' ? 4 : 2))}>50%</button>
+                    <button type="button" className="uni-max" onClick={() => setInAmount(inToken.balance.toString())}>Max</button>
+                  </span>
                 )}
               </span>
             </div>
@@ -547,7 +549,7 @@ export const SwapPage: React.FC = () => {
           {/* Transaction preview — shown before the wallet signs; never auto-submits */}
           {preview && (
             <div className="uni-card" style={{ marginTop: 8, borderColor: 'var(--uni-accent1)' }} data-testid="swap-preview" role="dialog" aria-label="Confirm swap">
-              <strong>Confirm swap — review before signing.</strong>
+              <strong>Confirm swap: review before signing.</strong>
               <dl className="uni-details-body" style={{ marginTop: 8, fontSize: 12.5, display: 'grid', gap: 4 }}>
                 <div><dt>You pay</dt><dd className="mono">{formatUnits(preview.amountInAtoms, inToken.decimals, 6)} {inTokenSymbol}</dd></div>
                 <div><dt>Expected output</dt><dd className="mono">{formatUnits(preview.expectedOut, outToken.decimals, 6)} {outTokenSymbol}</dd></div>
@@ -602,13 +604,59 @@ export const SwapPage: React.FC = () => {
           )}
 
           {swapNote && (
-            <p
-              className="swap-success-note"
-              style={{ color: swapNote.ok ? undefined : 'var(--uni-warning)' }}
+            <div
+              className={`swap-status-card ${swapNote.ok ? 'success' : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel') ? 'cancelled' : 'error'}`}
+              style={{
+                marginTop: 14,
+                padding: '12px 16px',
+                borderRadius: 12,
+                border: swapNote.ok 
+                  ? '1px solid rgba(0, 229, 176, 0.4)' 
+                  : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel')
+                  ? '1px solid rgba(255, 170, 0, 0.4)'
+                  : '1px solid rgba(255, 80, 80, 0.4)',
+                background: swapNote.ok 
+                  ? 'rgba(0, 229, 176, 0.08)' 
+                  : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel')
+                  ? 'rgba(255, 170, 0, 0.08)'
+                  : 'rgba(255, 80, 80, 0.08)',
+              }}
               role={swapNote.ok ? 'status' : 'alert'}
             >
-              {swapNote.ok ? '✓' : '⚠'} {swapNote.text}
-            </p>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontWeight: 600,
+                fontSize: 13,
+                color: swapNote.ok 
+                  ? 'var(--uni-success, #00e5b0)' 
+                  : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel')
+                  ? 'var(--uni-warning, #f5a623)'
+                  : '#ff5050',
+                marginBottom: 4,
+              }}>
+                <span>
+                  {swapNote.ok 
+                    ? '✓ Transaction Confirmed' 
+                    : swapNote.text.toLowerCase().includes('reject') || swapNote.text.toLowerCase().includes('cancel')
+                    ? '✕ Transaction Cancelled'
+                    : '✕ Transaction Failed'}
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  fontWeight: 500,
+                }}>
+                  {swapNote.ok ? 'On-Chain Devnet' : swapNote.text.toLowerCase().includes('reject') ? 'Wallet Request' : 'Devnet Error'}
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--uni-neutral1)', lineHeight: 1.5 }}>
+                {swapNote.text}
+              </p>
+            </div>
           )}
 
           {/* Details toggle */}
@@ -659,12 +707,12 @@ export const SwapPage: React.FC = () => {
           )}
 
           <p className="mono" style={{ fontSize: 11, color: 'var(--uni-neutral2)', marginTop: 6 }}>
-            Available depth — Buy ≤ {formatUnits(maxBuyInput, ACTIVE_VAULT.quoteDecimals, 6)} USDC ·
+            Available depth: Buy up to {formatUnits(maxBuyInput, ACTIVE_VAULT.quoteDecimals, 6)} USDC ·
             Sell ≤ {formatUnits(maxSellInput, ACTIVE_VAULT.baseDecimals, 6)} WSOL
           </p>
 
           <p className="mono" style={{ fontSize: 11, color: 'var(--uni-accent1)', marginTop: 6 }}>
-            SOL is auto-wrapped to WSOL when you sell and auto-unwrapped back to SOL when you buy — no manual wrap step.
+            SOL is auto-wrapped to WSOL when you sell and auto-unwrapped back to SOL when you buy. No manual wrap step.
           </p>
 
           <p className="swap-footer-note">

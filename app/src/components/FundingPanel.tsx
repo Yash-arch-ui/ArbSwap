@@ -37,7 +37,7 @@ export const FundingPanel: React.FC<{ baseSymbol: string; quoteSymbol: string }>
           <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--uni-accent1)' }}>
             faucet.circle.com
           </a>{' '}
-          — select <span className="mono">Solana Devnet</span> and paste the mint below.
+          Select <span className="mono">Solana Devnet</span> and paste the mint below.
         </li>
         <li>
           {quoteSymbol} mint: <span className="mono">{usdcMint}</span>{' '}
@@ -47,7 +47,7 @@ export const FundingPanel: React.FC<{ baseSymbol: string; quoteSymbol: string }>
         </li>
       </ol>
       <p style={{ fontSize: 12, color: 'var(--uni-neutral2)', margin: '8px 0 0' }}>
-        Devnet test funds only — no real value.
+        Devnet test funds only. No real value.
       </p>
     </div>
   );

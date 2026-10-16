@@ -73,8 +73,8 @@ export const OnchainAnalyticsPanel: React.FC = () => {
     return (
       <Panel title="On-chain history (indexed, read-only)">
         <p className="mono" style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>
-          Historical analytics unavailable — no <code>/analytics/onchain.json</code> export is served in
-          this deployment. This is a gap, not zero activity. Regenerate with
+          Historical analytics unavailable. No <code>/analytics/onchain.json</code> export is served in
+          this deployment. This is a data gap, not zero activity. Regenerate with
           <code> python -m simulation.analytics sync</code>.
         </p>
       </Panel>
@@ -118,7 +118,7 @@ export const OnchainAnalyticsPanel: React.FC = () => {
         Snapshot {d.generated_at} ({age}s ago · network {d.network ?? 'unknown'}).
         {cov ? ` Indexed coverage: slots ${cov.first_slot}–${cov.last_slot} (${cov.transactions} txs, ${cov.events} events).` : ''}
         {d.index_status?.last_indexed_at ? ` Last successful indexing: ${d.index_status.last_indexed_at}.` : ''}
-        {state.stale ? ' STALE — historical only, not live.' : ''}
+        {state.stale ? ' STALE: historical only, not live.' : ''}
       </p>
 
       {/* Live snapshot (distinct from indexed history) */}

@@ -46,7 +46,7 @@ export const RiskPage: React.FC = () => {
           </div>
           <div className="risk-header-actions">
             <span className="badge badge-neutral mono">
-              Read-only — breaker actions are admin-only on-chain
+              Read-only: Breaker actions are admin-only on-chain
             </span>
           </div>
         </div>
@@ -67,7 +67,7 @@ export const RiskPage: React.FC = () => {
             </div>
             <div>
               <h2 className="status-heading">
-                {isTripped ? 'Circuit Breakers Tripped — Quotes Paused' : 'All Risk Guards Nominal & Active'}
+                {isTripped ? 'Circuit Breakers Tripped: Quotes Paused' : 'All Risk Guards Nominal & Active'}
               </h2>
               <p className="status-desc">
                 {isTripped 
@@ -274,30 +274,34 @@ export const RiskPage: React.FC = () => {
             </div>
 
             <div className="pillar-metrics">
-              <div className="pillar-row">
-                <span>Configured keeper (not the quote author)</span>
-                <span className="mono text-muted">{riskBreakers.keeperActiveAddress}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12.5 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Configured keeper</span>
+                <span className="mono" style={{ fontSize: 11, color: 'var(--text-secondary)', wordBreak: 'break-all', lineHeight: 1.4 }}>
+                  {riskBreakers.keeperActiveAddress
+                    ? `${riskBreakers.keeperActiveAddress.slice(0, 12)}...${riskBreakers.keeperActiveAddress.slice(-8)}`
+                    : 'Permissionless (any valid keypair)'}
+                </span>
               </div>
               <div className="pillar-row mt-2">
                 <span>Valid Quote Updates (24h)</span>
-                <span className="mono text-muted" />
+                <span className="mono text-muted">Keeper-local</span>
               </div>
               <div className="pillar-row mt-2">
                 <span>Rejected / Stale Updates</span>
-                <span className="mono text-muted" />
+                <span className="mono text-muted">Keeper-local</span>
               </div>
               <div className="pillar-row mt-2">
                 <span>Mean Compute Units / Update</span>
-                <span className="mono text-muted" />
+                <span className="mono text-muted">Keeper-local</span>
               </div>
               <div className="pillar-row mt-2">
                 <span>Adaptive Priority Fee</span>
-                <span className="mono text-muted" />
+                <span className="mono text-muted">Keeper-local</span>
               </div>
             </div>
 
             <div className="pillar-footer">
-              <span className="mono text-muted">Slashing Condition: Anchor dev &gt; Pyth dev</span>
+              <span className="mono text-muted">Slashing condition: Anchor deviation exceeds Pyth deviation</span>
             </div>
           </div>
 
@@ -354,7 +358,9 @@ export const RiskPage: React.FC = () => {
 
       <style>{`
         .risk-page-wrapper {
-          padding: 36px 0 70px;
+          padding: 36px 20px 80px;
+          max-width: 1200px;
+          margin: 0 auto;
         }
         .risk-container {
           display: flex;
@@ -369,31 +375,33 @@ export const RiskPage: React.FC = () => {
           gap: 16px;
         }
         .risk-title {
-          font-size: 26px;
+          font-size: 28px;
           font-weight: 700;
-          letter-spacing: -0.02em;
+          letter-spacing: -0.025em;
           color: var(--text-primary);
         }
         .risk-subtitle {
-          font-size: 13.5px;
+          font-size: 14px;
           color: var(--text-muted);
-          margin-top: 3px;
+          margin-top: 4px;
         }
         .status-banner {
           padding: 22px 26px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          border-radius: var(--radius-lg);
+          border-radius: 18px;
           transition: all 0.25s ease;
         }
         .status-banner.healthy {
-          border-color: rgba(16, 185, 129, 0.3);
-          background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), var(--bg-surface-1));
+          border: 1px solid rgba(0, 229, 176, 0.35);
+          background: linear-gradient(135deg, rgba(0, 229, 176, 0.08), var(--uni-surface1));
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 229, 176, 0.08);
         }
         .status-banner.tripped {
-          border-color: rgba(244, 63, 94, 0.4);
-          background: linear-gradient(135deg, rgba(244, 63, 94, 0.1), var(--bg-surface-1));
+          border: 1px solid rgba(244, 63, 94, 0.45);
+          background: linear-gradient(135deg, rgba(244, 63, 94, 0.12), var(--uni-surface1));
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(244, 63, 94, 0.15);
         }
         .status-banner-left {
           display: flex;
@@ -456,7 +464,19 @@ export const RiskPage: React.FC = () => {
         .pillar-row {
           display: flex;
           justify-content: space-between;
+          align-items: center;
+          gap: 8px;
           font-size: 12.5px;
+        }
+        .pillar-row span:first-child {
+          flex-shrink: 0;
+        }
+        .pillar-row span:last-child {
+          text-align: right;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          max-width: 55%;
         }
         .pillar-sub-row {
           display: flex;

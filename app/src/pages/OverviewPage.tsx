@@ -384,10 +384,10 @@ function HeroBackground() {
     if (!ctx) return;
 
     // ── Particle setup ──────────────────────────────────────
-    const PARTICLE_COUNT = 72;
-    const CONNECT_DIST   = 160;
+    const PARTICLE_COUNT = 140;
+    const CONNECT_DIST   = 170;
     const SPEED          = 0.35;
-    const MOUSE_REPEL    = 90;
+    const MOUSE_REPEL    = 120;
 
     interface Particle {
       x: number; y: number;
@@ -872,6 +872,17 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           flex-direction: column;
           gap: 130px;
           padding-bottom: 80px;
+          width: 100%;
+          margin: 0;
+          padding-top: 0;
+        }
+
+        .overview-container > section:not(.hero),
+        .overview-container > footer {
+          max-width: 1200px;
+          width: 100%;
+          margin: 0 auto;
+          padding: 0 24px;
         }
 
         .section-index {
@@ -887,47 +898,50 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         .hero-bg {
           position: absolute;
           inset: 0;
+          width: 100%;
+          height: 100%;
           z-index: 1;
           overflow: hidden;
           pointer-events: none;
-          -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
-          mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
         }
 
         /* Layer 1: Aurora blobs */
         .aurora-wrap {
           position: absolute;
           inset: 0;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
         }
         .aurora-blob {
           position: absolute;
           border-radius: 50%;
-          filter: blur(80px);
+          filter: blur(100px);
           mix-blend-mode: screen;
-          opacity: 0.55;
+          opacity: 0.7;
         }
         .aurora-blob--1 {
-          width: 700px; height: 700px;
+          width: max(60vw, 850px); height: max(60vw, 850px);
           background: radial-gradient(circle, rgba(0,229,176,0.32) 0%, transparent 70%);
-          top: -200px; left: -180px;
+          top: -20%; left: -10%;
           animation: blob-drift-1 18s ease-in-out infinite alternate;
         }
         .aurora-blob--2 {
-          width: 600px; height: 600px;
+          width: max(55vw, 800px); height: max(55vw, 800px);
           background: radial-gradient(circle, rgba(0,188,212,0.28) 0%, transparent 70%);
-          top: -100px; right: -150px;
+          top: -15%; right: -10%;
           animation: blob-drift-2 22s ease-in-out infinite alternate;
         }
         .aurora-blob--3 {
-          width: 500px; height: 500px;
-          background: radial-gradient(circle, rgba(99,102,241,0.20) 0%, transparent 70%);
-          bottom: -150px; left: 30%;
+          width: max(55vw, 750px); height: max(55vw, 750px);
+          background: radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 70%);
+          bottom: -15%; left: 15%;
           animation: blob-drift-3 26s ease-in-out infinite alternate;
         }
         .aurora-blob--4 {
-          width: 400px; height: 400px;
-          background: radial-gradient(circle, rgba(0,229,176,0.15) 0%, transparent 70%);
-          bottom: -80px; right: 10%;
+          width: max(50vw, 700px); height: max(50vw, 700px);
+          background: radial-gradient(circle, rgba(0,229,176,0.22) 0%, transparent 70%);
+          bottom: -5%; right: 5%;
           animation: blob-drift-4 20s ease-in-out infinite alternate;
         }
         @keyframes blob-drift-1 {
@@ -953,23 +967,30 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           inset: 0;
           width: 100%;
           height: 100%;
+          display: block;
         }
 
         /* Hero */
         .hero {
           position: relative;
           display: grid;
-          min-height: 90svh;
+          min-height: calc(100vh - 72px);
+          width: 100%;
+          max-width: 100%;
+          margin: 0;
           place-items: center;
           text-align: center;
-          padding: 100px 24px 60px;
+          padding: 60px 24px 80px;
           overflow: hidden;
+          box-sizing: border-box;
         }
         .hero::after {
           content: '';
           position: absolute;
-          inset: auto 0 0 0;
-          height: 180px;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 120px;
           background: linear-gradient(to bottom, transparent, var(--uni-surface1));
           pointer-events: none;
           z-index: 1;
