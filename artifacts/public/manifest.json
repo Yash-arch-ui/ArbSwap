@@ -1,5 +1,5 @@
 {
-  "commit": "f5a76c224b03c35de8ace223e738a6957db654dd",
+  "commit": "98b9c23e5b04b08987f5ec5b340f18f72ec30866",
   "data_sha256": {},
   "files": {
     "cu.json": {
@@ -16,7 +16,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "41c1a11dc70d862a32e82db05e7727fb533cb9443abc49dd3dc1eda173f8b890"
+      "sha256": "e4e18034f02faebcdbce5cb5f96516364e7f8c9964cc5ce1a6b05af58e607e56"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -43,5 +43,5 @@
   "generated": "2026-10-16",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "f5a76c2"
+  "short": "98b9c23"
 }
