@@ -354,6 +354,65 @@ export const RiskPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Single-token deposit / withdrawal exposure */}
+        <div className="glass-card threat-table-card" data-testid="single-sided-risk">
+          <div className="card-header-row">
+            <h3>Single-Token Deposit &amp; Withdrawal</h3>
+            <span className="mono text-muted">docs/SINGLE_SIDED_DESIGN.md</span>
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            Entering or exiting with one token trades part of the amount against the
+            vault's own committed ladder at the committed quote. It is not a synthetic
+            mint: it is a trade, so it pays the vault's spread and fee and it shares the
+            same stale-quote exposure as a swap. The worst-case value transfer is bounded
+            by <span className="mono">amount × max_anchor_dev</span>; the per-window flow
+            cap and the realized-edge breaker cap the aggregate. If the internal
+            conversion cannot be absorbed by the ladder, the operation is refused rather
+            than partially filled. No known issues in self-review; independent audit
+            pending.
+          </p>
+          <div className="threat-table">
+            <div className="threat-row head">
+              <span>Control</span>
+              <span>What it bounds</span>
+              <span>Single-sided path</span>
+              <span>Status</span>
+            </div>
+            <div className="threat-row">
+              <span className="font-bold">Committed quote + expiry</span>
+              <span className="text-muted">Stale-price fills</span>
+              <span>Same validity as a swap (expiry_slot; anchor-deviation and confidence checks at commit). Longer validity widens exposure.</span>
+              <span className="badge badge-fresh">Shared with swap</span>
+            </div>
+            <div className="threat-row">
+              <span className="font-bold">Anchor-deviation bound</span>
+              <span className="text-muted">Per-operation value transfer</span>
+              <span>Internal conversion cannot deviate from the committed anchor beyond the configured bound.</span>
+              <span className="badge badge-fresh">Enforced</span>
+            </div>
+            <div className="threat-row">
+              <span className="font-bold">Flow cap + edge breaker</span>
+              <span className="text-muted">Aggregate one-sided flow</span>
+              <span>The same per-window flow cap and realized-edge breaker apply to the internal swap.</span>
+              <span className="badge badge-fresh">Enforced</span>
+            </div>
+            <div className="threat-row">
+              <span className="font-bold">Capacity guard</span>
+              <span className="text-muted">Partial fill on a thin ladder</span>
+              <span>If the ladder cannot absorb the conversion, the request is refused with the exact reason (never a partial-fill estimate).</span>
+              <span className="badge badge-fresh">Enforced</span>
+            </div>
+          </div>
+          <p className="mono text-muted" style={{ fontSize: 11 }}>
+            Devnet demo configuration (scheduled; not yet active): quotes remain valid
+            120 slots (~30 s); the oracle must still be within 2 s at quote commit, but
+            the swap does not re-check oracle age, so a longer validity increases
+            stale-price exposure; test funds only; the realized-edge breaker and the
+            per-window flow cap remain active. Single-sided is gated behind
+            VITE_ENABLE_SINGLE_SIDED (default off) until an on-chain smoke passes.
+          </p>
+        </div>
+
       </div>
 
       <style>{`

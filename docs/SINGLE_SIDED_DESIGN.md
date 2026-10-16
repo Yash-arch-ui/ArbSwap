@@ -264,3 +264,114 @@ on-chain `swap` + `deposit` in a single legacy transaction (no program change, n
 redeploy). It reuses the same math (`app/src/chain/swapMath.ts`) and ships weeks
 sooner; it is the recommended increment if a demo-grade single-sided entry is
 wanted before the program work lands.
+
+---
+
+## 8. Final status (what shipped)
+
+Two new instructions on the existing program, plus a flag-gated frontend:
+
+- `deposit_single(side, amount_in, min_shares, min_swap_out)` — enter with one
+  token; the vault converts the swapped portion against its own committed ladder
+  and deposits the balanced remainder, returning `DepositSingleEvent`.
+- `claim_withdraw_single(side, min_out)` — exit to one token; the unwanted leg is
+  converted against the committed ladder and the chosen token is paid out,
+  returning `WithdrawSingleEvent`.
+- No account-type, `Config`, `QuoteState` or `Vault` layout change; no new account
+  sizes; no migration. `swap` was refactored to call shared helpers with its
+  behaviour unchanged (six existing LiteSVM suites run unmodified).
+- Frontend: `VITE_ENABLE_SINGLE_SIDED` (default off, fail closed) gates the Vault
+  page "Deposit with" (both/single) and "Receive as" (both/one token) toggles. The
+  UI mirrors the program's integer plan, simulates, shows a preview, and re-reads
+  the on-chain quote at submission. Infeasible sizes are disabled with the exact
+  reason; the UI never shows a partial-fill estimate.
+
+### 8.1 Math (see `docs/FORMULA.md` §12.1–12.2)
+
+All amounts are integer atoms; no floating point. Let `S` be total shares and
+`Bnet`/`Qnet` the net reserves (reserves minus fee buckets).
+
+- Fee: `fee(x) = ceil(x · fee_bps / 10_000)` — same as `swap`.
+- Ladder walk: `walk_ladder(levels, side, net) -> {out, remaining}`, `remaining == 0`
+  required. `BuyBase` walks the ask ladder; `SellBase` walks the bid ladder.
+- Deposit conversion: pick `s ∈ [0, A)` minimising
+  `|floor(dB·S/Bnet') − floor(dQ·S/Qnet')|` at the post-swap reserves, by a bounded
+  bisection (`≤64` halvings). `shares = min(floor(dB·S/Bnet'), floor(dQ·S/Qnet'))`.
+  Reject `shares == 0` or `swap_out == 0`.
+- Withdraw conversion: `payout = pro_rata(unwanted) + walk_ladder(unwanted − fee(unwanted))`
+  for the chosen side.
+- Golden vectors emitted by the program's own unit tests (fee 30 bps, one ladder
+  level `{sqrt_lo=1<<64, sqrt_hi=2<<64, liquidity=1e28}`, `base_net=1e9`,
+  `quote_net=2e9`, `total_shares=1e9`, `amount_in=1e8`):
+
+  | op | side | key outputs |
+  |---|---|---|
+  | deposit | sellBase | s=33897681, fee=101694, swap_out=120197144, db=66102319, dq=120197144, shares=63941356 |
+  | deposit | buyBase | s=33652173, fee=100957, swap_out=31595722, db=31595722, dq=66347827, shares=32626582 |
+  | withdraw | buyBase | base_out=1e8, quote_out=2e8, unwanted=2e8, fee=600000, net=199400000, converted=145778554, payout=245778554 |
+  | withdraw | sellBase | base_out=1e8, quote_out=2e8, unwanted=1e8, fee=300000, net=99700000, converted=291557109, payout=491557109 |
+
+### 8.2 Invariants and the tests proving them
+
+Rust (LiteSVM, `vault/program/tests/litesvm_single_sided.rs`, 22 tests) proves the
+on-chain invariants I1–I7 in §1.4. The frontend integer mirror is proved against
+the same integers:
+
+| Invariant | Rust proof | Frontend proof |
+|---|---|---|
+| I1 no zero-share/value-from-nothing | `deposit_single_rejects_zero_shares` | `singleSided.test.ts` (zero-share plan returns null) |
+| I2 conservation = event fields | `deposit_single_conserves_tokens_and_matches_event`, `claim_withdraw_single_conserves_tokens_and_matches_event` | golden-vector legs sum to the payout |
+| I3 no LP dilution beyond rounding; bounded vs anchor | `deposit_single_does_not_dilute_existing_lp_value`, `single_sided_ops_respect_anchor_deviation_bound` | impact computed as `converted` vs reservation mid |
+| I4 round-trip bounded loss | `deposit_single_round_trip_bounded_loss` | deposit/withdraw golden vectors are consistent |
+| I5 atomic failure leaves state intact | `deposit_single_atomic_failure_leaves_state_unchanged`, `claim_withdraw_single_capacity_failure_leaves_ticket_intact` | `capacityExceeded` flag + disabled-with-reason; empty-ladder guard returns `{out:0}` |
+| I6 obeys `max_quote_size` + flow cap | `deposit_single_rejects_over_max_quote_size`, `deposit_single_conversion_within_flow_cap` | "Exceeds quoted depth. Max now: X" |
+| I7 slippage guards | `deposit_single_enforces_min_shares_and_min_swap_out`, `claim_withdraw_single_enforces_min_out` | `minWithSlippage` floor + `min_out` display |
+
+UI-state and interface coverage is in `app/test/task4-single-sided-ui.test.ts`
+(18 tests): the flag fails closed; the IDL exposes both instructions; both/one
+deposit and both/one withdraw states render; the disabled reasons appear; the
+build→simulate→preview→confirm ordering holds.
+
+### 8.3 Residual risks
+
+1. **Stale-quote exposure (shared with `swap`).** The single-sided path trades at
+   the committed quote. A longer quote validity widens the window in which a stale
+   price can be filled. The worst-case transfer is bounded by
+   `amount × max_anchor_dev_bps`; the per-window flow cap and the realized-edge
+   breaker cap the aggregate. This is a bounded, acknowledged risk — not a claim
+   that it is zero.
+2. **Capacity / depth.** On a thin ladder the conversion may not be absorbable; the
+   operation is then refused (never partially filled), so a user can be blocked at
+   a size rather than filled at a worse price.
+3. **Rounding drift.** ≤1 atom per leg, matching `deposit`/`claim_withdraw`.
+4. **Audit status.** Same-agent self-review only. No known issues in self-review;
+   independent audit pending.
+5. **On-chain smoke pending.** The frontend flag stays off until an on-chain smoke
+   of the new instructions succeeds; until then the path is unproven end-to-end
+   against the live program.
+
+### 8.4 Plain statement
+
+**The single-sided path trades against the vault's own ladder at the committed
+quote and shares the same stale-quote exposure as a swap.** It is not a synthetic
+mint and it is not costless for the pool; it is bounded by the anchor-deviation
+bound, the per-window flow cap and the realized-edge breaker. Test funds only.
+
+---
+
+## 9. Reading list (external references)
+
+Verified live on 2026-10-16 (HTTP 200):
+
+- Uniswap v2 whitepaper (constant-product AMM + fee model):
+  <https://uniswap.org/whitepaper.pdf>
+- Balancer joins and exits (pool joins — proportional/single-token):
+  <https://docs-v2.balancer.fi/reference/joins-and-exits/pool-joins.html>
+- Balancer pool exits (single-token/proportional/custom exits):
+  <https://docs-v2.balancer.fi/reference/joins-and-exits/pool-exits.html>
+- Meteora DLMM (discrete price bins, single-sided liquidity, dynamic fees):
+  <https://docs.meteora.ag/core-products/dlmm/what-is-dlmm>
+- Raydium (AMM v4 / CPMM / CLMM reference):
+  <https://docs.raydium.io/>
+- Saber (stable-swap LP token pricing):
+  <https://docs.saber.so/>

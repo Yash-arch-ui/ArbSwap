@@ -669,7 +669,7 @@ export const VaultPage: React.FC = () => {
               ) : (
                 <>
                   <p style={{ fontSize: 13, color: 'var(--uni-neutral2)', lineHeight: 1.6 }}>
-                    <strong>Single-Token Deposit:</strong> Deposit only one token. The vault converts part of it through the committed ladder and deposits the balanced remainder, so no second token is needed. The program charges its normal fee on the swapped portion; any unswapped dust of the other token stays in your wallet.
+                    <strong>Single-Token Deposit:</strong> Deposit only one token. The vault converts part of it against its own committed ladder at the current committed quote and deposits the balanced remainder, so no second token is needed. This is a trade at the committed quote, so it shares the same stale-quote exposure as a swap; it is bounded by the anchor-deviation bound, the per-window flow cap and the realized-edge breaker. The program charges its normal fee on the swapped portion; any unswapped dust of the other token stays in your wallet.
                   </p>
 
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -795,6 +795,10 @@ export const VaultPage: React.FC = () => {
                 </div>
               ) : (
                 <>
+                  <p style={{ fontSize: 13, color: 'var(--uni-neutral2)', lineHeight: 1.6 }}>
+                    <strong>One-Token Withdrawal:</strong> Exit to a single token. The vault converts the unwanted leg against its own committed ladder at the current committed quote, so it shares the same stale-quote exposure as a swap. A fresh quote is required; if the quote has expired, claim both tokens instead.
+                  </p>
+
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Token:</span>
                     <button type="button" data-testid="withdraw-payout-sol" className={`uni-max ${withdrawPayoutSide === 'buyBase' ? 'active' : ''}`} onClick={() => { setWithdrawPayoutSide('buyBase'); setClaimPreview(null); }}>SOL</button>
