@@ -196,7 +196,7 @@ export const VaultPage: React.FC = () => {
         </div>
         <div className="uni-card" style={{ padding: '20px 22px', border: '1px solid rgba(255,255,255,0.08)', background: 'var(--uni-surface1)', borderRadius: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha APY</span>
+            <span style={{ fontSize: 13, color: 'var(--uni-neutral2)' }}>Hedged Alpha Return</span>
             <span style={{ fontSize: 10, color: 'var(--uni-accent1)', background: 'rgba(0,229,176,0.1)', padding: '2px 6px', borderRadius: 4 }}>Model Est.</span>
           </div>
           <p className="mono" style={{ fontSize: 24, fontWeight: 600, color: 'var(--uni-accent1)', margin: '8px 0 4px' }}>+{vaultState.netHedgedApy}%</p>
