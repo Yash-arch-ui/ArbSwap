@@ -492,13 +492,13 @@
     }
   },
   "meta": {
-    "commit": "420e765834503eb57b82c316c5491907a02d9b30",
+    "commit": "f5a76c224b03c35de8ace223e738a6957db654dd",
     "data_sha256": {},
     "date": "2026-10-16",
     "flow_type": "synthetic (real price path)",
     "frozen_params_sha256": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
     "note": "Model output. Not a product result. See docs/RESULTS.md.",
-    "short": "420e765"
+    "short": "f5a76c2"
   },
   "mutation": {
     "caught": 58,
@@ -2038,6 +2038,6 @@
   },
   "test_counts": {
     "python": 233,
-    "rust": 282
+    "rust": 284
   }
 }
