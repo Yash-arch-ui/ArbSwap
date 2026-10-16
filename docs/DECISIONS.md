@@ -100,3 +100,17 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
 - **Rejected:** Editing the operator's `app/.env.local` (local only, doesn't fix
   production); relying on Vercel env (unverified, could re-leak). Production
   deploy must also avoid setting a keyed `VITE_*` var (documented, Task 9.2).
+
+### D-011 — Single-sided program work: NO-GO for the 2026-10-16 window
+- **Decision:** Complete the design (`docs/SINGLE_SIDED_DESIGN.md`) but do **not**
+  implement or deploy `deposit_single`/`claim_withdraw_single` on-chain in this
+  window. Tasks 2-6 NOT DONE; design kept as the roadmap.
+- **Reason:** Shipping two new on-chain instructions to the required proof
+  standard (Python reference + ≥500 vectors + 100k differential + fuzz; helper
+  extraction with `swap` provably byte-identical; full LiteSVM/mutation/CU/IDL
+  matrix; redeploy + rollback) is not achievable within the remaining
+  session/timebox, and a partially verified on-chain change is unacceptable near
+  a submission deadline.
+- **Rejected:** A rushed on-chain deploy (fund-safety risk); a frontend-only
+  `swap`+`deposit` composition marketed as the program instruction (different
+  trust surface — documented as the recommended browser-only fallback instead).

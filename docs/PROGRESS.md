@@ -7,9 +7,9 @@
 
 | Task | Status | Evidence |
 |---|---|---|
-| 0 state/precheck | IN PROGRESS | this section |
-| 1 design doc | NOT DONE | — |
-| 2 reference + vectors | NOT DONE | — |
+| 0 state/precheck | DONE | commit `2cd897c`; tag `pre-single-sided` |
+| 1 design doc | DONE (on-chain NO-GO) | `docs/SINGLE_SIDED_DESIGN.md`; D-011 |
+| 2 reference + vectors | NOT DONE | see roadmap |
 | 3 program | NOT DONE | — |
 | 4 frontend | NOT DONE | — |
 | 5 docs | NOT DONE | — |
@@ -18,6 +18,21 @@
 | 8 liveness/proofs | NOT DONE | — |
 | 9 site package | NOT DONE | — |
 | 10 submission | NOT DONE | — |
+| gate-fix | DONE | commit `81e96c4`; bundle-freshness + bundle secrets green |
+
+### Next actions on resume (do not repeat finished work)
+
+1. Decide GO/NO-GO for single-sided program work (D-011 = NO-GO for the
+   2026-10-16 window). If re-attempting: Task 2 (Python reference + 500 vectors +
+   100k differential + fuzz) → Task 3 (helpers + instructions + LiteSVM/mutation)
+   → Task 6 (redeploy with rollback). Design is complete in
+   `docs/SINGLE_SIDED_DESIGN.md`.
+2. Recommended fast increment: browser-only one-sided flow composing the
+   existing `swap` + `deposit` (Task 4.1) behind `VITE_ENABLE_SINGLE_SIDED`.
+3. Remaining non-upgrade tasks: 7 (demo/evidence), 8 (liveness), 9 (site package
+   incl. `docs/DEPLOY_FRONTEND.md`), 10 (submission package + fresh-clone).
+4. Known open items: Task 8.1 30-minute fresh-quote measurement; browser-wallet
+   swap (operator only); Vercel must not set a keyed `VITE_*` var (D-010).
 
 ### Task 0 findings (read-only)
 
