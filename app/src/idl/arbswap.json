@@ -180,6 +180,84 @@
       "args": []
     },
     {
+      "name": "apply_volatility_params",
+      "docs": [
+        "Admin-only application of a proposed volatility change once the timelock",
+        "elapsed. Re-validates the payload and, when the proposal enables",
+        "enforcement, requires at least one verified observation so the guards",
+        "activate against a real baseline rather than a zero one."
+      ],
+      "discriminator": [
+        91,
+        84,
+        81,
+        23,
+        198,
+        198,
+        159,
+        152
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "volatility_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_volatility",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  108,
+                  95,
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "bond_keeper",
       "docs": [
         "T3.4: the keeper locks a bond in the quote token. The bond is held in a",
@@ -630,6 +708,28 @@
         },
         {
           "name": "quote_mint"
+        },
+        {
+          "name": "volatility_state",
+          "docs": [
+            "Required, vault-bound volatility PDA; see `UpdateQuote::volatility_state`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -1104,6 +1204,67 @@
       ]
     },
     {
+      "name": "initialize_volatility",
+      "docs": [
+        "One-time creation of the vault-bound volatility PDA. Admin only. An",
+        "all-zero `params` payload selects `DEFAULT_VOLATILITY_PARAMS`."
+      ],
+      "discriminator": [
+        209,
+        84,
+        189,
+        154,
+        96,
+        176,
+        88,
+        151
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "volatility_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "VolatilityParams"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "migrate_quote_state",
       "docs": [
         "S2-21A: permissionless, one-time layout upgrade of a legacy `QuoteState`",
@@ -1193,6 +1354,86 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "observe_volatility",
+      "docs": [
+        "Permissionless: advance the vault's EWMA volatility and jump state from a",
+        "verified, fresh, feed-matching Pyth update. Rejects an older or repeated",
+        "`publish_time`, so state is monotonic and cannot be replayed. Grants the",
+        "observer no authority over the vault or the configured parameters."
+      ],
+      "discriminator": [
+        108,
+        157,
+        102,
+        34,
+        227,
+        84,
+        155,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "observer",
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "volatility_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_update"
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
         }
       ],
       "args": []
@@ -1362,6 +1603,81 @@
               "name": "FeeKind"
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "propose_volatility_params",
+      "docs": [
+        "Admin-only, timelocked proposal of the volatility risk parameters and the",
+        "activation switch. Nothing changes until `apply_volatility_params` runs",
+        "at least `TIMELOCK_SLOTS` later, so an activation or a loosening of the",
+        "guards is announced and observable before it takes effect."
+      ],
+      "discriminator": [
+        252,
+        221,
+        34,
+        172,
+        115,
+        239,
+        144,
+        88
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "pending_volatility",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  108,
+                  95,
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "VolatilityParams"
+            }
+          }
+        },
+        {
+          "name": "enabled",
+          "type": "bool"
         }
       ]
     },
@@ -1801,6 +2117,30 @@
             "MVP allowlist path pays no PDA-derivation CU; the body checks it only when",
             "`min_bond > 0`."
           ]
+        },
+        {
+          "name": "volatility_state",
+          "docs": [
+            "Required, vault-bound volatility PDA; see `UpdateQuote::volatility_state`.",
+            "Staging is guarded too so a staged payload cannot be built that the",
+            "program would refuse to commit."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
         },
         {
           "name": "system_program",
@@ -2246,6 +2586,32 @@
         },
         {
           "name": "quote_mint"
+        },
+        {
+          "name": "volatility_state",
+          "docs": [
+            "Required, vault-bound volatility PDA. When its `enabled` flag is set the",
+            "committed quote must satisfy the on-chain volatility spread floor, depth",
+            "cap, and sigma kill-switch, and its observation must be fresh; a stale",
+            "observation is rejected (fail closed). Required — not optional — so",
+            "enforcement cannot be bypassed by omitting the account."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -2377,6 +2743,19 @@
       ]
     },
     {
+      "name": "PendingVolatilityParams",
+      "discriminator": [
+        39,
+        96,
+        186,
+        44,
+        43,
+        239,
+        74,
+        103
+      ]
+    },
+    {
       "name": "ProgramConfig",
       "discriminator": [
         196,
@@ -2413,6 +2792,19 @@
         152,
         117,
         119
+      ]
+    },
+    {
+      "name": "VolatilityState",
+      "discriminator": [
+        44,
+        161,
+        222,
+        84,
+        161,
+        41,
+        178,
+        59
       ]
     },
     {
@@ -2704,6 +3096,58 @@
       ]
     },
     {
+      "name": "VolatilityInitialized",
+      "discriminator": [
+        90,
+        79,
+        166,
+        153,
+        154,
+        102,
+        3,
+        194
+      ]
+    },
+    {
+      "name": "VolatilityObserved",
+      "discriminator": [
+        185,
+        245,
+        29,
+        127,
+        118,
+        230,
+        95,
+        39
+      ]
+    },
+    {
+      "name": "VolatilityParamsApplied",
+      "discriminator": [
+        227,
+        208,
+        66,
+        151,
+        143,
+        135,
+        85,
+        144
+      ]
+    },
+    {
+      "name": "VolatilityParamsProposed",
+      "discriminator": [
+        37,
+        73,
+        181,
+        246,
+        67,
+        9,
+        78,
+        74
+      ]
+    },
+    {
       "name": "WithdrawClaimed",
       "discriminator": [
         77,
@@ -2960,6 +3404,36 @@
       "code": 6045,
       "name": "UnsupportedAccountLength",
       "msg": "Unsupported account length for this operation"
+    },
+    {
+      "code": 6046,
+      "name": "InvalidVolatilityParams",
+      "msg": "Invalid volatility parameters"
+    },
+    {
+      "code": 6047,
+      "name": "VolatilityTooHigh",
+      "msg": "Volatility exceeds the configured ceiling"
+    },
+    {
+      "code": 6048,
+      "name": "VolatilitySpreadTooLow",
+      "msg": "Quote spread is below the volatility-derived floor"
+    },
+    {
+      "code": 6049,
+      "name": "DepthAboveVolatility",
+      "msg": "Quote depth exceeds the volatility-derived cap"
+    },
+    {
+      "code": 6050,
+      "name": "StaleVolatilityObservation",
+      "msg": "Volatility observation publish time is not newer than the stored one"
+    },
+    {
+      "code": 6051,
+      "name": "VolatilityNotReady",
+      "msg": "Volatility enforcement cannot activate before a verified observation exists"
     }
   ],
   "types": [
@@ -3977,6 +4451,45 @@
       }
     },
     {
+      "name": "PendingVolatilityParams",
+      "docs": [
+        "Timelocked pending volatility-parameter change, seeded `[b\"vol_pending\",",
+        "vault]`. Mirrors the `PendingConfig` flow (F-17): the admin proposes, and the",
+        "change applies only via `apply_volatility_params` at least `TIMELOCK_SLOTS`",
+        "slots later. `enabled` is part of the payload, so activation itself is",
+        "timelocked and observable before it takes effect."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "activate_slot",
+            "type": "u64"
+          },
+          {
+            "name": "params",
+            "type": {
+              "defined": {
+                "name": "VolatilityParams"
+              }
+            }
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "PriceFeedMessage",
       "repr": {
         "kind": "c"
@@ -4633,6 +5146,258 @@
           },
           {
             "name": "Full"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VolatilityInitialized",
+      "docs": [
+        "The vault-bound volatility PDA was created."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VolatilityObserved",
+      "docs": [
+        "A verified, fresh Pyth observation advanced the on-chain EWMA/jump state."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "publish_time",
+            "type": "i64"
+          },
+          {
+            "name": "short_ewma_q64",
+            "type": "u128"
+          },
+          {
+            "name": "medium_ewma_q64",
+            "type": "u128"
+          },
+          {
+            "name": "jump",
+            "type": "bool"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VolatilityParams",
+      "docs": [
+        "Parameter payload for the vault-bound volatility PDA. Admin gated, validated,",
+        "and stored entirely in the PDA (no `Config` change). Applied only through the",
+        "timelocked `propose_volatility_params` / `apply_volatility_params` flow."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "short_lambda_bps",
+            "type": "u32"
+          },
+          {
+            "name": "medium_lambda_bps",
+            "type": "u32"
+          },
+          {
+            "name": "jump_multiple",
+            "type": "u32"
+          },
+          {
+            "name": "max_sigma_q64",
+            "type": "u128"
+          },
+          {
+            "name": "jump_cooldown_slots",
+            "type": "u64"
+          },
+          {
+            "name": "vol_spread_coeff_bps",
+            "type": "u32"
+          },
+          {
+            "name": "vol_depth_coeff_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_observation_age_slots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VolatilityParamsApplied",
+      "docs": [
+        "A proposed volatility-parameter/activation change was applied (observation",
+        "state kept)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VolatilityParamsProposed",
+      "docs": [
+        "A timelocked volatility-parameter/activation change was proposed."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          },
+          {
+            "name": "activate_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VolatilityState",
+      "docs": [
+        "On-chain EWMA volatility, jump detector and risk parameters, seeded",
+        "`[b\"vol\", vault]` and initialized once by the vault admin. `short_ewma_q64`",
+        "and `medium_ewma_q64` store the `arb_math::volatility` per-second variances",
+        "(Q64.64); `last_price_q64` is the normalized token-unit price of the last",
+        "verified observation. Any signer may advance this account through",
+        "`observe_volatility`, but no observer gains authority over the vault or the",
+        "configured parameters."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "short_ewma_q64",
+            "type": "u128"
+          },
+          {
+            "name": "medium_ewma_q64",
+            "type": "u128"
+          },
+          {
+            "name": "last_price_q64",
+            "type": "u128"
+          },
+          {
+            "name": "last_publish_time",
+            "type": "i64"
+          },
+          {
+            "name": "last_observation_slot",
+            "type": "u64"
+          },
+          {
+            "name": "observation_nonce",
+            "type": "u64"
+          },
+          {
+            "name": "jump_detected",
+            "type": "bool"
+          },
+          {
+            "name": "jump_until_slot",
+            "docs": [
+              "Slot at which an active jump's configured cooldown ends (`0` = none)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "short_lambda_bps",
+            "type": "u32"
+          },
+          {
+            "name": "medium_lambda_bps",
+            "type": "u32"
+          },
+          {
+            "name": "jump_multiple",
+            "type": "u32"
+          },
+          {
+            "name": "max_sigma_q64",
+            "type": "u128"
+          },
+          {
+            "name": "jump_cooldown_slots",
+            "type": "u64"
+          },
+          {
+            "name": "vol_spread_coeff_bps",
+            "type": "u32"
+          },
+          {
+            "name": "vol_depth_coeff_bps",
+            "type": "u32"
+          },
+          {
+            "name": "max_observation_age_slots",
+            "type": "u64"
+          },
+          {
+            "name": "enabled",
+            "docs": [
+              "Fail-closed activation switch. `false` until the admin applies a",
+              "timelocked activation; while `false` the quote path behaves exactly as",
+              "it did before this feature existed. Once `true`, every quote update,",
+              "stage, and commit must supply this PDA and pass the volatility guards."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
