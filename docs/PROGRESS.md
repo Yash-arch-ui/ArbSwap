@@ -1,5 +1,44 @@
 # PROGRESS.md — ArbSwap principal-engineer run
 
+## RUN: FINAL EXECUTION — single-sided deposit/withdraw (2026-10-16, IST)
+
+**Branch:** `deposit-withdraw` (copy of `volatility`; operator override, see
+`docs/DECISIONS.md` D-000). Resume from this section; do not repeat finished work.
+
+| Task | Status | Evidence |
+|---|---|---|
+| 0 state/precheck | IN PROGRESS | this section |
+| 1 design doc | NOT DONE | — |
+| 2 reference + vectors | NOT DONE | — |
+| 3 program | NOT DONE | — |
+| 4 frontend | NOT DONE | — |
+| 5 docs | NOT DONE | — |
+| 6 deploy | NOT DONE | — |
+| 7 demo/evidence | NOT DONE | — |
+| 8 liveness/proofs | NOT DONE | — |
+| 9 site package | NOT DONE | — |
+| 10 submission | NOT DONE | — |
+
+### Task 0 findings (read-only)
+
+- Branch `deposit-withdraw`; HEAD `b55196a`; stray untracked `json` (left, D-001).
+- Keys: env vars UNSET; default paths used (D-002): admin/fee `8R3V…` (id.json),
+  upgrade authority `ddGs6hk5…` (arbswap-devnet.json). Balances: `8R3V…` 7.27 SOL,
+  `ddGs6hk5…` 4.78 SOL (both ≥ 5-SOL-equivalent requirement met / authority signs only).
+- Genesis `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` on primary and fallback.
+- Deployed program: **849,368 B, sha256 `42eeac64…`** (volatility build; ProgramData
+  `4156VC8V…`, slot 511445760, authority `ddGs6hk5…`). `docs/DEVNET.md` records the
+  older pre-volatility build (688,616 / `9a0505…`) — see D-003.
+- Slot at check `511625255`. Vault Active, `totalShares 184,925,609`. Config: fee 1,
+  **`expirySlots 120`** (already applied; D-004), `maxStalenessSeconds 2`, `maxConfBps 10`,
+  `minBond 0`, keeper `8R3V…`. QuoteState len 897, version 4426, author `8R3V…`,
+  `fresh:false` at sample (provider gap). Reserves 514,951,394 base / 65,820,107 quote.
+- tmux: only `arbswap-keeper` alive. Volatility pending `z9zy…` left untouched (D-005).
+- Rollback artifact saved (D-006): `~/arbswap-rollback/arbswap_pre_single_sided.so`
+  (849,368 B, `42eeac64…`); tag `pre-single-sided`.
+
+---
+
 Working on **main** (per explicit instruction: no new branch, nothing pushed to
 main). Tag `p2-claim-align-v1` created at baseline.
 
