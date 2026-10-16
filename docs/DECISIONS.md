@@ -88,18 +88,27 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
   medians that break docs-consistency doc numbers; and leaving the green reversed.
 
 ### D-010 — Browser RPC must be a public endpoint (secret-leak fix)
-- **Decision:** Add a committed `app/.env.production` pinning
-  `VITE_SOLANA_RPC_URL=https://api.devnet.solana.com` (+ fallback), so the
-  production bundle contains no provider key; the local, git-ignored
-  `app/.env.local` (keyed Helius URL) is left untouched for local dev.
+- **Decision:** The git-ignored `app/.env.local` now pins
+  `VITE_SOLANA_RPC_URL=https://api.devnet.solana.com` (+ fallback), and **no
+  `.env*` file is committed**. The earlier committed `app/.env.production` was
+  removed (see D-012).
 - **Reason:** The built bundle embedded a live Helius `api-key=` (from
   `app/.env.local`, inlined by Vite because it is a `VITE_*` var). The task
-  forbids any `api-key=` string in the public bundle. Vite loads
-  `.env.[mode]` at higher precedence than `.env.local`, so a committed
-  `.env.production` overrides the keyed local value for `vite build`.
-- **Rejected:** Editing the operator's `app/.env.local` (local only, doesn't fix
-  production); relying on Vercel env (unverified, could re-leak). Production
-  deploy must also avoid setting a keyed `VITE_*` var (documented, Task 9.2).
+  forbids any `api-key=` string in the public bundle. Removing the key from the
+  build input is deterministic and needs no tool change.
+- **Rejected:** Reliance on Vercel env alone (unverified, could re-leak).
+  Production deploy must also avoid setting a keyed `VITE_*` var (Task 9.2).
+
+### D-012 — A committed `.env.production` is rejected by the secrets gate
+- **Decision:** Do not commit any `.env*` file (the secrets gate rejects all real
+  `.env*` filenames, and does not content-scan them for `api-key=`). Fix the
+  leak by cleaning the build input (`.env.local`) instead.
+- **Reason:** `scripts/secrets_scan.py` flags any tracked `.env*` (only
+  `.env.example`/`.env.sample` are allowed) and only content-scans for PEM/keypair
+  arrays — so a committed public env file is both rejected by name and not
+  `api-key=`-scanned. The build input fix is simpler and doesn't weaken the gate.
+- **Rejected:** Allow-listing `.env.production` in the secrets gate (weakens a
+  security tool); keeping the committed file (red gate).
 
 ### D-011 — Single-sided program work: NO-GO for the 2026-10-16 window
 - **Decision:** Complete the design (`docs/SINGLE_SIDED_DESIGN.md`) but do **not**
