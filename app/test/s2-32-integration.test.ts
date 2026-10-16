@@ -136,8 +136,11 @@ describe('S2-35 execution mode is explicit and transaction-enabled on Devnet', (
     const swapSuccess = swap.indexOf('ok: true');
     expect(swapSubmit).toBeGreaterThan(-1);
     expect(swapSuccess).toBeGreaterThan(swapSubmit);
-    // VaultPage: the success notes follow their awaited submits.
-    expect(vault.indexOf('ok: true')).toBeGreaterThan(vault.indexOf('await depositOnChain('));
+    // VaultPage: the success status follows its awaited submit, and the
+    // in-flight state is a neutral "pending" (never a red failure cross shown
+    // before the transaction result is known).
+    expect(vault.indexOf("status: 'success'")).toBeGreaterThan(vault.indexOf('await depositOnChain('));
+    expect(vault).toMatch(/status: 'pending'/);
     // The old unconditional "✓" render (success on any notice) must be gone.
     expect(vault).not.toMatch(/>✓ \{notice\}/);
     expect(swap).not.toMatch(/disabled=\{READ_ONLY_MODE/);

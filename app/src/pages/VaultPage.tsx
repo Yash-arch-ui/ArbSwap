@@ -33,14 +33,17 @@ export const VaultPage: React.FC = () => {
   const [depositSol, setDepositSol] = useState<string>('0.1');
   const [depositUsdc, setDepositUsdc] = useState<string>('11.00');
   const [withdrawShares, setWithdrawShares] = useState<string>('0');
-  // Notice carries a severity so the UI never shows a success check on a failure.
-  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  // Notice carries an explicit status: a neutral "pending" while a transaction is
+  // in flight, and success/cancelled/error only once the chain result is known.
+  // This prevents a red failure cross from rendering before the transaction lands.
+  type NoticeStatus = 'pending' | 'success' | 'cancelled' | 'error';
+  const [notice, setNotice] = useState<{ text: string; status: NoticeStatus } | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
 
   const disabledReason = TRANSACTION_DISABLED_REASON;
   const blocked = (): boolean => {
     if (!TRANSACTIONS_ENABLED) {
-      setNotice({ text: disabledReason ?? 'Transactions are disabled in this build.', ok: false });
+      setNotice({ text: disabledReason ?? 'Transactions are disabled in this build.', status: 'error' });
       return true;
     }
     return false;
@@ -85,7 +88,7 @@ export const VaultPage: React.FC = () => {
       setVisible(true);
       return;
     }
-    setNotice({ text: 'Submitting deposit…', ok: false });
+    setNotice({ text: 'Submitting deposit… Awaiting wallet signature and confirmation.', status: 'pending' });
     try {
       const base = parseUnits(depositSol, tokens.SOL.decimals);
       const quote = parseUnits(depositUsdc, tokens.USDC.decimals);
@@ -105,15 +108,16 @@ export const VaultPage: React.FC = () => {
       if (expected <= 0n) throw new Error('deposit too small for the current vault');
       const minShares = (expected * 9950n) / 10000n; // 0.5% slippage floor
       const signature = await depositOnChain(connection, wallet, base, quote, minShares);
-      setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}... Shares activate after warm-up. ${explorerTxUrl(signature)}`, ok: true });
+      setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}... Shares activate after warm-up. ${explorerTxUrl(signature)}`, status: 'success' });
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
-      const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      const human = cancelled
         ? 'Deposit signing was cancelled by user.'
-        : `Deposit failed: ${msg.slice(0, 120)}`;
-      setNotice({ text: human, ok: false });
+        : `Deposit failed: ${msg.slice(0, 160)}`;
+      setNotice({ text: human, status: cancelled ? 'cancelled' : 'error' });
     }
   };
 
@@ -123,18 +127,19 @@ export const VaultPage: React.FC = () => {
       setVisible(true);
       return;
     }
-    setNotice({ text: 'Queueing withdrawal…', ok: false });
+    setNotice({ text: 'Queueing withdrawal… Awaiting wallet signature and confirmation.', status: 'pending' });
     try {
       const signature = await requestWithdrawOnChain(connection, wallet, sharesToWithdrawAtoms);
-      setNotice({ text: `Withdrawal queued ${signature.slice(0, 8)}… for Epoch ${vaultState.epoch + 1}.`, ok: true });
+      setNotice({ text: `Withdrawal queued ${signature.slice(0, 8)}… for Epoch ${vaultState.epoch + 1}.`, status: 'success' });
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
-      const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      const human = cancelled
         ? 'Withdrawal queue signing was cancelled by user.'
-        : `Withdraw request failed: ${msg.slice(0, 120)}`;
-      setNotice({ text: human, ok: false });
+        : `Withdraw request failed: ${msg.slice(0, 160)}`;
+      setNotice({ text: human, status: cancelled ? 'cancelled' : 'error' });
     }
   };
 
@@ -145,22 +150,23 @@ export const VaultPage: React.FC = () => {
       return;
     }
     if (!claimState.allowed) {
-      setNotice({ text: claimState.reason, ok: false });
+      setNotice({ text: claimState.reason, status: 'error' });
       return;
     }
     setIsClaiming(true);
-    setNotice({ text: 'Claiming settled withdrawal…', ok: false });
+    setNotice({ text: 'Claiming settled withdrawal… Awaiting wallet signature and confirmation.', status: 'pending' });
     try {
       const signature = await claimWithdrawOnChain(connection, wallet);
-      setNotice({ text: `Claim confirmed ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, ok: true });
+      setNotice({ text: `Claim confirmed ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, status: 'success' });
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
-      const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      const human = cancelled
         ? 'Claim signing was cancelled by user.'
-        : `Claim failed: ${msg.slice(0, 120)}`;
-      setNotice({ text: human, ok: false });
+        : `Claim failed: ${msg.slice(0, 160)}`;
+      setNotice({ text: human, status: cancelled ? 'cancelled' : 'error' });
     } finally {
       setIsClaiming(false);
     }
@@ -420,23 +426,30 @@ export const VaultPage: React.FC = () => {
 
           {notice && (
             <div
-              className={`vault-status-card ${notice.ok ? 'success' : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject') ? 'cancelled' : 'error'}`}
+              className={`vault-status-card ${notice.status}`}
               style={{
                 marginTop: 14,
                 padding: '12px 16px',
                 borderRadius: 12,
-                border: notice.ok 
-                  ? '1px solid rgba(0, 229, 176, 0.4)' 
-                  : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
-                  ? '1px solid rgba(255, 170, 0, 0.4)'
-                  : '1px solid rgba(255, 80, 80, 0.4)',
-                background: notice.ok 
-                  ? 'rgba(0, 229, 176, 0.08)' 
-                  : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
-                  ? 'rgba(255, 170, 0, 0.08)'
-                  : 'rgba(255, 80, 80, 0.08)',
+                border:
+                  notice.status === 'success'
+                    ? '1px solid rgba(0, 229, 176, 0.4)'
+                    : notice.status === 'cancelled'
+                    ? '1px solid rgba(255, 170, 0, 0.4)'
+                    : notice.status === 'pending'
+                    ? '1px solid rgba(120, 170, 255, 0.4)'
+                    : '1px solid rgba(255, 80, 80, 0.4)',
+                background:
+                  notice.status === 'success'
+                    ? 'rgba(0, 229, 176, 0.08)'
+                    : notice.status === 'cancelled'
+                    ? 'rgba(255, 170, 0, 0.08)'
+                    : notice.status === 'pending'
+                    ? 'rgba(120, 170, 255, 0.08)'
+                    : 'rgba(255, 80, 80, 0.08)',
               }}
-              role={notice.ok ? 'status' : 'alert'}
+              role={notice.status === 'success' || notice.status === 'pending' ? 'status' : 'alert'}
+              aria-live={notice.status === 'pending' ? 'polite' : 'assertive'}
             >
               <div style={{
                 display: 'flex',
@@ -444,18 +457,23 @@ export const VaultPage: React.FC = () => {
                 gap: 8,
                 fontWeight: 600,
                 fontSize: 13,
-                color: notice.ok 
-                  ? 'var(--uni-success, #00e5b0)' 
-                  : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
-                  ? 'var(--uni-warning, #f5a623)'
-                  : '#ff5050',
+                color:
+                  notice.status === 'success'
+                    ? 'var(--uni-success, #00e5b0)'
+                    : notice.status === 'cancelled'
+                    ? 'var(--uni-warning, #f5a623)'
+                    : notice.status === 'pending'
+                    ? 'var(--uni-accent1, #5b8def)'
+                    : '#ff5050',
                 marginBottom: 4,
               }}>
                 <span>
-                  {notice.ok 
-                    ? '✓ Operation Confirmed' 
-                    : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
+                  {notice.status === 'success'
+                    ? '✓ Operation Confirmed'
+                    : notice.status === 'cancelled'
                     ? '✕ Request Cancelled'
+                    : notice.status === 'pending'
+                    ? '◌ Submitting…'
                     : '✕ Request Failed'}
                 </span>
                 <span style={{
@@ -465,7 +483,13 @@ export const VaultPage: React.FC = () => {
                   background: 'rgba(255, 255, 255, 0.1)',
                   fontWeight: 500,
                 }}>
-                  {notice.ok ? 'On-Chain Devnet' : notice.text.toLowerCase().includes('cancel') ? 'Wallet Notice' : 'Notice'}
+                  {notice.status === 'success'
+                    ? 'On-Chain Devnet'
+                    : notice.status === 'cancelled'
+                    ? 'Wallet Notice'
+                    : notice.status === 'pending'
+                    ? 'In Flight'
+                    : 'Notice'}
                 </span>
               </div>
               <p style={{ margin: 0, fontSize: 13, color: 'var(--uni-neutral1)', lineHeight: 1.5 }}>
