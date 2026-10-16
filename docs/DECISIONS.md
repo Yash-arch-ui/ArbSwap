@@ -128,8 +128,8 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
   inverse-sqrt capacity redesign, C3/B2), and do not rewrite the historical
   `9a0505…`/`688,616`/tSOL/tUSDC records (they are dated STEP-1/earlier-vault
   history, not forward references). The current canonical numbers are consistent:
-  CU `update_quote` 47,836 / `swap` 63,579; deployed ELF `42eeac64…` (849,368 B);
-  current vault uses WSOL/USDC.
+  CU `update_quote` 47,836 and `swap` 63,579. The deployed ELF is `42eeac64…`
+  (849368 bytes); the current vault uses WSOL/USDC.
 - **Reason:** The task's list was written for a different repo state. Removing a
   live feature or rewriting dated history would break code or falsify records, and
   risks docs-consistency.
