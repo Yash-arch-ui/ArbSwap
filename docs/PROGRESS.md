@@ -15,10 +15,40 @@
 | 5 docs | DONE | `docs/SINGLE_SIDED_DESIGN.md`, `docs/SELF_REVIEW_SINGLE_SIDED.md`, `docs/DECISIONS.md` D-015…D-018 |
 | 6 deploy | DONE (6.1–6.5; 6.6 pending) | upgrade `21VdJsBe…` (933,240 B, sha256 `c8725a23…`, hash MATCH, slot 511682809, 2026-10-16T10:36:22Z); rollback `~/arbswap-rollback/arbswap_pre_single_sided.so` (unused); post-upgrade smoke green; live two-sided deposit→request→crank→claim (`2szDwnxJ…`/`28exTx39…`/`jyy8EHSh…`/`hWenydz7…`) deltas==event==pro-rata, reserves≥liabilities, shares consistent; expired-quote claim (d) evidenced; (a)/(e) single-token NOT RUN; `docs/DEVNET.md` STEP 3 |
 | 7 demo/evidence | DONE | offline demo: `SimulatorPage.tsx` renders bundled `app/src/data/demoStreams.json` (byte-identical to `artifacts/public/demo_streams.json`), 8 scenarios, no `fetch`/wallet/tx (`app/test/simulator.test.ts`); evidence: `AnalyticsPage` mounts `OnchainAnalyticsPanel` reading served `/analytics/onchain.json` (`app/public/analytics/onchain.json`, generated_at `2026-10-13T19:42Z`), parser/state tests (`app/test/onchainAnalytics.test.ts`); 11/11 pass. Snapshot predates the Task 6 single-sided upgrade (refresh optional, no code change required) |
-| 8 liveness/proofs | NOT DONE | 30-min fresh-quote run + live swaps pending |
+| 8 liveness/proofs | DONE | (8.1) 30-min fresh-quote monitor (`logs/fresh_monitor_20261016T164609Z.json`, gitignored): 2,689 samples, fresh 2,340 = **87%** (≥80% target), longest stale 41.4 s, 99 commits observed, 98 version-changes with a fresh sample, last version 6025 → **green**. (8.2) live swaps `scripts/devnet/swap_smoke.ts` (simulate-then-submit): BuyBase `5zu74zPr…` slot 511779271 (0.5 USDC→WSOL), SellBase `5jxap9Nz…` slot 511779315 (0.005 WSOL→USDC), fee 1 bps, keeper `8R3V…`; `docs/DEVNET.md` |
 | 9 site package | DONE | `docs/DEPLOY_FRONTEND.md` (root=`app`, Vite, `yarn build`→`dist`, exact keyless `VITE_*` env table, CSP/headers, `app/vercel.json`), D-013; rebuilt dist on this branch: `dist clean` (no `api-key=`/`helius-rpc`), public `https://api.devnet.solana.com` present, CSP `connect-src` limited |
 | 10 submission | DONE | `docs/QA.md` (Q5 updated: single-sided implemented+deployed), `SUBMISSION_TEXT.md`, `PITCH_OUTLINE.md`, `PRE_DEMO_CHECKLIST.md`, D-014; fresh-clone + tags (see below) |
 | gate-fix | DONE | commits `81e96c4`, `9134cd1`, `2ef5f41`; bundle-freshness + bundle secrets green |
+
+## FINAL REPORT — single-sided deposit/withdraw pilot (2026-10-16, IST)
+
+**Delivered.** Native single-token `deposit_single` / `claim_withdraw_single`
+on the vault's own ladder: Python reference + 600 golden vectors + 100k
+brute-force differential + 20k fuzz (Task 2); on-chain instructions with LiteSVM
+suites, CU `deposit_single` 161,693 / `claim_withdraw_single` 49,355 (Task 3);
+frontend mirror behind `VITE_ENABLE_SINGLE_SIDED` (fail-closed, **off by
+default**, Task 4); design/self-review docs (Task 5); devnet upgrade with the
+rollback artifact retained (Task 6); demo/evidence (Task 7); liveness + live
+swaps (Task 8); site + submission packages (Tasks 9/10).
+
+**Verification (all green at the free tag `demo-freeze-1`):**
+- Rust: `cargo fmt --check`, `clippy -D warnings`, `build-sbf`; `cargo test
+  --workspace` **287**.
+- Python: `.venv/bin/pytest simulation -q` **237 passed / 2 skipped**.
+- App: oxlint clean, Vitest all pass, `yarn build` OK; built `dist` has no key.
+- Docs/bundle: consistency, freshness, banned-wording, secrets — CLEAN.
+- Devnet: two-sided lifecycle (deltas == event == pro-rata; reserves ≥
+  liabilities); expired-quote window; live BuyBase/SellBase swaps (Task 8.2);
+  30-min fresh-quote **87%** (Task 8.1); fresh-clone reproduction PASS.
+
+**Not shown / not done (honest).** Option-1 value thesis not shown; no
+independent audit ("no known issues in self-review, independent audit pending");
+single-sided **live single-token smoke not run**; browser wallet-signed swap
+operator-only; E8 real-pool data not done; tokens are **devnet test tokens**.
+
+**Deploy.** Devnet program `2mwpYHpZ…` = 933,240 B / sha256 `c8725a23…`
+(authority `ddGs6hk5…`); dApp deployable per `docs/DEPLOY_FRONTEND.md` (keyless
+public RPC only).
 
 ### Next actions on resume (do not repeat finished work)
 
@@ -32,11 +62,11 @@
 2. Recommended fast increment: browser-only one-sided flow composing the
    existing `swap` + `deposit` (Task 4.1) behind `VITE_ENABLE_SINGLE_SIDED`.
 3. Remaining non-upgrade tasks: 8 (liveness), 9 (site package
-   incl. `docs/DEPLOY_FRONTEND.md`), 10 (submission package + fresh-clone).
-   Task 7 (demo/evidence) is DONE (offline simulator + on-chain evidence panel
-   verified; see the table row above).
-4. Known open items: Task 8.1 30-minute fresh-quote measurement; browser-wallet
-   swap (operator only); Vercel must not set a keyed `VITE_*` var (D-010).
+   incl. `docs/DEPLOY_FRONTEND.md`), 10 (submission package + fresh-clone) — all
+   now **DONE** (see the table rows above; Tasks 7/9/10 and 8.1/8.2 complete).
+4. Known open items: browser-**wallet-signed** swap (operator only — CLI-signed
+   live swaps recorded instead, Task 8.2); Vercel must not set a keyed `VITE_*`
+   var (D-010). Tag `demo-freeze-1` at the post-gate HEAD.
 
 ### Task 0 findings (read-only)
 

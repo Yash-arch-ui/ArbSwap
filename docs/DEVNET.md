@@ -715,3 +715,19 @@ re-simulation against the already-settled ticket fails only with `Custom 6004`
 Consequently `VITE_ENABLE_SINGLE_SIDED` is **not** set in any build.
 
 **No rollback triggered** (6.4): hash matched, vault Active, all smokes green.
+
+### Task 8.2 — live BuyBase / SellBase swaps (`scripts/devnet/swap_smoke.ts`)
+
+Operator-run live smoke: waits for a genuinely fresh committed quote, builds the
+same account set the dApp signs (manual Borsh), **simulates**, and only then
+submits + confirms. Admin `8R3V…`, devnet test tokens only, fee 1 bps.
+
+| Side | Signature | Slot | Input | Quote version |
+|---|---|---|---|---|
+| BuyBase | `5zu74zPrkVwgZmXcxs3R34BssSeiktzrvcRNFA2gPhNidfVHWNo7oaM2gz74QCqBpJVUgE9VjaDerecSJDfMuznx` | 511779271 | 0.5 USDC (500,000 atoms) | 5974 |
+| SellBase | `5jxap9NzQN54GTbyBGDDYzicG12a2iQDkSqh2gvVRm3gyo98ETAQeSbwPzew3b2FGPuVqvCrGNUuLYnKHgj1JU3T` | 511779315 | 0.005 WSOL (5,000,000 atoms) | 5974 |
+
+Both attributed to the active keeper `8R3V…` and confirmed via
+`getSignatureStatuses` polling (no websocket). The read-only `swap_preflight.ts`
+carried a `system_program` account bug (`PublicKey.default` at index 9); it is
+correctly `SystemProgram.programId` in `swap_smoke.ts`.
