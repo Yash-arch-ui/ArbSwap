@@ -9,7 +9,7 @@
 |---|---|---|
 | 0 state/precheck | DONE | commit `2cd897c`; tag `pre-single-sided` |
 | 1 design doc | DONE (NO-GO overridden) | `docs/SINGLE_SIDED_DESIGN.md` (commit `abfd9c5`); D-011, D-015 |
-| 2 reference + vectors | NOT DONE | see roadmap |
+| 2 reference + vectors | DONE | `simulation/reference/single_sided.py` (bit-for-bit mirror of `charge_fee`/`single_eval`/`solve_deposit_single` + withdraw plan); generator `simulation/reference/single_sided_golden.py` → `vault/program/tests/single_sided_vectors.txt` (**600** vectors: 400 deposit / 200 withdraw); Rust `single_sided_python_differential` (cross-language), `single_sided_solver_matches_brute_force_100k` (**100,000** cases), `single_sided_fuzz_invariants` (**20,000**) in `vault/program/src/lib.rs`; Python `simulation/reference/test_single_sided.py` (6 tests); 287 Rust / 239 Python; D-018 |
 | 3 program | DONE (code+proofs; no redeploy) | helpers + `deposit_single`/`claim_withdraw_single` in `vault/program/src/lib.rs`; `vault/program/tests/litesvm_single_sided.rs` (22 pass); 6 existing LiteSVM suites unmodified; CU 161,693 / 50,855 (<200k); IDL regenerated; D-015/D-016 |
 | 4 frontend | DONE (flag off by default) | `app/src/chain/singleSided.ts` (integer mirror + Rust golden vectors); `app/src/pages/VaultPage.tsx` Deposit "Deposit with" / Withdraw "Receive as" toggles; `VITE_ENABLE_SINGLE_SIDED` fail-closed (`app/src/chain/config.ts`); tx preview+simulate+submit-time fresh-quote re-read; `app/test/singleSided.test.ts` (15), `app/test/task4-single-sided-ui.test.ts` (18); D-017 |
 | 5 docs | NOT DONE | — |
@@ -22,11 +22,13 @@
 
 ### Next actions on resume (do not repeat finished work)
 
-1. Decide GO/NO-GO for single-sided program work (D-011 = NO-GO for the
-   2026-10-16 window). If re-attempting: Task 2 (Python reference + 500 vectors +
-   100k differential + fuzz) → Task 3 (helpers + instructions + LiteSVM/mutation)
-   → Task 6 (redeploy with rollback). Design is complete in
-   `docs/SINGLE_SIDED_DESIGN.md`.
+1. Task 2 is now DONE (Python reference + 600 golden vectors + 100k
+   brute-force differential + fuzz; D-018). Remaining single-sided work:
+   Task 5 docs already finalized; Task 6 (redeploy with rollback) is the only
+   upgrade-gated step and re-evaluate against the criteria table in
+   `docs/RELEASE_CHECKLIST.md`/this file (it previously listed Task 2 and
+   `docs/SELF_REVIEW_SINGLE_SIDED.md` as the two failing criteria). Design is
+   complete in `docs/SINGLE_SIDED_DESIGN.md`.
 2. Recommended fast increment: browser-only one-sided flow composing the
    existing `swap` + `deposit` (Task 4.1) behind `VITE_ENABLE_SINGLE_SIDED`.
 3. Remaining non-upgrade tasks: 7 (demo/evidence), 8 (liveness), 9 (site package

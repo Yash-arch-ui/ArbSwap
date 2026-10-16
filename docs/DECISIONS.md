@@ -200,3 +200,27 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
   (exposes an unverified path); a floating-point estimate (breaks integer
   parity); submitting a prepared transaction without a fresh-quote re-read
   (stale-price risk the program would reject).
+
+### D-018 — Task 2: Python owns the cross-language golden file; Rust owns the brute-force differential
+- **Decision:** The independent Python reference
+  (`simulation/reference/single_sided.py`) generates a 600-case golden file
+  (`vault/program/tests/single_sided_vectors.txt`; 400 deposit + 200 withdraw,
+  valid integer ladders of 1–3 levels), which the on-chain crate parses
+  (`include_str!`) in `single_sided_python_differential`. Separately, the Rust
+  crate owns a 100,000-case brute-force differential
+  (`single_sided_solver_matches_brute_force_100k`: exhaustive scan over every
+  candidate `s` on a small domain) plus a 20,000-case fuzz-invariant test; the
+  Python side repeats a 3,000-case brute-force differential and wide-range
+  invariants. The reference mirrors the program bit-for-bit, including that an
+  infeasible candidate returns `None` (Rust) / `None` (Python) so the bisection
+  shrinks, and that an unfillable conversion raises `CapacityExceeded`.
+- **Reason:** A single generator avoids drift between two hand-written vector
+  sets, and the cross-language file is the strongest check that the two
+  independent implementations agree. Brute force in the same language as the
+  solver is immune to a shared reference bug and inexpensive in both builds at
+  this domain. The scope note: `apply_flow_cap` and `apply_edge` are not part of
+  the amount plan and remain covered by the existing swap suites.
+- **Rejected:** Two separately authored vector sets (drift risk); 100k brute
+  force in Python only (slower and does not exercise the Rust solver directly);
+  generating vectors from the Rust solver (not independent); folding flow-cap and
+  edge checks into these tests (they are instruction-level, already covered).

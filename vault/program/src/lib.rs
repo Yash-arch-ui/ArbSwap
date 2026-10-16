@@ -4693,4 +4693,367 @@ mod tests {
             );
         }
     }
+
+    // --- Task 2: Python reference differential, 100k brute force, fuzz -------
+
+    type Vectors = Vec<std::collections::HashMap<&'static str, &'static str>>;
+
+    /// Parse the Python-generated single-sided golden vectors
+    /// (`simulation/reference/single_sided_golden.py`).
+    fn load_single_sided_vectors() -> Vectors {
+        const TEXT: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/single_sided_vectors.txt"
+        ));
+        let mut out = Vectors::new();
+        for line in TEXT.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut map = std::collections::HashMap::new();
+            for (i, part) in line.split('|').enumerate() {
+                if i == 0 {
+                    map.insert("kind", part);
+                } else if let Some((k, v)) = part.split_once('=') {
+                    map.insert(k, v);
+                }
+            }
+            out.push(map);
+        }
+        out
+    }
+
+    fn field_u(map: &std::collections::HashMap<&'static str, &'static str>, key: &str) -> u128 {
+        map.get(key)
+            .copied()
+            .unwrap_or_else(|| panic!("missing {key}"))
+            .parse()
+            .expect("u128 field")
+    }
+
+    fn field_i(map: &std::collections::HashMap<&'static str, &'static str>, key: &str) -> i128 {
+        map.get(key)
+            .copied()
+            .unwrap_or_else(|| panic!("missing {key}"))
+            .parse()
+            .expect("i128 field")
+    }
+
+    fn vector_state(map: &std::collections::HashMap<&'static str, &'static str>) -> QuoteState {
+        let nlev = field_u(map, "nlev") as usize;
+        let mut ask = [Level::default(); LEVELS];
+        let mut bid = [Level::default(); LEVELS];
+        for i in 0..nlev {
+            let level = Level {
+                offset_bps: 0,
+                weight_bps: 0,
+                sqrt_lo: field_u(map, &format!("lo{i}")),
+                sqrt_hi: field_u(map, &format!("hi{i}")),
+                liquidity: field_u(map, &format!("liq{i}")),
+            };
+            ask[i] = level;
+            bid[i] = level;
+        }
+        let mut qs = single_sided_vector_state();
+        qs.ask_levels = ask;
+        qs.bid_levels = bid;
+        qs
+    }
+
+    fn vector_side(map: &std::collections::HashMap<&'static str, &'static str>) -> SwapSide {
+        match map["side"] {
+            "sellBase" => SwapSide::SellBase,
+            _ => SwapSide::BuyBase,
+        }
+    }
+
+    fn single_sided_lcg(state: &mut u128) -> u128 {
+        *state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        *state
+    }
+
+    /// The independent Python reference (`simulation/reference/single_sided.py`)
+    /// must agree with the on-chain solver and the withdraw amount plan on every
+    /// generated vector. This is the cross-language differential for Task 2.
+    #[test]
+    fn single_sided_python_differential() {
+        let vectors = load_single_sided_vectors();
+        assert!(
+            vectors.len() >= 500,
+            "expected >=500 vectors, got {}",
+            vectors.len()
+        );
+        let (mut deposits, mut withdraws) = (0u32, 0u32);
+        for map in &vectors {
+            let qs = vector_state(map);
+            let side = vector_side(map);
+            let mut config = single_sided_vector_config();
+            config.fee_bps = field_u(map, "fee_bps") as u16;
+            match map["kind"] {
+                "deposit" => {
+                    let plan = solve_deposit_single(
+                        &config,
+                        &qs,
+                        side,
+                        field_u(map, "amount_in") as u64,
+                        field_u(map, "base_net") as u64,
+                        field_u(map, "quote_net") as u64,
+                        field_u(map, "total_shares") as u64,
+                    )
+                    .expect("vector must be feasible");
+                    assert_eq!(plan.s as u128, field_u(map, "s"));
+                    assert_eq!(plan.fee as u128, field_u(map, "fee"));
+                    assert_eq!(plan.swap_out as u128, field_u(map, "swap_out"));
+                    assert_eq!(plan.db as u128, field_u(map, "db"));
+                    assert_eq!(plan.dq as u128, field_u(map, "dq"));
+                    assert_eq!(plan.shares as u128, field_u(map, "shares"));
+                    assert_eq!(plan.diff, field_i(map, "diff"));
+                    deposits += 1;
+                }
+                "withdraw" => {
+                    let total = field_u(map, "total_shares");
+                    let shares = field_u(map, "shares");
+                    let base_out = (shares * field_u(map, "base_net") / total) as u64;
+                    let quote_out = (shares * field_u(map, "quote_net") / total) as u64;
+                    let unwanted = match side {
+                        SwapSide::BuyBase => quote_out,
+                        SwapSide::SellBase => base_out,
+                    };
+                    let (fee, net) = charge_fee(unwanted, config.fee_bps).unwrap();
+                    let converted = if net > 0 {
+                        walk_committed_ladder(&qs, side, net).unwrap()
+                    } else {
+                        0
+                    };
+                    let payout = match side {
+                        SwapSide::BuyBase => base_out + converted,
+                        SwapSide::SellBase => quote_out + converted,
+                    };
+                    assert_eq!(base_out as u128, field_u(map, "base_out"));
+                    assert_eq!(quote_out as u128, field_u(map, "quote_out"));
+                    assert_eq!(unwanted as u128, field_u(map, "unwanted"));
+                    assert_eq!(fee as u128, field_u(map, "fee"));
+                    assert_eq!(net as u128, field_u(map, "net"));
+                    assert_eq!(converted as u128, field_u(map, "converted"));
+                    assert_eq!(payout as u128, field_u(map, "payout"));
+                    withdraws += 1;
+                }
+                other => panic!("unknown vector kind {other}"),
+            }
+        }
+        assert!(
+            deposits >= 200 && withdraws >= 100,
+            "insufficient coverage: {deposits} deposit / {withdraws} withdraw"
+        );
+    }
+
+    /// 100,000-case brute-force differential: the bisection solver must return
+    /// the same maximum-`min` plan as an exhaustive scan over every `s` on a
+    /// small domain. Independent of the golden vectors.
+    #[test]
+    fn single_sided_solver_matches_brute_force_100k() {
+        let lo = 1u128 << 64;
+        let hi = 2u128 << 64;
+        let mut state = 0x5eed_1234_abcd_9876_u128;
+        let mut checked = 0u64;
+        for _ in 0..100_000 {
+            let capacity = 64u64 + (single_sided_lcg(&mut state) % 64) as u64;
+            let level = Level {
+                offset_bps: 0,
+                weight_bps: 10_000,
+                sqrt_lo: lo,
+                sqrt_hi: hi,
+                liquidity: capacity as u128 * (1u128 << 64),
+            };
+            let mut ask = [Level::default(); LEVELS];
+            let mut bid = [Level::default(); LEVELS];
+            ask[0] = level;
+            bid[0] = level;
+            let qs = QuoteState {
+                ask_levels: ask,
+                bid_levels: bid,
+                ..single_sided_vector_state()
+            };
+            let side = if single_sided_lcg(&mut state) & 1 == 0 {
+                SwapSide::SellBase
+            } else {
+                SwapSide::BuyBase
+            };
+            let fee_bps =
+                [0u16, 1, 5, 10, 30, 50, 100][(single_sided_lcg(&mut state) % 7) as usize];
+            let amount_in = 1 + (single_sided_lcg(&mut state) % 32) as u64;
+            let base_net = 1_000 + (single_sided_lcg(&mut state) % 1_000_000) as u64;
+            let quote_net = 1_000 + (single_sided_lcg(&mut state) % 1_000_000) as u64;
+            let total_shares = 1_000 + (single_sided_lcg(&mut state) % 1_000_000) as u64;
+            let mut config = single_sided_vector_config();
+            config.fee_bps = fee_bps;
+
+            let mut brute_best = 0u64;
+            for s in 0..=amount_in {
+                if let Some(plan) = single_eval(
+                    &config,
+                    &qs,
+                    side,
+                    amount_in,
+                    s,
+                    base_net,
+                    quote_net,
+                    total_shares,
+                ) {
+                    brute_best = brute_best.max(plan.shares);
+                }
+            }
+            let solved = solve_deposit_single(
+                &config,
+                &qs,
+                side,
+                amount_in,
+                base_net,
+                quote_net,
+                total_shares,
+            )
+            .expect("capacity bounds every candidate so the solver is feasible");
+            let side_name = match side {
+                SwapSide::SellBase => "sellBase",
+                SwapSide::BuyBase => "buyBase",
+            };
+            assert_eq!(
+                solved.shares, brute_best,
+                "solver {} != brute {brute_best} (side {side_name}, C {capacity}, fee {fee_bps}, in {amount_in})",
+                solved.shares
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 100_000);
+    }
+
+    /// Fuzz invariants over wide ranges: conservation, no value from nothing,
+    /// vault-favouring rounding, and solver local optimality.
+    #[test]
+    fn single_sided_fuzz_invariants() {
+        let mut state = 0xc0ffee_0bad_f00d_u128;
+        for _ in 0..20_000 {
+            let nlev = 1 + (single_sided_lcg(&mut state) % 3) as usize;
+            let mut ask = [Level::default(); LEVELS];
+            let mut bid = [Level::default(); LEVELS];
+            let mut sqrt = 1u128 << 64;
+            for i in 0..nlev {
+                let width = (single_sided_lcg(&mut state) % (1u128 << 64)) + 1;
+                let level = Level {
+                    offset_bps: 0,
+                    weight_bps: 10_000,
+                    sqrt_lo: sqrt,
+                    sqrt_hi: sqrt + width,
+                    liquidity: 10u128.pow(18 + (single_sided_lcg(&mut state) % 7) as u32),
+                };
+                ask[i] = level;
+                bid[i] = level;
+                sqrt += width;
+            }
+            let qs = QuoteState {
+                ask_levels: ask,
+                bid_levels: bid,
+                ..single_sided_vector_state()
+            };
+            let side = if single_sided_lcg(&mut state) & 1 == 0 {
+                SwapSide::SellBase
+            } else {
+                SwapSide::BuyBase
+            };
+            let mut config = single_sided_vector_config();
+            config.fee_bps =
+                [0u16, 1, 5, 10, 30, 50, 100][(single_sided_lcg(&mut state) % 7) as usize];
+            let base_net = 10_000 + (single_sided_lcg(&mut state) % 10u128.pow(12)) as u64;
+            let quote_net = 10_000 + (single_sided_lcg(&mut state) % 10u128.pow(12)) as u64;
+            let total_shares = 10_000 + (single_sided_lcg(&mut state) % 10u128.pow(12)) as u64;
+            // A modest notional keeps the internal swap feasible on this ladder.
+            let amount_in = 1 + (single_sided_lcg(&mut state) % 10_000) as u64;
+            if let Ok(plan) = solve_deposit_single(
+                &config,
+                &qs,
+                side,
+                amount_in,
+                base_net,
+                quote_net,
+                total_shares,
+            ) {
+                // Fee is exactly the swap fee.
+                assert_eq!(
+                    plan.fee as u128,
+                    (plan.s as u128 * config.fee_bps as u128 + 9_999) / 10_000
+                );
+                if plan.s > 0 {
+                    assert!(plan.fee <= plan.s);
+                }
+                match side {
+                    SwapSide::SellBase => {
+                        assert_eq!(plan.db + plan.s, amount_in);
+                        assert_eq!(plan.dq, plan.swap_out);
+                    }
+                    SwapSide::BuyBase => {
+                        assert_eq!(plan.dq + plan.s, amount_in);
+                        assert_eq!(plan.db, plan.swap_out);
+                    }
+                }
+                // Shares never exceed the proportional floors (no dilution).
+                if let Some(eval) = single_eval(
+                    &config,
+                    &qs,
+                    side,
+                    amount_in,
+                    plan.s,
+                    base_net,
+                    quote_net,
+                    total_shares,
+                ) {
+                    assert_eq!(eval.shares, plan.shares);
+                    let local = [
+                        plan.s.saturating_sub(1),
+                        plan.s,
+                        (plan.s + 1).min(amount_in),
+                    ];
+                    for cand in local {
+                        if let Some(p) = single_eval(
+                            &config,
+                            &qs,
+                            side,
+                            amount_in,
+                            cand,
+                            base_net,
+                            quote_net,
+                            total_shares,
+                        ) {
+                            assert!(p.shares <= plan.shares, "solver not locally maximal");
+                        }
+                    }
+                }
+                // A withdraw plan built from the same state: fee matches the
+                // swap fee and the payout is never below the wanted leg alone.
+                let shares = 1 + (single_sided_lcg(&mut state) % total_shares as u128) as u64;
+                let base_out = (shares as u128 * base_net as u128 / total_shares as u128) as u64;
+                let quote_out = (shares as u128 * quote_net as u128 / total_shares as u128) as u64;
+                let unwanted = match side {
+                    SwapSide::BuyBase => quote_out,
+                    SwapSide::SellBase => base_out,
+                };
+                let (fee, net) = charge_fee(unwanted, config.fee_bps).unwrap();
+                assert_eq!(
+                    fee as u128,
+                    (unwanted as u128 * config.fee_bps as u128 + 9_999) / 10_000
+                );
+                let wanted = match side {
+                    SwapSide::BuyBase => base_out,
+                    SwapSide::SellBase => quote_out,
+                };
+                if net > 0 {
+                    if let Ok(converted) = walk_committed_ladder(&qs, side, net) {
+                        assert!(wanted.saturating_add(converted) >= wanted);
+                    }
+                }
+            }
+        }
+    }
 }

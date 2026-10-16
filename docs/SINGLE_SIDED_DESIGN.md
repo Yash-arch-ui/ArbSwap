@@ -285,6 +285,12 @@ Two new instructions on the existing program, plus a flag-gated frontend:
   UI mirrors the program's integer plan, simulates, shows a preview, and re-reads
   the on-chain quote at submission. Infeasible sizes are disabled with the exact
   reason; the UI never shows a partial-fill estimate.
+- Verification (Task 2): an independent Python reference
+  (`simulation/reference/single_sided.py`) generates **600** golden vectors
+  (400 deposit / 200 withdraw) that the on-chain crate parses in
+  `single_sided_python_differential`; a **100,000**-case in-language brute-force
+  differential (`single_sided_solver_matches_brute_force_100k`) and a 20,000-case
+  fuzz-invariant test back it, mirrored by `simulation/reference/test_single_sided.py`.
 
 ### 8.1 Math (see `docs/FORMULA.md` §12.1–12.2)
 
