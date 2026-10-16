@@ -31,12 +31,18 @@ per-window flow cap, and the realized-edge breaker. It is a **known, bounded
 residual risk**, not eliminated.
 
 ## Q5. What is the single-sided deposit/withdrawal design, and its risk?
-Single-token entry/exit is designed natively on the vault's **own ladder**
+Single-token entry/exit is built natively on the vault's **own ladder**
 (`docs/SINGLE_SIDED_DESIGN.md`): `deposit_single` swaps part of the input
 internally, then deposits both legs; `claim_withdraw_single` converts the
 unwanted leg and pays one token. It **inherits the same stale-quote exposure as a
-swap**. On-chain program work is **NO-GO for this window** (D-011); the design is
-the roadmap. A browser-only `swap`+`deposit` composition is the fast fallback.
+swap** (bounded by the same anchor-deviation bound, flow cap and edge breaker).
+Status: implemented in `vault/program/src/lib.rs`, mirror-verified against a
+Python reference (600 golden vectors, 100k differential, 20k fuzz), LiteSVM-tested
+(22 cases; CU `deposit_single` 161,693 / `claim_withdraw_single` 49,355), and
+**deployed on devnet** (upgrade `21VdJsBe…`, sha256 `c8725a23…`). The browser UI
+is behind `VITE_ENABLE_SINGLE_SIDED` (**fail-closed; off by default**). Live
+evidence is the two-sided lifecycle (deposit→request→crank→claim) plus the
+expired-quote window; the single-token **live smoke was not run**.
 
 ## Q6. Who controls the upgrade authority?
 A **single key** (`ddGs6hk5…`) today. This is a real centralization point. A

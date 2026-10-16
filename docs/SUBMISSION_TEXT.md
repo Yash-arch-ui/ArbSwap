@@ -13,6 +13,10 @@ dApp.
   path.
 - **EWMA volatility / jump detector** with guarded activation (LiteSVM suites +
   frontend read path).
+- **Single-sided entry/exit** (`deposit_single`/`claim_withdraw_single`) on the
+  vault's own ladder: Python-reference parity (600 golden vectors, 100k
+  differential, 20k fuzz), LiteSVM suites, deployed on devnet (browser UI behind
+  a fail-closed flag, off by default).
 - **Live keeper** (Rust engine + TypeScript driver) committing fresh quotes on
   devnet; a public dApp reading live on-chain state.
 - **Frontend** (Vite/React/TS) with the swap page, Vault deposit/withdraw, Risk
@@ -22,8 +26,8 @@ dApp.
 - The **value thesis (Option 1) is not shown** — reported as a negative result.
 - **No independent audit** ("no known issues in self-review, independent audit
   pending").
-- Single-sided native deposit/withdraw is **designed, not shipped** on-chain
-  (`docs/SINGLE_SIDED_DESIGN.md`, D-011).
+- The single-sided **browser UI** is behind `VITE_ENABLE_SINGLE_SIDED` (off by
+  default) and the single-token **live smoke was not run** (`docs/SINGLE_SIDED_DESIGN.md`).
 - Real-pool E8 value data and the one-hour proxy are not done.
 - Tokens are **devnet test tokens**, not real assets.
 

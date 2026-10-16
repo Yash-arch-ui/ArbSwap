@@ -28,6 +28,6 @@ Devnet only. Test tokens only. Keep the keeper (tmux `arbswap-keeper`) running.
 - [ ] Phone hotspot ready as a network backup.
 
 ## Do not
-- [ ] Do not change any vault parameter or apply the pending volatility change.
+- [ ] Do not change any vault or volatility parameter.
 - [ ] Do not paste any key or keyed URL into the UI or chat.
 - [ ] Do not describe test tokens as real assets.

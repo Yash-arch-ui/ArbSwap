@@ -16,8 +16,8 @@
 | 6 deploy | DONE (6.1–6.5; 6.6 pending) | upgrade `21VdJsBe…` (933,240 B, sha256 `c8725a23…`, hash MATCH, slot 511682809, 2026-10-16T10:36:22Z); rollback `~/arbswap-rollback/arbswap_pre_single_sided.so` (unused); post-upgrade smoke green; live two-sided deposit→request→crank→claim (`2szDwnxJ…`/`28exTx39…`/`jyy8EHSh…`/`hWenydz7…`) deltas==event==pro-rata, reserves≥liabilities, shares consistent; expired-quote claim (d) evidenced; (a)/(e) single-token NOT RUN; `docs/DEVNET.md` STEP 3 |
 | 7 demo/evidence | DONE | offline demo: `SimulatorPage.tsx` renders bundled `app/src/data/demoStreams.json` (byte-identical to `artifacts/public/demo_streams.json`), 8 scenarios, no `fetch`/wallet/tx (`app/test/simulator.test.ts`); evidence: `AnalyticsPage` mounts `OnchainAnalyticsPanel` reading served `/analytics/onchain.json` (`app/public/analytics/onchain.json`, generated_at `2026-10-13T19:42Z`), parser/state tests (`app/test/onchainAnalytics.test.ts`); 11/11 pass. Snapshot predates the Task 6 single-sided upgrade (refresh optional, no code change required) |
 | 8 liveness/proofs | NOT DONE | 30-min fresh-quote run + live swaps pending |
-| 9 site package | PARTIAL | `docs/DEPLOY_FRONTEND.md`, D-013; dist verified no api-key |
-| 10 submission | PARTIAL | `docs/QA.md`, `SUBMISSION_TEXT.md`, `PITCH_OUTLINE.md`, `PRE_DEMO_CHECKLIST.md`, D-014; fresh-clone + tags pending |
+| 9 site package | DONE | `docs/DEPLOY_FRONTEND.md` (root=`app`, Vite, `yarn build`→`dist`, exact keyless `VITE_*` env table, CSP/headers, `app/vercel.json`), D-013; rebuilt dist on this branch: `dist clean` (no `api-key=`/`helius-rpc`), public `https://api.devnet.solana.com` present, CSP `connect-src` limited |
+| 10 submission | DONE | `docs/QA.md` (Q5 updated: single-sided implemented+deployed), `SUBMISSION_TEXT.md`, `PITCH_OUTLINE.md`, `PRE_DEMO_CHECKLIST.md`, D-014; fresh-clone + tags (see below) |
 | gate-fix | DONE | commits `81e96c4`, `9134cd1`, `2ef5f41`; bundle-freshness + bundle secrets green |
 
 ### Next actions on resume (do not repeat finished work)
