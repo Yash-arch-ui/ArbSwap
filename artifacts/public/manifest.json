@@ -1,5 +1,5 @@
 {
-  "commit": "00dee6a6923a5251cc00d8fed0b30ffd796629b1",
+  "commit": "6f5bd5e70034a2fb41822201f1c4432d50370d6a",
   "data_sha256": {},
   "files": {
     "cu.json": {
@@ -16,7 +16,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "adee7272967b8cfbd8aa5ce404f4803ede971c0dc1631b8548d0a3fb2026588a"
+      "sha256": "be3ab81e1dfcafa1d7fb5cecadd0f6c9a20c79883daa5620de6032d5f9b9fff1"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -32,7 +32,7 @@
     },
     "test_counts.json": {
       "schema": "../schema/test_counts.json",
-      "sha256": "48b54ee7870eae67b079709d763fb5a283b8fa75fb4fd1df686620e47ef3edc0"
+      "sha256": "1d18ccc0297311760b32cab58a1ca01b1e0d5eb5857a8d6e6bd99835b03c817a"
     },
     "thesis.json": {
       "schema": "../schema/thesis.json",
@@ -40,8 +40,8 @@
     }
   },
   "flow_type": "synthetic (real price path)",
-  "generated": "2026-10-16",
+  "generated": "2026-10-17",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "00dee6a"
+  "short": "6f5bd5e"
 }
