@@ -6,6 +6,7 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  ComputeBudgetProgram,
   type AccountInfo,
 } from '@solana/web3.js';
 import {
@@ -703,7 +704,16 @@ export async function buildSwapTransaction(
  * fee payer or blockhash (only `.rpc()` fills them via the provider, see
  * `provider.js`). Attach both so the built tx compiles for simulation and wallet
  * signing instead of failing with "Transaction fee payer required".
+ *
+ * It also prepends an explicit compute-unit limit. `simulateTransaction` otherwise
+ * assumes the 200,000-CU default, and the single-sided `deposit_single` (plus its
+ * idempotent ATA/wrap pre-instructions) exceeds it — the simulation (and a real
+ * submission) then fails with `ProgramFailedToComplete` / "exceeded CUs". A
+ * bounded 600,000 CU limit covers every path; without a priority fee the CU limit
+ * does not change the base fee.
  */
+export const TX_COMPUTE_UNIT_LIMIT = 600_000;
+
 export async function attachFeePayer(
   connection: Connection, wallet: unknown, tx: Transaction,
 ): Promise<Transaction> {
@@ -712,6 +722,11 @@ export async function attachFeePayer(
   const { blockhash } = await connection.getLatestBlockhash('confirmed');
   tx.feePayer = owner;
   tx.recentBlockhash = blockhash;
+  // Prepend (never duplicate) the compute-budget instruction.
+  const hasCuLimit = tx.instructions.some((ix) => ix.programId.equals(ComputeBudgetProgram.programId));
+  if (!hasCuLimit) {
+    tx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: TX_COMPUTE_UNIT_LIMIT }));
+  }
   return tx;
 }
 
