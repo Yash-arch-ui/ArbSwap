@@ -785,6 +785,44 @@ fn deposit_single_rejects_expired_and_unattributed_quotes() {
     );
 }
 
+/// Issue A: swap/deposit freshness is a half-open interval `slot < expiry_slot`.
+/// The boundary is exercised from both sides: `expiry_slot - 1` executes and
+/// `expiry_slot` is rejected with no state mutation.
+#[test]
+fn deposit_single_expiry_boundary_is_exclusive() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    let expiry = fixture.quote_state_value().expiry_slot;
+
+    // One slot before expiry: the deposit executes.
+    fixture.warp_to_slot(expiry - 1);
+    let shares_before = token_amount(&fixture.svm, fixture.user_shares);
+    fixture
+        .deposit_single(&keys.user, arbswap::SwapSide::SellBase, SINGLE_AMOUNT, 0, 0)
+        .expect("deposit at expiry_slot - 1 must succeed");
+    assert!(
+        token_amount(&fixture.svm, fixture.user_shares) > shares_before,
+        "a fresh boundary deposit must mint shares"
+    );
+
+    // At expiry: rejected, and nothing moved.
+    fixture.warp_to_slot(expiry);
+    let shares_before = token_amount(&fixture.svm, fixture.user_shares);
+    let base_before = token_amount(&fixture.svm, fixture.base_reserve);
+    assert_anchor_error(
+        fixture.deposit_single(&keys.user, arbswap::SwapSide::SellBase, SINGLE_AMOUNT, 0, 0),
+        "QuoteExpired",
+    );
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.user_shares),
+        shares_before
+    );
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.base_reserve),
+        base_before
+    );
+}
+
 #[test]
 fn deposit_single_atomic_failure_leaves_state_unchanged() {
     let keys = Keys::new();
@@ -940,6 +978,135 @@ fn claim_withdraw_single_requires_a_fresh_quote() {
         "shares stay locked on revert"
     );
     assert_eq!(fixture.vault_state().total_shares, total_before);
+}
+
+/// Issue A: freshness for the single-sided claim is also a half-open interval.
+/// A ticket queued before expiry settles at `expiry_slot - 1` and is rejected at
+/// `expiry_slot` with the ticket and shares preserved.
+#[test]
+fn claim_withdraw_single_expiry_boundary_is_exclusive() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, 10_000_000, 10_000_000, 1)
+        .expect("second deposit failed");
+    const WITHDRAW_SHARES: u64 = 10_000;
+    fixture
+        .request_withdraw(&keys.lp, WITHDRAW_SHARES)
+        .expect("queue");
+    // Settle the request epoch and commit a fresh quote at slot 64.
+    fixture.warp_to_slot(64);
+    fixture.crank_epoch().expect("crank");
+    let fresh = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, fresh, quote_update(64))
+        .expect("refresh quote");
+    let expiry = fixture.quote_state_value().expiry_slot;
+    assert_eq!(expiry, 64 + EXPIRY_SLOTS);
+
+    // Failure side: at expiry, rejected with no mutation.
+    fixture.warp_to_slot(expiry);
+    let lock_before = token_amount(&fixture.svm, fixture.share_lock);
+    let total_before = fixture.vault_state().total_shares;
+    assert_anchor_error(
+        fixture.claim_withdraw_single(
+            &keys.lp,
+            fixture.lp_base,
+            fixture.lp_quote,
+            arbswap::SwapSide::BuyBase,
+            1,
+        ),
+        "QuoteExpired",
+    );
+    assert_eq!(token_amount(&fixture.svm, fixture.share_lock), lock_before);
+    assert_eq!(fixture.vault_state().total_shares, total_before);
+    let ticket: WithdrawTicket = read_state(
+        &fixture.svm,
+        pda(
+            &[b"wd", fixture.vault.as_ref(), keys.lp.pubkey().as_ref()],
+            &fixture.program_id,
+        )
+        .0,
+    );
+    assert_eq!(ticket.shares, WITHDRAW_SHARES, "ticket preserved on expiry");
+
+    // Success side on a fresh fixture: at expiry - 1 the same ticket settles.
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, 10_000_000, 10_000_000, 1)
+        .expect("second deposit failed");
+    fixture
+        .request_withdraw(&keys.lp, WITHDRAW_SHARES)
+        .expect("queue");
+    fixture.warp_to_slot(64);
+    fixture.crank_epoch().expect("crank");
+    let fresh = fixture.post_pyth(PYTH_PRICE, 1, PUBLISH_TIME, VerificationLevel::Full);
+    fixture
+        .update_quote(&keys.keeper, fresh, quote_update(64))
+        .expect("refresh quote");
+    let expiry = fixture.quote_state_value().expiry_slot;
+    fixture.warp_to_slot(expiry - 1);
+    let base_before = token_amount(&fixture.svm, fixture.lp_base);
+    fixture
+        .claim_withdraw_single(
+            &keys.lp,
+            fixture.lp_base,
+            fixture.lp_quote,
+            arbswap::SwapSide::BuyBase,
+            1,
+        )
+        .expect("claim at expiry_slot - 1 must succeed");
+    assert!(token_amount(&fixture.svm, fixture.lp_base) > base_before);
+}
+
+/// Issue A: a withdrawal ticket records only owner/shares/epoch — no fixed price
+/// or amount — and the two-sided claim settles pro-rata from the live reserves.
+/// The exact payout is `shares * (reserve - fee buckets) / total_shares`.
+#[test]
+fn withdraw_ticket_fixes_shares_only_and_settles_pro_rata() {
+    let keys = Keys::new();
+    let mut fixture = Fixture::new(&keys);
+    fixture
+        .deposit(&keys.lp, 10_000_000, 10_000_000, 1)
+        .expect("second deposit failed");
+    const WITHDRAW_SHARES: u64 = 10_000;
+    fixture
+        .request_withdraw(&keys.lp, WITHDRAW_SHARES)
+        .expect("queue");
+    fixture.warp_to_slot(64);
+    fixture.crank_epoch().expect("crank");
+
+    let ticket: WithdrawTicket = read_state(
+        &fixture.svm,
+        pda(
+            &[b"wd", fixture.vault.as_ref(), keys.lp.pubkey().as_ref()],
+            &fixture.program_id,
+        )
+        .0,
+    );
+    assert_eq!(ticket.owner, keys.lp.pubkey());
+    assert_eq!(ticket.shares, WITHDRAW_SHARES);
+    assert_eq!(ticket.epoch, 1);
+
+    let vault = fixture.vault_state();
+    let total = vault.total_shares as u128;
+    let base_reserve = token_amount(&fixture.svm, fixture.base_reserve) as u128;
+    let base_available = base_reserve
+        - vault.insurance_base as u128
+        - vault.keeper_base as u128
+        - vault.protocol_base as u128;
+    let expected_base = (WITHDRAW_SHARES as u128 * base_available / total) as u64;
+
+    let base_before = token_amount(&fixture.svm, fixture.lp_base);
+    fixture
+        .claim_withdraw(&keys.lp, fixture.lp_base, fixture.lp_quote)
+        .expect("two-sided claim must settle from live reserves");
+    assert_eq!(
+        token_amount(&fixture.svm, fixture.lp_base) - base_before,
+        expected_base,
+        "payout must be the live pro-rata amount, not a snapshot"
+    );
 }
 
 #[test]
