@@ -34,7 +34,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -89,13 +88,16 @@ LIMITATIONS = [
 ]
 
 
-def _git_short() -> str | None:
-    try:
-        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
-                             capture_output=True, text=True, check=True)
-        return out.stdout.strip() or None
-    except Exception:
-        return None
+def _input_hashes() -> dict[str, str]:
+    """sha256 of the input file(s), so the artifact is reproducible and traceable
+    without embedding the (self-referential) HEAD commit. The published
+    ``manifest.json`` records the commit for the bundle."""
+    import hashlib
+    out: dict[str, str] = {}
+    if WINDOW_RESULTS.exists():
+        out["simulation/data/results/window_results.json"] = hashlib.sha256(
+            WINDOW_RESULTS.read_bytes()).hexdigest()
+    return out
 
 
 def _parse_period(dates: str) -> tuple[str, str]:
@@ -211,8 +213,9 @@ def build_lvr_history(
             "generator": "simulation/analytics/lvr.py",
             "methodology_version": METHODOLOGY_VERSION,
             "inputs": ["simulation/data/results/window_results.json"],
+            "input_sha256": _input_hashes(),
             "flow_type": "synthetic (real price path)",
-            "commit": commit if commit is not None else _git_short(),
+            "commit": commit,
         },
         "coverage_definition": (
             "Fraction of the modeled window period covered by the replay, in bps "

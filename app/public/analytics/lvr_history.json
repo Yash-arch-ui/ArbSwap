@@ -15,9 +15,12 @@
   "markout_seconds": 2,
   "methodology_version": "lvr_history_v1",
   "provenance": {
-    "commit": "c067f82",
+    "commit": null,
     "flow_type": "synthetic (real price path)",
     "generator": "simulation/analytics/lvr.py",
+    "input_sha256": {
+      "simulation/data/results/window_results.json": "63d8be7045c73227a42a715b7ed27e076295da156fa3f8cdba856872cea94139"
+    },
     "inputs": [
       "simulation/data/results/window_results.json"
     ],
