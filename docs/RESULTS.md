@@ -22,7 +22,7 @@ The routed chart is `docs/headline_chart.svg` (`./scripts/headline.sh`).
 
 <!-- BEGIN GENERATED NUMBERS -->
 
-_Generated from `simulation/data/results/artifacts.json` (commit `06477d8`, 2026-10-17, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
+_Generated from `simulation/data/results/artifacts.json` (commit `6c80673`, 2026-10-17, flow: synthetic (real price path)). Do not edit by hand; run `scripts/render_docs.py`._
 
 **Calibration (W1):** B1 best 2s markout **-0.02 bps** (target -0.2, accept [-0.5, 0.1]); quiet half-spread **2.409 bps** (target 2.6, accept [1.8, 3.4]).
 
