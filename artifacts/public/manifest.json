@@ -1,5 +1,5 @@
 {
-  "commit": "6c80673c3ddb11b8a9e562ee9cd6487d80fd9e6e",
+  "commit": "54e2eea1937b7740466cb0234b01464280534b17",
   "data_sha256": {},
   "files": {
     "cu.json": {
@@ -16,11 +16,15 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "9c5de09346009721f06c15d11daa89dbe87feb708de2f3712291b8a5c7582ac3"
+      "sha256": "4296e80c360dd786b7a5bdd9f52f7093748713915bedb448f4c411c254dcc0f4"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
       "sha256": "269a5ec98841c282861f0d86398261785284950f408e76c6300cdf42b98e8944"
+    },
+    "lvr_history.json": {
+      "schema": "../schema/lvr_history.json",
+      "sha256": "fbe72e37f1afbe9f5176d47f043c67f50dd8e956fd9b66a4033ff6a96d3966c7"
     },
     "mutation.json": {
       "schema": "../schema/mutation.json",
@@ -32,7 +36,7 @@
     },
     "test_counts.json": {
       "schema": "../schema/test_counts.json",
-      "sha256": "1d18ccc0297311760b32cab58a1ca01b1e0d5eb5857a8d6e6bd99835b03c817a"
+      "sha256": "2468b97a0cf1918b749c8c1e04ddf5790c1e268ef321143ae070b1348682b27c"
     },
     "thesis.json": {
       "schema": "../schema/thesis.json",
@@ -43,5 +47,5 @@
   "generated": "2026-10-17",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "6c80673"
+  "short": "54e2eea"
 }

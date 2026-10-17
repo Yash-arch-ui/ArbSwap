@@ -1,0 +1,117 @@
+{
+  "properties": {
+    "benchmark": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "markout_seconds": {
+      "type": "integer"
+    },
+    "rows": {
+      "items": {
+        "properties": {
+          "arbswap_lvr_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "coverage_bps": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "date": {
+            "type": "string"
+          },
+          "fees_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lvr_reduction_pct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "net_lp_impact_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "passive_lvr_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "period_end": {
+            "type": "string"
+          },
+          "period_start": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "swaps": {
+            "type": "integer"
+          },
+          "volume_usd": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "period_start",
+          "period_end",
+          "swaps",
+          "volume_usd",
+          "passive_lvr_usd",
+          "arbswap_lvr_usd",
+          "fees_usd",
+          "net_lp_impact_usd",
+          "coverage_bps",
+          "status"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "type": "integer"
+    },
+    "totals": {
+      "type": "object"
+    },
+    "unavailable": {
+      "type": "object"
+    },
+    "units": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "generated_at",
+    "benchmark",
+    "markout_seconds",
+    "units",
+    "rows",
+    "totals",
+    "unavailable",
+    "limitations"
+  ],
+  "type": "object"
+}
