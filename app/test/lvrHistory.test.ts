@@ -175,6 +175,22 @@ describe('UI wiring (source-level)', () => {
     expect(panel).not.toMatch(/\+\$0/);
   });
 
+  it('uses one consistent E1 label and states it is not LVR', () => {
+    expect(panel).toContain('Modeled E1: Hedged-PnL Improvement vs Passive Baseline');
+    expect(panel).toMatch(/not<\/strong> an LVR amount/);
+    // The formula is stated explicitly.
+    expect(panel).toMatch(/passive baseline hedged PnL\) \/ abs\(passive baseline hedged PnL\)/);
+  });
+
+  it('shows a denominator-sensitivity warning and annotates the W5 outlier', () => {
+    expect(panel).toMatch(/denominator-sensitive/i);
+    expect(panel).toMatch(/not LVR reduction or a profitability guarantee/i);
+    expect(panel).toContain('W5');
+    expect(panel).toContain('$193.89');
+    // The mean E1 is deliberately not headlined.
+    expect(panel).not.toMatch(/lvr_reduction_pct_mean/);
+  });
+
   it('is mounted on the Analytics page', () => {
     expect(analytics).toMatch(/LvrHistoryPanel/);
   });

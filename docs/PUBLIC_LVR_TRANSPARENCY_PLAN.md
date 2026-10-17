@@ -137,8 +137,9 @@ No Solana program or on-chain configuration was touched.
   `app/src/components/LvrHistoryPanel.tsx` (mounted in Analytics), and a compact
   `app/src/components/LvrSummaryCard.tsx` in the Vault page replacing the
   hardcoded `lvrAvoided7dUsd: 0`.
-- **Tests:** `simulation/analytics/tests/test_lvr.py` (20) and
-  `app/test/lvrHistory.test.ts` (22), including served == published and
+- **Tests:** `simulation/analytics/tests/test_lvr.py` (22),
+  `simulation/sim/test_lvr_simulation.py` (5, runs actual simulated swaps), and
+  `app/test/lvrHistory.test.ts` (23), including served == published and
   missing ≠ zero.
 
 **Honest status of each metric (first release):**
@@ -148,6 +149,7 @@ No Solana program or on-chain configuration was touched.
 | `passive_lvr_usd` | **Modeled** | `(σ²/8)·V·T` on the passive venue's initial value (existing simulator output). |
 | `fees_usd` | **Modeled** | Gross fee = ArbSwap turnover × `vault_fee_bps`; bucket split / LP-retained net not modeled. |
 | `arbswap_markout_2s_bps` | **Modeled (proxy)** | 2 s execution markout; an adverse-selection proxy, **not** LVR. |
+| `lvr_reduction_pct` — **Modeled E1: Hedged-PnL Improvement vs Passive Baseline** | **Modeled (relative)** | `(ArbSwap hedged PnL − passive baseline hedged PnL) / abs(passive baseline hedged PnL) × 100`. Not an LVR amount and not a measured LVR reduction; **denominator-sensitive** (a small passive baseline inflates the %), and the two venues may execute different volumes — not an apples-to-apples profitability claim. |
 | `arbswap_lvr_usd` | **Unavailable** | No measured ArbSwap LVR; markout is not renamed to LVR. |
 | `net_lp_impact_usd` | **Unavailable** | Needs compatible fees + ArbSwap LVR. |
 | Passive-AMM benchmark | **Supported (modeled)** | The passive counterfactual genuinely exists in the replay. |

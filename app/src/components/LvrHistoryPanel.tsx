@@ -25,6 +25,16 @@ const statusLabel = (s: LvrRow['status']): string =>
 const statusBadgeClass = (s: LvrRow['status']): string =>
   s === 'on-chain-verified' ? 'badge badge-fresh' : s === 'indexed' ? 'badge badge-warning' : 'badge badge-neutral';
 
+// One consistent user-facing label + the exact formula (per the final review).
+const E1_LABEL = 'Modeled E1: Hedged-PnL Improvement vs Passive Baseline';
+const E1_FORMULA = '(ArbSwap hedged PnL − passive baseline hedged PnL) / abs(passive baseline hedged PnL) × 100';
+// Presentation-only annotation for the known denominator-sensitive outlier (W5).
+// The passive-baseline hedged PnL is not carried in the published artifact, so the
+// value is stated here rather than recomputed in the UI. No artifact value is changed.
+const E1_OUTLIER_NOTES: Record<string, string> = {
+  W5: 'Denominator-sensitive outlier: the passive-baseline hedged PnL is ≈ $193.89, so a small denominator yields a very large percentage.',
+};
+
 function Panel({ children, testid }: { children: React.ReactNode; testid: string }): React.ReactElement {
   return (
     <div className="glass-card" role="status" aria-live="polite" data-testid={testid}
@@ -131,7 +141,7 @@ function Content({ state }: { state: LvrHistoryState }): React.ReactElement {
         <thead>
           <tr style={{ color: 'var(--uni-neutral2)', textAlign: 'right' }}>
             <th style={{ textAlign: 'left' }}>Period</th><th>Swaps</th><th>Volume (USD)</th>
-            <th>Passive LVR</th><th>ArbSwap LVR</th><th>E1 vs passive (modeled)</th><th>Fees (gross)</th><th>Net LP impact</th><th>Cov.</th><th>Status</th>
+            <th>Passive LVR</th><th>ArbSwap LVR</th><th>{E1_LABEL}</th><th>Fees (gross)</th><th>Net LP impact</th><th>Cov.</th><th>Status</th>
           </tr>
         </thead>
         <tbody className="mono">
@@ -142,7 +152,13 @@ function Content({ state }: { state: LvrHistoryState }): React.ReactElement {
               <td style={{ textAlign: 'right' }}>${r.volumeUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
               <td style={{ textAlign: 'right' }}>{fmtUsd(r.passiveLvrUsd)}</td>
               <td style={{ textAlign: 'right', color: 'var(--uni-neutral3)' }}>{fmtUsd(r.arbswapLvrUsd)}</td>
-              <td style={{ textAlign: 'right' }}>{fmtPct(r.lvrReductionPct)}</td>
+              <td style={{ textAlign: 'right' }}>
+                {fmtPct(r.lvrReductionPct)}
+                {E1_OUTLIER_NOTES[r.label] && (
+                  <span title={E1_OUTLIER_NOTES[r.label]} aria-label={E1_OUTLIER_NOTES[r.label]}
+                    style={{ marginLeft: 4, color: 'var(--uni-warning)', cursor: 'help' }}>⚠</span>
+                )}
+              </td>
               <td style={{ textAlign: 'right' }}>{fmtUsd(r.feesUsd)}</td>
               <td style={{ textAlign: 'right', color: 'var(--uni-neutral3)' }}>{fmtUsd(r.netLpImpactUsd)}</td>
               <td style={{ textAlign: 'right' }}>{(r.coverageBps / 100).toFixed(0)}%</td>
@@ -157,8 +173,16 @@ function Content({ state }: { state: LvrHistoryState }): React.ReactElement {
         gross fees {fmtUsd(data.totals.fees_usd ?? null)};
         ArbSwap LVR {fmtUsd(data.totals.arbswap_lvr_usd ?? null)};
         net LP impact {fmtUsd(data.totals.net_lp_impact_usd ?? null)}.
-        Per-window E1 (modeled hedged-PnL improvement vs passive, not an LVR amount) is shown per row.
+        {E1_LABEL} is shown per row (no headline mean).
       </p>
+
+      <Note text={`${E1_LABEL} is denominator-sensitive: a small passive-baseline hedged PnL can produce a very large percentage. These modeled values are not LVR reduction or a profitability guarantee.`} />
+
+      {data.rows.filter((r) => E1_OUTLIER_NOTES[r.label]).map((r) => (
+        <p key={r.label} style={{ color: 'var(--uni-warning)', fontSize: 12, margin: '6px 0 0' }}>
+          {r.label} {fmtPct(r.lvrReductionPct)} — {E1_OUTLIER_NOTES[r.label]}
+        </p>
+      ))}
 
       {(arbswapUnavailable || netUnavailable) && (
         <Note text={
@@ -177,9 +201,12 @@ function Content({ state }: { state: LvrHistoryState }): React.ReactElement {
           <span className="mono"> arbswap_markout_2s_bps</span> and is never labeled as LVR.
         </p>
         <p style={{ margin: '8px 0 0' }}>
-          <strong>LVR reduction (E1)</strong> is the repository&apos;s modeled hedged-PnL
-          improvement of ArbSwap over the passive pool on the same path — a modeled
-          benchmark, not a measured LVR amount and not a profitability claim.
+          <strong>{E1_LABEL}</strong> is a <em>modeled, relative</em> hedged-PnL comparison:
+          <span className="mono"> {E1_FORMULA}</span>. It is <strong>not</strong> an LVR amount and
+          <strong> not</strong> a measured percentage reduction in LVR. The result is sensitive to the
+          magnitude of the passive baseline (a small denominator inflates the percentage), and ArbSwap
+          and the passive baseline may execute different volumes — so this comparison does not establish
+          apples-to-apples profitability or prove that ArbSwap outperforms real-world passive AMMs.
         </p>
       </details>
 
