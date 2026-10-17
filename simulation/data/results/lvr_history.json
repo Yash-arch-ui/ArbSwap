@@ -1,0 +1,135 @@
+{
+  "aggregation_period": "window",
+  "benchmark": "pyth_mid_plus_venue_mid",
+  "benchmark_description": "Reference mid = the configured Pyth SOL/USD mid; markout horizon = 2s. The passive baseline is (sigma**2/8)*V*T on the passive venue's initial value.",
+  "coverage_definition": "Fraction of the modeled window period covered by the replay, in bps (10000 = full window). Not uptime or real observation completeness.",
+  "generated_at": "2026-10-11T13:43:16.794501Z",
+  "limitations": [
+    "Modeled, not measured: all values come from the weekly synthetic replay (real price path, synthetic flow), not from live LP experience.",
+    "The passive baseline is the standard (sigma**2/8)*V*T LVR formula applied to the passive venue's initial value; it is a benchmark, not a competitor's realized result.",
+    "ArbSwap LVR is unavailable; a 2s markout proxy is shown separately and is never labeled as LVR.",
+    "Fees are the gross modeled vault fee; the fee-bucket split and the LP-retained net are not modeled.",
+    "Coverage is the fraction of the modeled window period covered by the replay (10000 = full window). It is NOT uptime, quote availability, or real observation completeness.",
+    "Windows are 7-day replay periods, not calendar days; 'date' is the period start and rows are NOT daily observations."
+  ],
+  "markout_seconds": 2,
+  "methodology_version": "lvr_history_v1",
+  "provenance": {
+    "commit": "c067f82",
+    "flow_type": "synthetic (real price path)",
+    "generator": "simulation/analytics/lvr.py",
+    "inputs": [
+      "simulation/data/results/window_results.json"
+    ],
+    "kind": "modeled",
+    "methodology_version": "lvr_history_v1"
+  },
+  "rows": [
+    {
+      "arbswap_lvr_usd": null,
+      "arbswap_markout_2s_bps": 5.611291,
+      "coverage_bps": 10000,
+      "date": "2026-08-31",
+      "fees_usd": 929.444584,
+      "label": "W2",
+      "lvr_reduction_pct": 686.920026,
+      "net_lp_impact_usd": null,
+      "passive_lvr_usd": 192.895585,
+      "period_end": "2026-09-06",
+      "period_start": "2026-08-31",
+      "seconds": 604800,
+      "status": "modeled",
+      "swaps": 102444,
+      "volume_usd": 9294445.835737
+    },
+    {
+      "arbswap_lvr_usd": null,
+      "arbswap_markout_2s_bps": 4.659846,
+      "coverage_bps": 10000,
+      "date": "2026-09-07",
+      "fees_usd": 948.885273,
+      "label": "W3",
+      "lvr_reduction_pct": 469.915057,
+      "net_lp_impact_usd": null,
+      "passive_lvr_usd": 173.82387,
+      "period_end": "2026-09-13",
+      "period_start": "2026-09-07",
+      "seconds": 604800,
+      "status": "modeled",
+      "swaps": 102430,
+      "volume_usd": 9488852.733551
+    },
+    {
+      "arbswap_lvr_usd": null,
+      "arbswap_markout_2s_bps": 4.000139,
+      "coverage_bps": 10000,
+      "date": "2026-09-14",
+      "fees_usd": 1043.499702,
+      "label": "W4",
+      "lvr_reduction_pct": 726.123262,
+      "net_lp_impact_usd": null,
+      "passive_lvr_usd": 221.106862,
+      "period_end": "2026-09-20",
+      "period_start": "2026-09-14",
+      "seconds": 604800,
+      "status": "modeled",
+      "swaps": 102780,
+      "volume_usd": 10434997.022162
+    },
+    {
+      "arbswap_lvr_usd": null,
+      "arbswap_markout_2s_bps": 6.026637,
+      "coverage_bps": 10000,
+      "date": "2026-09-21",
+      "fees_usd": 871.116381,
+      "label": "W5",
+      "lvr_reduction_pct": 2406.541361,
+      "net_lp_impact_usd": null,
+      "passive_lvr_usd": 237.97673,
+      "period_end": "2026-09-27",
+      "period_start": "2026-09-21",
+      "seconds": 604800,
+      "status": "modeled",
+      "swaps": 102696,
+      "volume_usd": 8711163.8062
+    },
+    {
+      "arbswap_lvr_usd": null,
+      "arbswap_markout_2s_bps": 6.810461,
+      "coverage_bps": 10000,
+      "date": "2026-09-28",
+      "fees_usd": 777.808338,
+      "label": "W6",
+      "lvr_reduction_pct": 750.486856,
+      "net_lp_impact_usd": null,
+      "passive_lvr_usd": 177.660128,
+      "period_end": "2026-10-04",
+      "period_start": "2026-09-28",
+      "seconds": 604800,
+      "status": "modeled",
+      "swaps": 102566,
+      "volume_usd": 7778083.381827
+    }
+  ],
+  "schema_version": 1,
+  "source": "modeled weekly replay (simulation/data/results/window_results.json)",
+  "totals": {
+    "arbswap_lvr_usd": null,
+    "fees_usd": 4570.754278,
+    "lvr_reduction_pct_mean": 1007.997312,
+    "net_lp_impact_usd": null,
+    "passive_lvr_usd": 1003.463175,
+    "swaps": 512916,
+    "volume_usd": 45707542.779477
+  },
+  "unavailable": {
+    "arbswap_lvr_usd": "ArbSwap realized LVR is not separately measured in the available evidence. The modeled 2s markout (arbswap_markout_2s_bps) is an adverse-selection proxy, not LVR; it is not renamed to LVR.",
+    "net_lp_impact_usd": "Requires compatible fees and ArbSwap LVR components with matching units and windows; ArbSwap LVR is unavailable, so net LP impact is not computed."
+  },
+  "units": {
+    "coverage": "bps",
+    "fees": "quote_usd",
+    "lvr": "quote_usd",
+    "markout": "bps"
+  }
+}

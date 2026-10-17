@@ -99,6 +99,39 @@ SCHEMAS: dict[str, dict] = {
         "properties": {"kind": _STR, "samples": {"type": "integer"},
                        "ok": {"type": "integer"}, "change_rate": _NULLABLE_NUM},
     },
+    "lvr_history.json": {
+        "type": "object",
+        "required": ["schema_version", "generated_at", "benchmark", "markout_seconds",
+                     "units", "rows", "totals", "unavailable", "limitations"],
+        "properties": {
+            "schema_version": {"type": "integer"},
+            "generated_at": _STR,
+            "benchmark": _STR,
+            "markout_seconds": {"type": "integer"},
+            "units": {"type": "object"},
+            "rows": {"type": "array", "items": {
+                "type": "object",
+                "required": ["date", "period_start", "period_end", "swaps", "volume_usd",
+                             "passive_lvr_usd", "arbswap_lvr_usd", "fees_usd",
+                             "net_lp_impact_usd", "coverage_bps", "status"],
+                "properties": {
+                    "date": _STR, "period_start": _STR, "period_end": _STR,
+                    "swaps": {"type": "integer"},
+                    "volume_usd": _NUM,
+                    "passive_lvr_usd": _NULLABLE_NUM,
+                    "arbswap_lvr_usd": _NULLABLE_NUM,
+                    "lvr_reduction_pct": _NULLABLE_NUM,
+                    "fees_usd": _NULLABLE_NUM,
+                    "net_lp_impact_usd": _NULLABLE_NUM,
+                    "coverage_bps": {"type": "integer", "minimum": 0, "maximum": 10000},
+                    "status": _STR,
+                },
+            }},
+            "totals": {"type": "object"},
+            "unavailable": {"type": "object"},
+            "limitations": {"type": "array", "items": _STR},
+        },
+    },
 }
 
 
@@ -135,6 +168,7 @@ def build() -> dict:
         "test_counts.json": bundle.get("test_counts", {}),
         "thesis.json": _load("thesis.json", {}),
         "e8_proxy.json": _load("e8_proxy.json", {}),
+        "lvr_history.json": _load("lvr_history.json", {"schema_version": 1, "rows": []}),
     }
     return files
 

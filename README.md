@@ -503,7 +503,7 @@ any use with real funds.
 
 ## Testing, CU, and verification
 
-Current suite: **290 Rust / 239 Python** tests (single source of truth:
+Current suite: **290 Rust / 266 Python** tests (single source of truth:
 `simulation/data/results/artifacts.json`), plus the frontend (Vite/Vitest) suite,
 keeper TypeScript tests, and the browser E2E.
 

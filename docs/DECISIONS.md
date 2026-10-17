@@ -368,3 +368,27 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
 - **Reason:** Submission claims must be accurate; the on-chain deployment and
   reproducible hash were independently re-verified this session.
 - **Rejected:** Leaving the understated claim (it is still an inaccuracy).
+
+### D-028 — Public LVR transparency shipped modeled-first, off-chain
+- **Decision:** Implement the LVR transparency feature (branch `LVR`) as a
+  **frontend + Python analytics + published JSON** change: a generator
+  (`simulation/analytics/lvr.py`) emits `lvr_history.json` from the existing
+  weekly replay, wired into the export/publish pipeline; a strict frontend parser
+  (`app/src/data/lvrHistory.ts`), an Analytics panel
+  (`app/src/components/LvrHistoryPanel.tsx`), and a Vault summary card
+  (`app/src/components/LvrSummaryCard.tsx`) consume it. No program upgrade, no
+  on-chain config, no timelock.
+- **Metric honesty:** `passive_lvr_usd` and `fees_usd` are **modeled**;
+  `arbswap_markout_2s_bps` is a **proxy**; `arbswap_lvr_usd` and
+  `net_lp_impact_usd` are **unavailable** (`null`, never a substituted zero). A
+  markout is not renamed to LVR. Missing data renders `Unavailable`.
+- **Reason:** The repository has no measured ArbSwap LVR and no per-day series;
+  the only defensible inputs are the modeled weekly `theory_lvr_quote` and
+  turnover. Publishing fabricated daily rows or labeling markout as LVR would
+  violate the honesty rules. The plan explicitly permits a modeled first release
+  with explicit unavailability.
+- **Rejected:** Fabricating a daily series from the headline aggregate; labeling
+  markout as LVR; storing LVR on-chain (would need an upgrade + timelock);
+  retaining the misleading `+$0` Vault card.
+- **Deploy impact:** none on-chain; a normal Vercel rebuild plus the usual
+  bundle-regen gate is all that is required.

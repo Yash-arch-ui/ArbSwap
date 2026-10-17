@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useBackend, meanVenueMetric, useModelMetrics } from '../data/backend';
 import { OnchainAnalyticsPanel } from '../components/OnchainAnalyticsPanel';
+import { LvrHistoryPanel } from '../components/LvrHistoryPanel';
 import { ReadOnlyBanner } from '../components/ReadOnlyMode';
 
 /* =========================================================================
@@ -406,6 +407,7 @@ export const AnalyticsPage: React.FC = () => {
     <div className="analytics-page-wrapper">
       <div className="container analytics-container">
         <OnchainAnalyticsPanel />
+        <LvrHistoryPanel />
         <ReadOnlyBanner detail="Analytics combines live on-chain observations, indexed/optional exports, and offline model artifacts, each labelled by provenance. No transactions." />
         
         {/* Header Block */}

@@ -41,12 +41,13 @@ APY or return projection.
 | 19 | F4 retail spread diagnosis | **SUPPORTED (model output)** | `simulation/sim/diagnose.py` → `diagnosis.json`; dominant term volatility (~42%) | model output; router flaw fixed + regression |
 | 20 | F4(d) coefficient re-choice | **CLOSED-BY-DECISION (mechanical)** | `simulation/sim/rechoice.py`; no candidate satisfies PnL≥0 ∧ quiet HS≤B1 → frozen params retained | decision rule applied; Option 1 unchanged |
 | 21 | Dependency audit (frontend) | **WAIVED (dated)** | `frontend/audit-allowlist.json`; `scripts/frontend_audit_gate.mjs`; `docs/WEB_ASSUMPTIONS.md` | Dependency audit: high and critical findings are non-bundled, waived with dated reasons, reviewed monthly. |
+| 22 | Public LVR transparency (modeled) | **MODELED ONLY — not a product result** | `simulation/analytics/lvr.py` → `artifacts/public/lvr_history.json`; `simulation/analytics/tests/test_lvr.py` (20); `app/test/lvrHistory.test.ts` (22); `docs/PUBLIC_LVR_TRANSPARENCY_PLAN.md` §Implementation status | `passive_lvr_usd`/`fees_usd` are **modeled**; `arbswap_markout_2s_bps` is a **proxy**; `arbswap_lvr_usd` and `net_lp_impact_usd` are **unavailable** (null, never zero). No measured real-world LVR; markout is not labeled LVR. |
 
 ## Commands
 
 ```bash
 cargo test --workspace        # 290 Rust tests
-.venv/bin/pytest simulation -q # 239 Python tests
+.venv/bin/pytest simulation -q # 266 Python tests
 anchor build                  # SBF program
 ./scripts/headline.sh         # headline chart (no data/keys)
 ```

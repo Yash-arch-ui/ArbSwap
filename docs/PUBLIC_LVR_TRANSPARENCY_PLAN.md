@@ -121,3 +121,37 @@ and its benchmark.
 - The downloadable artifact exactly matches displayed values.
 - Tests prove that missing data is not converted to zero.
 - The page clearly separates on-chain facts from indexed and modeled metrics.
+
+## Implementation status (2026-10-17, branch `LVR`)
+
+Shipped end-to-end as a **frontend + Python analytics + published JSON** change.
+No Solana program or on-chain configuration was touched.
+
+- **Generator:** `simulation/analytics/lvr.py` builds a **modeled** artifact from
+  the weekly replay (`simulation/data/results/window_results.json`). Wired into
+  `scripts/export_artifacts.py` (regenerated + bundled as `lvr`) and
+  `scripts/publish_artifacts.py` (published with a JSON Schema + manifest hash).
+- **Artifact:** `artifacts/public/lvr_history.json` (published) and
+  `app/public/analytics/lvr_history.json` (served; byte-identical).
+- **Frontend:** strict parser `app/src/data/lvrHistory.ts`, panel
+  `app/src/components/LvrHistoryPanel.tsx` (mounted in Analytics), and a compact
+  `app/src/components/LvrSummaryCard.tsx` in the Vault page replacing the
+  hardcoded `lvrAvoided7dUsd: 0`.
+- **Tests:** `simulation/analytics/tests/test_lvr.py` (20) and
+  `app/test/lvrHistory.test.ts` (22), including served == published and
+  missing ≠ zero.
+
+**Honest status of each metric (first release):**
+
+| Metric | Status | Why |
+|---|---|---|
+| `passive_lvr_usd` | **Modeled** | `(σ²/8)·V·T` on the passive venue's initial value (existing simulator output). |
+| `fees_usd` | **Modeled** | Gross fee = ArbSwap turnover × `vault_fee_bps`; bucket split / LP-retained net not modeled. |
+| `arbswap_markout_2s_bps` | **Modeled (proxy)** | 2 s execution markout; an adverse-selection proxy, **not** LVR. |
+| `arbswap_lvr_usd` | **Unavailable** | No measured ArbSwap LVR; markout is not renamed to LVR. |
+| `net_lp_impact_usd` | **Unavailable** | Needs compatible fees + ArbSwap LVR. |
+| Passive-AMM benchmark | **Supported (modeled)** | The passive counterfactual genuinely exists in the replay. |
+
+Windows are 7-day replay periods, not calendar days; rows are **not** daily
+observations. Real/`Indexed` daily LVR would need continuous indexing of quotes,
+swaps and a reference feed (a data-availability task, not a code/deploy delay).

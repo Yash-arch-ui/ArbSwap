@@ -216,9 +216,17 @@ def build(*, with_tests: bool = True) -> dict:
         "cost": cost(),
         "cu": cu_table(),
         "mutation": mutation(),
+        "lvr": _load("lvr_history.json"),
         "test_counts": test_counts() if with_tests else _load("test_counts.json"),
     }
     return bundle
+
+
+def _regenerate_lvr() -> None:
+    """Regenerate the modeled LVR history artifact (no-op if inputs are absent)."""
+    if not (RESULTS / "window_results.json").exists():
+        return
+    subprocess.run([sys.executable, "-m", "simulation.analytics.lvr"], cwd=ROOT, check=True)
 
 
 def main() -> None:
@@ -226,6 +234,7 @@ def main() -> None:
     ap.add_argument("--no-tests", action="store_true", help="skip measuring test counts")
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args()
+    _regenerate_lvr()
     bundle = build(with_tests=not args.no_tests)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(bundle, indent=2, sort_keys=True) + "\n")
