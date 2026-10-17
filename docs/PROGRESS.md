@@ -1,5 +1,141 @@
 # PROGRESS.md — ArbSwap principal-engineer run
 
+## RUN: SUBMISSION LOCK & HARDENING (2026-10-17, IST) — `deposit-withdraw`
+
+Independent re-verification of `7f59963` plus frontend reliability hardening.
+No program upgrade; tag `demo-freeze-1` = `2155731` preserved; flag stays OFF.
+
+| Area | Status | Evidence |
+|---|---|---|
+| Baseline/git integrity | PASS | branch/HEAD/remote `0 0`; tag at `2155731`; stash + untracked `json` preserved |
+| Rust/Solana | PASS | fmt; CI clippy; `cargo test --workspace` **290**; `cargo build-sbf` full hash MATCH |
+| Python | PASS | 237 passed / 2 skipped (raw aggTrades archive absent) |
+| Frontend | PASS | oxlint; **182** Vitest; `tsc -b` + `yarn build`; dist keyless |
+| Script/repo gates | PASS | docs-consistency; bundle-freshness; banned; secrets; keeper/broadcast/volatility/reclaim/fresh-monitor tests |
+| Deployment identity | PASS | program `2mwpYHpZ…` 933,240 B, sha256 `c8725a23…015`, on-chain == local build |
+| Frontend reliability | FIXED | D-025: runtime genesis gate, re-simulate before sign, stale-preview invalidation |
+| Browser wallet smoke | BLOCKED (user) | `docs/BROWSER_WALLET_SMOKE.md`; flag off |
+| Claims accuracy | FIXED | D-027: corrected stale "Devnet is not deployed" in HEADLINE.md |
+| Keeper liveness (fresh 5-min obs) | PASS | 2026-10-17: 451 samples, fresh **87.8%** (time-weighted **88.0%**), longest stale 22.2 s, 19 commits, `max_oracle_age 31.4 s` → green |
+
+See `docs/DECISIONS.md` D-025…D-027.
+
+---
+
+## RUN: DEFECT CLOSURE & DEMO-READINESS (2026-10-17, IST) — `deposit-withdraw`
+
+Baseline preserved: branch `deposit-withdraw`, HEAD/tag `demo-freeze-1` = `2155731`
+(not moved). All work below is additive; no program upgrade, no main-branch
+mutation, no privileged state write. Full per-issue report:
+`docs/DEPOSIT_WITHDRAW_AUDIT.md` §9.
+
+| Issue | Status | Evidence |
+|---|---|---|
+| A quote expiry / claim correctness | RESOLVED (no program change) | two-sided claim is quote-free pro-rata (intentional); 3 new LiteSVM boundary/ownership tests (`litesvm_single_sided.rs` 22→25); D-021 |
+| B single-sided live smoke | PASS (CLI-signed, both directions) | `scripts/devnet/single_sided_smoke.ts`; all accounting checks PASS; flag **off**; `docs/DEVNET.md` STEP 4; D-020 |
+| C cross-branch regressions | RESOLVED | ported `1e17dcd` pending-status UI; reconciled `7186606` volatility docs after read-only re-verify (`enabled=true`); `vault-pending-status.test.ts` (8 tests); D-022 |
+| D keeper liveness | RESOLVED (measurement) | `fresh_monitor_core.ts` time-weighted + oracle-age + `MIN_FRESH`; 15 unit checks; 87% scope clarified; D-023 |
+| E frontend safety | RESOLVED | stale single-sided deposit tx now revalidated+blockhash-refreshed; preview/sidebar share mismatch fixed; re-entry guards; cancel classification |
+| F economic claims | RECONCILED | Option-1 still NOT shown; no audit claim; simulations labeled; devnet config marked active |
+| G reproducible verification | PASS | fmt; CI clippy; `cargo test --workspace` **290**; `cargo build-sbf` hash MATCH `c8725a23…`; Python 237/2; app 179 Vitest + build; docs/bundle/banned/secrets; fresh_monitor 15 |
+| H release docs | DONE | PROGRESS/DEVNET/DECISIONS/QA/SUBMISSION/PITCH/CLAIMS + audit §9; D-020…D-024 |
+
+**Not done (honest).** Browser **wallet-signed** single-token smoke (flag stays
+off); Option-1 value thesis not shown; independent audit not done; E8 real-pool
+data / one-hour proxy not done. The 87% is a **sample** fraction over one 30-min
+window (not a guarantee); the monitor now also reports a time-weighted fraction
+and oracle age. Tokens are devnet test tokens.
+
+---
+
+## RUN: FINAL EXECUTION — single-sided deposit/withdraw (2026-10-16, IST)
+
+**Branch:** `deposit-withdraw` (copy of `volatility`; operator override, see
+`docs/DECISIONS.md` D-000). Resume from this section; do not repeat finished work.
+
+| Task | Status | Evidence |
+|---|---|---|
+| 0 state/precheck | DONE | commit `2cd897c`; tag `pre-single-sided` |
+| 1 design doc | DONE (NO-GO overridden) | `docs/SINGLE_SIDED_DESIGN.md` (commit `abfd9c5`); D-011, D-015 |
+| 2 reference + vectors | DONE | `simulation/reference/single_sided.py` (bit-for-bit mirror of `charge_fee`/`single_eval`/`solve_deposit_single` + withdraw plan); generator `simulation/reference/single_sided_golden.py` → `vault/program/tests/single_sided_vectors.txt` (**600** vectors: 400 deposit / 200 withdraw); Rust `single_sided_python_differential` (cross-language), `single_sided_solver_matches_brute_force_100k` (**100,000** cases), `single_sided_fuzz_invariants` (**20,000**) in `vault/program/src/lib.rs`; Python `simulation/reference/test_single_sided.py` (6 tests); 287 Rust / 239 Python; D-018 |
+| 3 program | DONE (code+proofs; no redeploy) | helpers + `deposit_single`/`claim_withdraw_single` in `vault/program/src/lib.rs`; `vault/program/tests/litesvm_single_sided.rs` (22 pass); 6 existing LiteSVM suites unmodified; CU 161,693 / 50,855 (<200k); IDL regenerated; D-015/D-016 |
+| 4 frontend | DONE (flag off by default) | `app/src/chain/singleSided.ts` (integer mirror + Rust golden vectors); `app/src/pages/VaultPage.tsx` Deposit "Deposit with" / Withdraw "Receive as" toggles; `VITE_ENABLE_SINGLE_SIDED` fail-closed (`app/src/chain/config.ts`); tx preview+simulate+submit-time fresh-quote re-read; `app/test/singleSided.test.ts` (15), `app/test/task4-single-sided-ui.test.ts` (18); D-017 |
+| 5 docs | DONE | `docs/SINGLE_SIDED_DESIGN.md`, `docs/SELF_REVIEW_SINGLE_SIDED.md`, `docs/DECISIONS.md` D-015…D-018 |
+| 6 deploy | DONE (6.1–6.5; 6.6 pending) | upgrade `21VdJsBe…` (933,240 B, sha256 `c8725a23…`, hash MATCH, slot 511682809, 2026-10-16T10:36:22Z); rollback `~/arbswap-rollback/arbswap_pre_single_sided.so` (unused); post-upgrade smoke green; live two-sided deposit→request→crank→claim (`2szDwnxJ…`/`28exTx39…`/`jyy8EHSh…`/`hWenydz7…`) deltas==event==pro-rata, reserves≥liabilities, shares consistent; expired-quote claim (d) evidenced; (a)/(e) single-token NOT RUN; `docs/DEVNET.md` STEP 3 |
+| 7 demo/evidence | DONE | offline demo: `SimulatorPage.tsx` renders bundled `app/src/data/demoStreams.json` (byte-identical to `artifacts/public/demo_streams.json`), 8 scenarios, no `fetch`/wallet/tx (`app/test/simulator.test.ts`); evidence: `AnalyticsPage` mounts `OnchainAnalyticsPanel` reading served `/analytics/onchain.json` (`app/public/analytics/onchain.json`, generated_at `2026-10-13T19:42Z`), parser/state tests (`app/test/onchainAnalytics.test.ts`); 11/11 pass. Snapshot predates the Task 6 single-sided upgrade (refresh optional, no code change required) |
+| 8 liveness/proofs | DONE | (8.1) 30-min fresh-quote monitor (`logs/fresh_monitor_20261016T164609Z.json`, gitignored): 2,689 samples, fresh 2,340 = **87%** (≥80% target), longest stale 41.4 s, 99 commits observed, 98 version-changes with a fresh sample, last version 6025 → **green**. (8.2) live swaps `scripts/devnet/swap_smoke.ts` (simulate-then-submit): BuyBase `5zu74zPr…` slot 511779271 (0.5 USDC→WSOL), SellBase `5jxap9Nz…` slot 511779315 (0.005 WSOL→USDC), fee 1 bps, keeper `8R3V…`; `docs/DEVNET.md` |
+| 9 site package | DONE | `docs/DEPLOY_FRONTEND.md` (root=`app`, Vite, `yarn build`→`dist`, exact keyless `VITE_*` env table, CSP/headers, `app/vercel.json`), D-013; rebuilt dist on this branch: `dist clean` (no `api-key=`/`helius-rpc`), public `https://api.devnet.solana.com` present, CSP `connect-src` limited |
+| 10 submission | DONE | `docs/QA.md` (Q5 updated: single-sided implemented+deployed), `SUBMISSION_TEXT.md`, `PITCH_OUTLINE.md`, `PRE_DEMO_CHECKLIST.md`, D-014; fresh-clone + tags (see below) |
+| gate-fix | DONE | commits `81e96c4`, `9134cd1`, `2ef5f41`; bundle-freshness + bundle secrets green |
+
+## FINAL REPORT — single-sided deposit/withdraw pilot (2026-10-16, IST)
+
+**Delivered.** Native single-token `deposit_single` / `claim_withdraw_single`
+on the vault's own ladder: Python reference + 600 golden vectors + 100k
+brute-force differential + 20k fuzz (Task 2); on-chain instructions with LiteSVM
+suites, CU `deposit_single` 161,693 / `claim_withdraw_single` 49,355 (Task 3);
+frontend mirror behind `VITE_ENABLE_SINGLE_SIDED` (fail-closed, **off by
+default**, Task 4); design/self-review docs (Task 5); devnet upgrade with the
+rollback artifact retained (Task 6); demo/evidence (Task 7); liveness + live
+swaps (Task 8); site + submission packages (Tasks 9/10).
+
+**Verification (all green at the free tag `demo-freeze-1`):**
+- Rust: `cargo fmt --check`, `clippy -D warnings`, `build-sbf`; `cargo test
+  --workspace` **287**.
+- Python: `.venv/bin/pytest simulation -q` **237 passed / 2 skipped**.
+- App: oxlint clean, Vitest all pass, `yarn build` OK; built `dist` has no key.
+- Docs/bundle: consistency, freshness, banned-wording, secrets — CLEAN.
+- Devnet: two-sided lifecycle (deltas == event == pro-rata; reserves ≥
+  liabilities); expired-quote window; live BuyBase/SellBase swaps (Task 8.2);
+  30-min fresh-quote **87%** (Task 8.1); fresh-clone reproduction PASS.
+
+**Not shown / not done (honest).** Option-1 value thesis not shown; no
+independent audit ("no known issues in self-review, independent audit pending");
+single-sided **live single-token smoke not run**; browser wallet-signed swap
+operator-only; E8 real-pool data not done; tokens are **devnet test tokens**.
+
+**Deploy.** Devnet program `2mwpYHpZ…` = 933,240 B / sha256 `c8725a23…`
+(authority `ddGs6hk5…`); dApp deployable per `docs/DEPLOY_FRONTEND.md` (keyless
+public RPC only).
+
+### Next actions on resume (do not repeat finished work)
+
+1. Task 2 is now DONE (Python reference + 600 golden vectors + 100k
+   brute-force differential + fuzz; D-018). Remaining single-sided work:
+   Task 5 docs already finalized; Task 6 (redeploy with rollback) is the only
+   upgrade-gated step and re-evaluate against the criteria table in
+   `docs/RELEASE_CHECKLIST.md`/this file (it previously listed Task 2 and
+   `docs/SELF_REVIEW_SINGLE_SIDED.md` as the two failing criteria). Design is
+   complete in `docs/SINGLE_SIDED_DESIGN.md`.
+2. Recommended fast increment: browser-only one-sided flow composing the
+   existing `swap` + `deposit` (Task 4.1) behind `VITE_ENABLE_SINGLE_SIDED`.
+3. Remaining non-upgrade tasks: 8 (liveness), 9 (site package
+   incl. `docs/DEPLOY_FRONTEND.md`), 10 (submission package + fresh-clone) — all
+   now **DONE** (see the table rows above; Tasks 7/9/10 and 8.1/8.2 complete).
+4. Known open items: browser-**wallet-signed** swap (operator only — CLI-signed
+   live swaps recorded instead, Task 8.2); Vercel must not set a keyed `VITE_*`
+   var (D-010). Tag `demo-freeze-1` at the post-gate HEAD.
+
+### Task 0 findings (read-only)
+
+- Branch `deposit-withdraw`; HEAD `b55196a`; stray untracked `json` (left, D-001).
+- Keys: env vars UNSET; default paths used (D-002): admin/fee `8R3V…` (id.json),
+  upgrade authority `ddGs6hk5…` (arbswap-devnet.json). Balances: `8R3V…` 7.27 SOL,
+  `ddGs6hk5…` 4.78 SOL (both ≥ 5-SOL-equivalent requirement met / authority signs only).
+- Genesis `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` on primary and fallback.
+- Deployed program: **849,368 B, sha256 `42eeac64…`** (volatility build; ProgramData
+  `4156VC8V…`, slot 511445760, authority `ddGs6hk5…`). `docs/DEVNET.md` records the
+  older pre-volatility build (688,616 / `9a0505…`) — see D-003.
+- Slot at check `511625255`. Vault Active, `totalShares 184,925,609`. Config: fee 1,
+  **`expirySlots 120`** (already applied; D-004), `maxStalenessSeconds 2`, `maxConfBps 10`,
+  `minBond 0`, keeper `8R3V…`. QuoteState len 897, version 4426, author `8R3V…`,
+  `fresh:false` at sample (provider gap). Reserves 514,951,394 base / 65,820,107 quote.
+- tmux: only `arbswap-keeper` alive. Volatility pending `z9zy…` left untouched (D-005).
+- Rollback artifact saved (D-006): `~/arbswap-rollback/arbswap_pre_single_sided.so`
+  (849,368 B, `42eeac64…`); tag `pre-single-sided`.
+
+---
+
 Working on **main** (per explicit instruction: no new branch, nothing pushed to
 main). Tag `p2-claim-align-v1` created at baseline.
 

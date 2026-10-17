@@ -196,6 +196,17 @@ used for both sides). If the ladder cannot absorb the whole input it reverts wit
 - `request_withdraw(shares)` queues a ticket for the next epoch; `crank_epoch`
   advances the epoch after `epoch_slots`; `claim_withdraw` pays
   `shares·B/S` and `shares·Q/S` pro-rata.
+- **Single-token entry/exit (in the program; not redeployed).**
+  `deposit_single(side, amount_in, min_shares, min_swap_out)` enters with one
+  token: the vault converts the swapped portion of the input against its **own
+  committed ladder** and deposits the balanced remainder.
+  `claim_withdraw_single(side, min_out)` exits to one token by converting the
+  unwanted pro-rata leg the same way. This is a trade at the committed quote, so
+  it inherits the swap's stale-quote exposure, bounded by the anchor-deviation
+  bound, the per-window flow cap and the realized-edge breaker; an infeasible
+  size is refused rather than partially filled. The frontend path is behind
+  `VITE_ENABLE_SINGLE_SIDED` (default off). Design, invariants and proofs:
+  `docs/SINGLE_SIDED_DESIGN.md`.
 
 ### 4. After a swap
 
@@ -269,7 +280,7 @@ Single Anchor program; ladder size 6; admin timelock 216,000 slots.
 | Category | Instructions |
 |---|---|
 | Init | `initialize_program`, `initialize_vault`, `initialize_volatility` |
-| LP lifecycle | `deposit`, `request_withdraw`, `crank_epoch`, `claim_withdraw` |
+| LP lifecycle | `deposit`, `deposit_single`, `request_withdraw`, `crank_epoch`, `claim_withdraw`, `claim_withdraw_single` |
 | Quote lifecycle | `update_quote`, `stage_quote`, `commit_quote`, `migrate_quote_state` |
 | Swap | `swap` |
 | Risk / breaker | `trip_breaker`, `reset_breaker`, `wind_down` |
@@ -279,7 +290,8 @@ Single Anchor program; ladder size 6; admin timelock 216,000 slots.
 
 **Events** include `VaultInitialized`, `QuoteStateMigrated`, `DepositEvent`,
 `WithdrawRequested`, `WithdrawClaimed`, `QuoteUpdated`, `QuoteStaged`,
-`QuoteCommitted`, `SwapEvent`, `BreakerTripped`, `EdgeBreakerTripped`,
+`QuoteCommitted`, `SwapEvent`, `DepositSingleEvent`, `WithdrawSingleEvent`,
+`BreakerTripped`, `EdgeBreakerTripped`,
 `BreakerReset`, `ParamsProposed`, `ParamsApplied`, `KeeperBonded`, `KeeperSlashed`,
 `KeeperUnbonded`, `RewardClaimed`, `FeeClaimProposed`, `FeeClaimed`, and the
 volatility/admin events.
@@ -491,7 +503,7 @@ any use with real funds.
 
 ## Testing, CU, and verification
 
-Current suite: **211 Rust / 233 Python** tests (single source of truth:
+Current suite: **290 Rust / 239 Python** tests (single source of truth:
 `simulation/data/results/artifacts.json`), plus the frontend (Vite/Vitest) suite,
 keeper TypeScript tests, and the browser E2E.
 
@@ -596,6 +608,9 @@ program; the same instructions are available to scripts under `scripts/devnet/`.
 - `docs/SECURITY.md`, `docs/SECURITY_CHECKLIST.md` — guards, account-binding, CU and mutation tables.
 - `docs/DEVNET.md` — the Devnet lifecycle and keeper runs.
 - `docs/DEMO_RUNBOOK.md`, `docs/DEMO_SCRIPT.md` — demo steps.
+- `docs/SINGLE_SIDED_DESIGN.md` — single-token deposit/withdraw design, math,
+  invariants and proofs, residual risks, and the external reading list
+  (Uniswap v2, Balancer joins/exits, Meteora DLMM, Raydium, Saber).
 
 ---
 

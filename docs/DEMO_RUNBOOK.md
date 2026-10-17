@@ -67,3 +67,36 @@ See `docs/EPOCH_CHECK.md` for the full derivation.
 5. **Live swap**: with a fresh quote, BuyBase <= 0.5 USDC (<= 0.5lippage). The app re-reads the live quote at submit time and refuses after expiry.
 6. **If the keeper stalls** (Hermes auth/rate-limit, RPC outage): use the **Demo** tab (offline, deterministic) and the **Evidence** tab (recorded devnet signatures); do not present those as live.
 7. **After the timelocked apply** (Task 3): re-measure with `scripts/devnet/measure_fresh.sh 1800 400` (30 min, 400 ms) — baseline for expiry=10 is `logs/fresh_baseline.json`.
+
+## Single-token deposit / withdrawal (flag-gated; default off)
+
+The single-token Vault controls are hidden unless the build sets
+`VITE_ENABLE_SINGLE_SIDED=true` **and** transactions are enabled. Keep it **off**
+for the default demo build. An on-chain CLI smoke of `deposit_single` /
+`claim_withdraw_single` has passed for both directions (2026-10-17,
+`docs/DEVNET.md` STEP 4), but the **browser wallet-signed** path has not been
+exercised, so the flag stays off; the default demo uses the two-sided Vault flow.
+
+If (and only if) you have also completed a browser wallet-signed single-token
+smoke and want to show the path:
+
+1. Build/run with the flag:
+   `VITE_ENABLE_SINGLE_SIDED=true yarn --cwd app dev` (or set it in the demo
+   build configuration). Confirm the Vault page shows the **Deposit with:
+   Both / Single token** and **Receive as: Both / One token** toggles.
+2. Deposit: pick **Single token**, choose SOL or USDC, enter an amount, and read
+   the preview — swap portion, internal swap out, fee, price impact vs the
+   reservation mid, expected shares and `min_shares` (0.5% slippage default). A
+   fresh quote is required; when expired the action is disabled with the reason
+   and, if the size is too large, "Max swap depth now: X".
+3. Withdraw: pick **Receive as: One token**, choose the payout token, and read
+   the base/quote legs, converted leg, fee, impact, expected payout and
+   `min_out`. If the quote is expired, fall back to **Both tokens** (the normal
+   claim works with an expired quote).
+4. The app builds, simulates, shows a preview, then asks the wallet to sign; it
+   re-reads the on-chain quote at submit time and refuses if it has expired.
+
+What to say: this is a trade against the vault's **own committed ladder** at the
+committed quote, so it shares the same stale-quote exposure as a swap; it is
+bounded by the anchor-deviation bound, the per-window flow cap and the
+realized-edge breaker; test funds only. See `docs/SINGLE_SIDED_DESIGN.md`.

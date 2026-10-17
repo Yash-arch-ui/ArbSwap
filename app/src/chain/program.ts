@@ -6,6 +6,7 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  ComputeBudgetProgram,
   type AccountInfo,
 } from '@solana/web3.js';
 import {
@@ -503,6 +504,18 @@ async function ensureAta(
 export async function deposit(
   connection: Connection, wallet: unknown, baseAmount: bigint, quoteAmount: bigint, minShares: bigint,
 ): Promise<string> {
+  const { builder, preInstructions } = await depositMethod(connection, wallet, baseAmount, quoteAmount, minShares);
+  return builder.preInstructions(preInstructions).rpc();
+}
+
+/**
+ * Resolve accounts and build the `deposit` (both tokens) method plus the
+ * idempotent ATA / WSOL wrap pre-instructions. Exposed so the UI can build,
+ * simulate and preview the transaction before any wallet prompt.
+ */
+export async function depositMethod(
+  connection: Connection, wallet: unknown, baseAmount: bigint, quoteAmount: bigint, minShares: bigint,
+) {
   const w = anchorWallet(wallet);
   const program = getProgram(connection, wallet);
   const { vault, config } = deriveVaultAddresses();
@@ -531,7 +544,7 @@ export async function deposit(
   }
   if (quote.createIx) preInstructions.push(quote.createIx);
   if (share.createIx) preInstructions.push(share.createIx);
-  return program.methods
+  const builder = program.methods
     .deposit(new BN(baseAmount.toString()), new BN(quoteAmount.toString()), new BN(minShares.toString()))
     .accounts({
       user: owner, vault, config,
@@ -540,9 +553,17 @@ export async function deposit(
       userBase: base.ata, userQuote: quote.ata, userShares: share.ata,
       depositTicket: depositTicket(vault, owner),
       tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYSTEM_PROGRAM_ID,
-    })
-    .preInstructions(preInstructions)
-    .rpc();
+    });
+  return { builder, preInstructions };
+}
+
+/** Build (unsigned) the pro-rata deposit transaction for preview/simulation. */
+export async function buildDepositTransaction(
+  connection: Connection, wallet: unknown, baseAmount: bigint, quoteAmount: bigint, minShares: bigint,
+): Promise<Transaction> {
+  const { builder, preInstructions } = await depositMethod(connection, wallet, baseAmount, quoteAmount, minShares);
+  const tx = await builder.preInstructions(preInstructions).transaction();
+  return attachFeePayer(connection, wallet, tx);
 }
 
 function bigintSqrt(n: bigint): bigint {
@@ -683,7 +704,16 @@ export async function buildSwapTransaction(
  * fee payer or blockhash (only `.rpc()` fills them via the provider, see
  * `provider.js`). Attach both so the built tx compiles for simulation and wallet
  * signing instead of failing with "Transaction fee payer required".
+ *
+ * It also prepends an explicit compute-unit limit. `simulateTransaction` otherwise
+ * assumes the 200,000-CU default, and the single-sided `deposit_single` (plus its
+ * idempotent ATA/wrap pre-instructions) exceeds it — the simulation (and a real
+ * submission) then fails with `ProgramFailedToComplete` / "exceeded CUs". A
+ * bounded 600,000 CU limit covers every path; without a priority fee the CU limit
+ * does not change the base fee.
  */
+export const TX_COMPUTE_UNIT_LIMIT = 600_000;
+
 export async function attachFeePayer(
   connection: Connection, wallet: unknown, tx: Transaction,
 ): Promise<Transaction> {
@@ -692,6 +722,11 @@ export async function attachFeePayer(
   const { blockhash } = await connection.getLatestBlockhash('confirmed');
   tx.feePayer = owner;
   tx.recentBlockhash = blockhash;
+  // Prepend (never duplicate) the compute-budget instruction.
+  const hasCuLimit = tx.instructions.some((ix) => ix.programId.equals(ComputeBudgetProgram.programId));
+  if (!hasCuLimit) {
+    tx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: TX_COMPUTE_UNIT_LIMIT }));
+  }
   return tx;
 }
 
@@ -775,6 +810,154 @@ export async function sendSwapTransaction(
   }
 }
 
+/** Map the page's string side to the Anchor enum object the IDL expects. */
+export function toSwapSide(side: 'buyBase' | 'sellBase'): SwapSide {
+  return (side === 'buyBase' ? { buyBase: {} } : { sellBase: {} }) as SwapSide;
+}
+
+/**
+ * Shared account resolution for the single-sided instructions: the two user
+ * token accounts (created idempotently), the attributed keeper reward PDA, and
+ * the base wrap/unwrap instructions.
+ *
+ * `deposit_single` pulls the full `amount_in` in one transfer, so a native-WSOL
+ * base input is wrapped first (only the shortfall). `claim_withdraw_single`/
+ * `deposit_single` both carry `user_base`/`user_quote`, so both ATAs are created.
+ */
+async function singleSidedPreflight(
+  connection: Connection,
+  owner: PublicKey,
+  opts: { nativeBaseInput?: bigint; unwrapBasePayout?: boolean },
+): Promise<{
+  state: OnChainProtocolState;
+  base: Awaited<ReturnType<typeof ensureAta>>;
+  quote: Awaited<ReturnType<typeof ensureAta>>;
+  preInstructions: TransactionInstruction[];
+  postInstructions: TransactionInstruction[];
+}> {
+  const isNativeBase = BASE_MINT.equals(NATIVE_MINT);
+  const base = await ensureAta(connection, BASE_MINT, owner);
+  const quote = await ensureAta(connection, QUOTE_MINT, owner);
+  const preInstructions: TransactionInstruction[] = [];
+  const postInstructions: TransactionInstruction[] = [];
+  if (isNativeBase && opts.nativeBaseInput !== undefined && opts.nativeBaseInput > 0n) {
+    const held = await readAtaAmount(connection, base.ata);
+    const shortfall = opts.nativeBaseInput > held ? opts.nativeBaseInput - held : 0n;
+    if (shortfall > 0n) preInstructions.push(...wrapSolInstructions(owner, shortfall, base.exists));
+    else if (base.createIx) preInstructions.push(base.createIx);
+  } else if (base.createIx) {
+    preInstructions.push(base.createIx);
+  }
+  if (quote.createIx) preInstructions.push(quote.createIx);
+  if (isNativeBase && opts.unwrapBasePayout) {
+    postInstructions.push(...unwrapSolInstructions(owner).instructions);
+  }
+  const state = await fetchProtocolState(connection);
+  if (!state.vaultData) throw new Error(`vault not initialized for ${ACTIVE_VAULT.label}`);
+  return { state, base, quote, preInstructions, postInstructions };
+}
+
+/**
+ * Build the `deposit_single` method with resolved accounts. `side` is the token
+ * the user **pays** (`sellBase` = base in, `buyBase` = quote in). The caller
+ * supplies integer floors (`minShares`, `minSwapOut`) computed from the live
+ * ladder; nothing is hardcoded here.
+ */
+export async function depositSingleMethod(
+  connection: Connection, wallet: unknown, side: 'buyBase' | 'sellBase',
+  amountIn: bigint, minShares: bigint, minSwapOut: bigint,
+) {
+  const owner = anchorWallet(wallet).publicKey;
+  const program = getProgram(connection, wallet);
+  const { vault, config, quoteState } = deriveVaultAddresses();
+  const inputIsBase = side === 'sellBase';
+  const { state, base, quote, preInstructions } = await singleSidedPreflight(connection, owner, {
+    nativeBaseInput: inputIsBase ? amountIn : undefined,
+  });
+  const attributedKeeper = state.quoteData?.keeper ?? PublicKey.default;
+  const builder = program.methods
+    .depositSingle(toSwapSide(side) as never, new BN(amountIn.toString()), new BN(minShares.toString()), new BN(minSwapOut.toString()))
+    .accounts({
+      user: owner, vault, config, quoteState,
+      baseReserve: state.vaultData!.baseReserve, quoteReserve: state.vaultData!.quoteReserve,
+      shareMint: state.vaultData!.shareMint, shareLock: state.vaultData!.shareLock,
+      userBase: base.ata, userQuote: quote.ata,
+      userShares: getAssociatedTokenAddressSync(state.vaultData!.shareMint, owner),
+      depositTicket: depositTicket(vault, owner),
+      keeperReward: keeperRewardPda(vault, attributedKeeper),
+      tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYSTEM_PROGRAM_ID,
+    });
+  return { builder, preInstructions };
+}
+
+/** Build + send a single-sided `deposit_single`. */
+export async function depositSingle(
+  connection: Connection, wallet: unknown, side: 'buyBase' | 'sellBase',
+  amountIn: bigint, minShares: bigint, minSwapOut: bigint,
+): Promise<string> {
+  const { builder, preInstructions } = await depositSingleMethod(connection, wallet, side, amountIn, minShares, minSwapOut);
+  return builder.preInstructions(preInstructions).rpc();
+}
+
+/** Build (unsigned) the single-sided deposit transaction for preview/simulation. */
+export async function buildDepositSingleTransaction(
+  connection: Connection, wallet: unknown, side: 'buyBase' | 'sellBase',
+  amountIn: bigint, minShares: bigint, minSwapOut: bigint,
+): Promise<Transaction> {
+  const { builder, preInstructions } = await depositSingleMethod(connection, wallet, side, amountIn, minShares, minSwapOut);
+  const tx = await builder.preInstructions(preInstructions).transaction();
+  return attachFeePayer(connection, wallet, tx);
+}
+
+/**
+ * Build the `claim_withdraw_single` method. `side` is the token the user
+ * **receives** (`buyBase` = base out, `sellBase` = quote out). A native-WSOL
+ * base payout is unwrapped after the claim.
+ */
+export async function claimWithdrawSingleMethod(
+  connection: Connection, wallet: unknown, side: 'buyBase' | 'sellBase', minOut: bigint,
+) {
+  const owner = anchorWallet(wallet).publicKey;
+  const program = getProgram(connection, wallet);
+  const { vault, config, quoteState } = deriveVaultAddresses();
+  const outputIsBase = side === 'buyBase';
+  const { state, base, quote, preInstructions, postInstructions } = await singleSidedPreflight(connection, owner, {
+    unwrapBasePayout: outputIsBase,
+  });
+  const attributedKeeper = state.quoteData?.keeper ?? PublicKey.default;
+  const builder = program.methods
+    .claimWithdrawSingle(toSwapSide(side) as never, new BN(minOut.toString()))
+    .accounts({
+      user: owner, vault, config, quoteState,
+      baseReserve: state.vaultData!.baseReserve, quoteReserve: state.vaultData!.quoteReserve,
+      shareMint: state.vaultData!.shareMint, shareLock: state.vaultData!.shareLock,
+      withdrawTicket: withdrawTicket(vault, owner), userBase: base.ata, userQuote: quote.ata,
+      keeperReward: keeperRewardPda(vault, attributedKeeper),
+      tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SYSTEM_PROGRAM_ID,
+    });
+  return { builder, preInstructions, postInstructions };
+}
+
+/** Build + send a single-sided claim. */
+export async function claimWithdrawSingle(
+  connection: Connection, wallet: unknown, side: 'buyBase' | 'sellBase', minOut: bigint,
+): Promise<string> {
+  const { builder, preInstructions, postInstructions } = await claimWithdrawSingleMethod(connection, wallet, side, minOut);
+  return builder.preInstructions(preInstructions).postInstructions(postInstructions).rpc();
+}
+
+/** Build (unsigned) the single-sided claim transaction for preview/simulation. */
+export async function buildClaimWithdrawSingleTransaction(
+  connection: Connection, wallet: unknown, side: 'buyBase' | 'sellBase', minOut: bigint,
+): Promise<Transaction> {
+  const { builder, preInstructions, postInstructions } = await claimWithdrawSingleMethod(connection, wallet, side, minOut);
+  const tx = await builder.preInstructions(preInstructions).postInstructions(postInstructions).transaction();
+  return attachFeePayer(connection, wallet, tx);
+}
+
+/** Payment-side strings for the UI; kept here so pages and builders agree. */
+export const SINGLE_SIDED_SIDES = ['buyBase', 'sellBase'] as const;
+
 export async function crankEpoch(connection: Connection, wallet: unknown): Promise<string> {
   const program = getProgram(connection, wallet);
   const { vault, config } = deriveVaultAddresses();
@@ -805,6 +988,12 @@ export async function requestWithdraw(
 
 /** Claim a settled withdrawal for the current epoch. */
 export async function claimWithdraw(connection: Connection, wallet: unknown): Promise<string> {
+  const { builder, preInstructions } = await claimWithdrawMethod(connection, wallet);
+  return builder.preInstructions(preInstructions).rpc();
+}
+
+/** Resolve accounts and build the `claim_withdraw` (both tokens) method. */
+export async function claimWithdrawMethod(connection: Connection, wallet: unknown) {
   const w = anchorWallet(wallet);
   const program = getProgram(connection, wallet);
   const { vault } = deriveVaultAddresses();
@@ -816,7 +1005,7 @@ export async function claimWithdraw(connection: Connection, wallet: unknown): Pr
   const preInstructions = [base.createIx, quote.createIx].filter(
     (ix): ix is TransactionInstruction => ix !== null,
   );
-  return program.methods
+  const builder = program.methods
     .claimWithdraw()
     .accounts({
       user: owner, vault,
@@ -824,9 +1013,17 @@ export async function claimWithdraw(connection: Connection, wallet: unknown): Pr
       shareMint: state.vaultData.shareMint, shareLock: state.vaultData.shareLock,
       withdrawTicket: withdrawTicket(vault, owner), userBase: base.ata, userQuote: quote.ata,
       tokenProgram: TOKEN_PROGRAM_ID,
-    })
-    .preInstructions(preInstructions)
-    .rpc();
+    });
+  return { builder, preInstructions };
+}
+
+/** Build (unsigned) the pro-rata claim transaction for preview/simulation. */
+export async function buildClaimWithdrawTransaction(
+  connection: Connection, wallet: unknown,
+): Promise<Transaction> {
+  const { builder, preInstructions } = await claimWithdrawMethod(connection, wallet);
+  const tx = await builder.preInstructions(preInstructions).transaction();
+  return attachFeePayer(connection, wallet, tx);
 }
 
 /**

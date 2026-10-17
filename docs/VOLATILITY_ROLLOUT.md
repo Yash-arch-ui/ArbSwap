@@ -393,7 +393,7 @@ Each of these is a separate approval, not covered by any blanket go-ahead:
 > `27PQmipm…` (activate_slot 511663348); **`apply_volatility_params` `23gBbdKw…` at slot 511663484**
 > → on-chain `VolatilityState.enabled = true`, pending disarmed (`activate_slot = u64::MAX`); no
 > rollback/disablement was needed. Negative/smoke coverage: LiteSVM volatility + breaker suites and
-> the Phase D liveness smoke.
+> the Phase D liveness smoke. Re-verified read-only on `deposit-withdraw` (2026-10-17): `enabled = true`.
 
 ## 10a. Operational sequence (authorization-gated)
 

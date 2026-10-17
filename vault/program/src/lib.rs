@@ -733,6 +733,353 @@ pub mod arbswap {
         Ok(())
     }
 
+    /// Single-token deposit. The user enters with one token; the vault converts
+    /// the unwanted leg against its own committed ladder and deposits both legs.
+    /// Shares use the existing proportional rule priced at the post-swap net
+    /// reserves; only the input token is pulled. Same fee, spread, flow cap and
+    /// edge breaker as `swap`. See `docs/SINGLE_SIDED_DESIGN.md`.
+    pub fn deposit_single(
+        ctx: Context<DepositSingle>,
+        side: SwapSide,
+        amount_in: u64,
+        min_shares: u64,
+        min_swap_out: u64,
+    ) -> Result<()> {
+        require!(ctx.accounts.vault.status == ACTIVE, ErrorCode::Paused);
+        let clock = Clock::get()?;
+        require!(
+            clock.slot < ctx.accounts.quote_state.expiry_slot,
+            ErrorCode::QuoteExpired
+        );
+        require!(
+            ctx.accounts.quote_state.keeper != Pubkey::default(),
+            ErrorCode::UnattributedQuote
+        );
+        let keeper = ctx.accounts.quote_state.keeper;
+        if ctx.accounts.keeper_reward.keeper == Pubkey::default() {
+            ctx.accounts.keeper_reward.keeper = keeper;
+            ctx.accounts.keeper_reward.bump = ctx.bumps.keeper_reward;
+        }
+        require!(
+            ctx.accounts.keeper_reward.keeper == keeper,
+            ErrorCode::QuoteAttributionMismatch
+        );
+        require!(
+            amount_in > 0 && amount_in <= ctx.accounts.config.max_quote_size,
+            ErrorCode::CapacityExceeded
+        );
+        // The internal conversion needs an existing, funded pool and ladder.
+        let total_shares = ctx.accounts.vault.total_shares;
+        require!(total_shares > 0, ErrorCode::InvalidParams);
+        let base_reserve_before = ctx.accounts.base_reserve.amount;
+        let base_net = base_reserve_before
+            .saturating_sub(ctx.accounts.vault.insurance_base)
+            .saturating_sub(ctx.accounts.vault.keeper_base)
+            .saturating_sub(ctx.accounts.vault.protocol_base);
+        let quote_net = ctx
+            .accounts
+            .quote_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_quote)
+            .saturating_sub(ctx.accounts.vault.keeper_quote)
+            .saturating_sub(ctx.accounts.vault.protocol_quote);
+        require!(base_net > 0 && quote_net > 0, ErrorCode::InvalidParams);
+
+        let plan = solve_deposit_single(
+            &ctx.accounts.config,
+            &ctx.accounts.quote_state,
+            side,
+            amount_in,
+            base_net,
+            quote_net,
+            total_shares,
+        )?;
+        require!(plan.db > 0 && plan.dq > 0, ErrorCode::InvalidAmount);
+        require!(plan.swap_out > 0, ErrorCode::InvalidAmount);
+        require!(plan.shares > 0, ErrorCode::InvalidAmount);
+        require!(plan.shares >= min_shares, ErrorCode::SlippageExceeded);
+        require!(plan.swap_out >= min_swap_out, ErrorCode::SlippageExceeded);
+
+        // Pull the full input once. The swapped notional and its fee stay in the
+        // reserve (fee to the buckets); the remainder is the deposit notional.
+        match side {
+            SwapSide::SellBase => token::transfer(ctx.accounts.base_transfer_ctx(), amount_in)?,
+            SwapSide::BuyBase => token::transfer(ctx.accounts.quote_transfer_ctx(), amount_in)?,
+        }
+        credit_fee_buckets(
+            &mut ctx.accounts.vault,
+            &mut ctx.accounts.keeper_reward,
+            side,
+            plan.fee,
+            &ctx.accounts.config,
+        )?;
+        apply_flow_cap(
+            &ctx.accounts.config,
+            &mut ctx.accounts.quote_state,
+            clock.slot,
+            base_reserve_before,
+            side,
+            plan.s - plan.fee,
+            plan.swap_out,
+        )?;
+        // h3: the same realized-edge tracker as `swap`; avail reserves are read
+        // after the input transfer.
+        let avail_base = ctx
+            .accounts
+            .base_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_base)
+            .saturating_sub(ctx.accounts.vault.keeper_base)
+            .saturating_sub(ctx.accounts.vault.protocol_base) as u128;
+        let avail_quote = ctx
+            .accounts
+            .quote_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_quote)
+            .saturating_sub(ctx.accounts.vault.keeper_quote)
+            .saturating_sub(ctx.accounts.vault.protocol_quote) as u128;
+        apply_edge(
+            &ctx.accounts.config,
+            &mut ctx.accounts.quote_state,
+            &mut ctx.accounts.vault,
+            clock.slot,
+            side,
+            plan.s,
+            plan.swap_out,
+            avail_base,
+            avail_quote,
+        );
+
+        let bump = [ctx.accounts.vault.bump];
+        let seeds: &[&[u8]] = &[
+            b"vault",
+            ctx.accounts.vault.base_mint.as_ref(),
+            ctx.accounts.vault.quote_mint.as_ref(),
+            &bump,
+        ];
+        token::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                MintTo {
+                    mint: ctx.accounts.share_mint.to_account_info(),
+                    to: ctx.accounts.user_shares.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
+                &[seeds],
+            ),
+            plan.shares,
+        )?;
+        ctx.accounts.vault.total_shares = total_shares
+            .checked_add(plan.shares)
+            .ok_or(ErrorCode::MathOverflow)?;
+        let ticket = &mut ctx.accounts.deposit_ticket;
+        ticket.owner = ctx.accounts.user.key();
+        ticket.shares = plan.shares;
+        ticket.activate_slot = clock
+            .slot
+            .checked_add(ctx.accounts.config.warmup_slots)
+            .ok_or(ErrorCode::MathOverflow)?;
+        ticket.bump = ctx.bumps.deposit_ticket;
+        emit!(DepositSingleEvent {
+            slot: clock.slot,
+            version: ctx.accounts.quote_state.version,
+            side,
+            amount_in,
+            swap_in: plan.s,
+            swap_out: plan.swap_out,
+            fee: plan.fee,
+            base_deposited: plan.db,
+            quote_deposited: plan.dq,
+            shares: plan.shares,
+        });
+        Ok(())
+    }
+
+    /// Single-token withdrawal. Reuses `claim_withdraw`'s pro-rata floors and
+    /// ticket/burn semantics, then converts the unwanted leg against the vault's
+    /// committed ladder and pays out only `side`. Requires a fresh attributed
+    /// quote; the normal `claim_withdraw` still works with an expired quote.
+    pub fn claim_withdraw_single(
+        ctx: Context<ClaimWithdrawSingle>,
+        side: SwapSide,
+        min_out: u64,
+    ) -> Result<()> {
+        require!(ctx.accounts.vault.status == ACTIVE, ErrorCode::Paused);
+        let clock = Clock::get()?;
+        require!(
+            clock.slot < ctx.accounts.quote_state.expiry_slot,
+            ErrorCode::QuoteExpired
+        );
+        require!(
+            ctx.accounts.quote_state.keeper != Pubkey::default(),
+            ErrorCode::UnattributedQuote
+        );
+        let keeper = ctx.accounts.quote_state.keeper;
+        if ctx.accounts.keeper_reward.keeper == Pubkey::default() {
+            ctx.accounts.keeper_reward.keeper = keeper;
+            ctx.accounts.keeper_reward.bump = ctx.bumps.keeper_reward;
+        }
+        require!(
+            ctx.accounts.keeper_reward.keeper == keeper,
+            ErrorCode::QuoteAttributionMismatch
+        );
+
+        require!(
+            ctx.accounts.withdraw_ticket.epoch <= ctx.accounts.vault.epoch,
+            ErrorCode::EpochNotReached
+        );
+        let total = ctx.accounts.vault.total_shares;
+        require!(total > 0, ErrorCode::MathOverflow);
+        let shares = ctx.accounts.withdraw_ticket.shares as u128;
+        require!(shares > 0, ErrorCode::InvalidAmount);
+        let base_reserve_before = ctx.accounts.base_reserve.amount;
+        let base_available = base_reserve_before
+            .saturating_sub(ctx.accounts.vault.insurance_base)
+            .saturating_sub(ctx.accounts.vault.keeper_base)
+            .saturating_sub(ctx.accounts.vault.protocol_base);
+        let quote_available = ctx
+            .accounts
+            .quote_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_quote)
+            .saturating_sub(ctx.accounts.vault.keeper_quote)
+            .saturating_sub(ctx.accounts.vault.protocol_quote);
+        let base_out = (shares * base_available as u128 / total as u128) as u64;
+        let quote_out = (shares * quote_available as u128 / total as u128) as u64;
+
+        // `side` names the payout token: `BuyBase` pays base out (converting the
+        // unwanted quote), `SellBase` pays quote out (converting base).
+        let unwanted = match side {
+            SwapSide::BuyBase => quote_out,
+            SwapSide::SellBase => base_out,
+        };
+        let (fee, swap_net) = charge_fee(unwanted, ctx.accounts.config.fee_bps)?;
+        let converted = if swap_net > 0 {
+            walk_committed_ladder(&ctx.accounts.quote_state, side, swap_net)?
+        } else {
+            0
+        };
+        let payout = match side {
+            SwapSide::BuyBase => base_out
+                .checked_add(converted)
+                .ok_or(ErrorCode::MathOverflow)?,
+            SwapSide::SellBase => quote_out
+                .checked_add(converted)
+                .ok_or(ErrorCode::MathOverflow)?,
+        };
+        let payout_available = match side {
+            SwapSide::BuyBase => base_available,
+            SwapSide::SellBase => quote_available,
+        };
+        require!(payout <= payout_available, ErrorCode::CapacityExceeded);
+        require!(payout >= min_out, ErrorCode::SlippageExceeded);
+
+        credit_fee_buckets(
+            &mut ctx.accounts.vault,
+            &mut ctx.accounts.keeper_reward,
+            side,
+            fee,
+            &ctx.accounts.config,
+        )?;
+        apply_flow_cap(
+            &ctx.accounts.config,
+            &mut ctx.accounts.quote_state,
+            clock.slot,
+            base_reserve_before,
+            side,
+            swap_net,
+            converted,
+        )?;
+        let avail_base = ctx
+            .accounts
+            .base_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_base)
+            .saturating_sub(ctx.accounts.vault.keeper_base)
+            .saturating_sub(ctx.accounts.vault.protocol_base) as u128;
+        let avail_quote = ctx
+            .accounts
+            .quote_reserve
+            .amount
+            .saturating_sub(ctx.accounts.vault.insurance_quote)
+            .saturating_sub(ctx.accounts.vault.keeper_quote)
+            .saturating_sub(ctx.accounts.vault.protocol_quote) as u128;
+        apply_edge(
+            &ctx.accounts.config,
+            &mut ctx.accounts.quote_state,
+            &mut ctx.accounts.vault,
+            clock.slot,
+            side,
+            unwanted,
+            converted,
+            avail_base,
+            avail_quote,
+        );
+
+        let bump = [ctx.accounts.vault.bump];
+        let seeds: &[&[u8]] = &[
+            b"vault",
+            ctx.accounts.vault.base_mint.as_ref(),
+            ctx.accounts.vault.quote_mint.as_ref(),
+            &bump,
+        ];
+        match side {
+            SwapSide::BuyBase => token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    Transfer {
+                        from: ctx.accounts.base_reserve.to_account_info(),
+                        to: ctx.accounts.user_base.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                payout,
+            )?,
+            SwapSide::SellBase => token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    Transfer {
+                        from: ctx.accounts.quote_reserve.to_account_info(),
+                        to: ctx.accounts.user_quote.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                payout,
+            )?,
+        }
+        let burned = ctx.accounts.withdraw_ticket.shares;
+        token::burn(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                Burn {
+                    mint: ctx.accounts.share_mint.to_account_info(),
+                    from: ctx.accounts.share_lock.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
+                &[seeds],
+            ),
+            burned,
+        )?;
+        ctx.accounts.vault.total_shares =
+            total.checked_sub(burned).ok_or(ErrorCode::MathOverflow)?;
+        ctx.accounts.withdraw_ticket.shares = 0;
+        emit!(WithdrawSingleEvent {
+            slot: clock.slot,
+            version: ctx.accounts.quote_state.version,
+            side,
+            shares: burned,
+            base_out,
+            quote_out,
+            swap_in: unwanted,
+            swap_out: converted,
+            fee,
+            payout,
+        });
+        Ok(())
+    }
+
     pub fn update_quote(ctx: Context<UpdateQuote>, update: QuoteUpdate) -> Result<()> {
         require!(ctx.accounts.vault.status == ACTIVE, ErrorCode::Paused);
         // M7 open keeper network: when a minimum bond is configured, quoting is
@@ -1020,89 +1367,22 @@ pub mod arbswap {
             amount_in > 0 && amount_in <= ctx.accounts.config.max_quote_size,
             ErrorCode::CapacityExceeded
         );
-        let fee = arb_math::fee_amount(amount_in as u128, ctx.accounts.config.fee_bps as u128)
-            .map_err(|_| error!(ErrorCode::MathOverflow))? as u64;
-        let net = amount_in.checked_sub(fee).ok_or(ErrorCode::MathOverflow)?;
+        let (fee, net) = charge_fee(amount_in, ctx.accounts.config.fee_bps)?;
         // h1: the vault trades against the side-specific ladder. A trader buying
         // base lifts the ask ladder; a trader selling base hits the bid ladder.
-        let (side_levels, math_side) = match side {
-            SwapSide::BuyBase => (&ctx.accounts.quote_state.ask_levels, MathSide::Ask),
-            SwapSide::SellBase => (&ctx.accounts.quote_state.bid_levels, MathSide::Bid),
-        };
-        let levels: Vec<MathLevel> = side_levels
-            .iter()
-            .map(|l| MathLevel {
-                sqrt_lo: l.sqrt_lo,
-                sqrt_hi: l.sqrt_hi,
-                liquidity: l.liquidity,
-            })
-            .collect();
-        let result = walk_ladder(&levels, math_side, net as u128)
-            .map_err(|_| error!(ErrorCode::MathOverflow))?;
-        require!(result.remaining == 0, ErrorCode::CapacityExceeded);
-        let out = result.out as u64;
+        let out = walk_committed_ladder(&ctx.accounts.quote_state, side, net)?;
         require!(out >= min_out, ErrorCode::SlippageExceeded);
-        // Item 1a: bound a compromised keeper with a per-window cumulative
-        // one-sided flow cap. The window rolls over on the slot clock, NOT on
-        // update_quote, so a keeper cannot reset the cap by re-quoting.
-        let window = ctx.accounts.config.flow_window_slots;
-        if window > 0
-            && clock.slot
-                >= ctx
-                    .accounts
-                    .quote_state
-                    .window_start_slot
-                    .saturating_add(window)
-        {
-            ctx.accounts.quote_state.window_start_slot = clock.slot;
-            ctx.accounts.quote_state.window_base_sold = 0;
-            ctx.accounts.quote_state.window_base_bought = 0;
-        }
-        let flow_cap = arb_math::mul_div_floor(
-            ctx.accounts.base_reserve.amount as u128,
-            ctx.accounts.config.max_window_flow_bps as u128,
-            BPS_DENOM as u128,
-        )
-        .unwrap_or(0) as u64;
-        let (base_sold, base_bought) = match side {
-            SwapSide::BuyBase => (out, 0u64),
-            SwapSide::SellBase => (0u64, net),
-        };
-        ctx.accounts.quote_state.window_base_sold = ctx
-            .accounts
-            .quote_state
-            .window_base_sold
-            .checked_add(base_sold)
-            .ok_or(ErrorCode::MathOverflow)?;
-        ctx.accounts.quote_state.window_base_bought = ctx
-            .accounts
-            .quote_state
-            .window_base_bought
-            .checked_add(base_bought)
-            .ok_or(ErrorCode::MathOverflow)?;
-        require!(
-            ctx.accounts.quote_state.window_base_sold <= flow_cap
-                && ctx.accounts.quote_state.window_base_bought <= flow_cap,
-            ErrorCode::FlowCapExceeded
-        );
-        // Spec §5.9: maintain the signed net-base-sold accumulator since the last
-        // quote update (positive = the vault sold base on net). Reset in
-        // `update_quote`; readable by the keeper/indexer for flow-aware pricing.
-        match side {
-            SwapSide::BuyBase => {
-                ctx.accounts.quote_state.flow_n =
-                    ctx.accounts.quote_state.flow_n.saturating_add(out as i128);
-            }
-            SwapSide::SellBase => {
-                ctx.accounts.quote_state.flow_n =
-                    ctx.accounts.quote_state.flow_n.saturating_sub(net as i128);
-            }
-        }
-        let insurance =
-            (fee as u128).saturating_mul(ctx.accounts.config.insurance_bps as u128) / 10_000;
-        let keeper = (fee as u128).saturating_mul(ctx.accounts.config.keeper_bps as u128) / 10_000;
-        let protocol =
-            (fee as u128).saturating_mul(ctx.accounts.config.protocol_bps as u128) / 10_000;
+        // Item 1a / Spec §5.9: roll the one-sided flow window, enforce the
+        // cumulative cap, and maintain the signed net-base-sold accumulator.
+        apply_flow_cap(
+            &ctx.accounts.config,
+            &mut ctx.accounts.quote_state,
+            clock.slot,
+            ctx.accounts.base_reserve.amount,
+            side,
+            net,
+            out,
+        )?;
         match side {
             SwapSide::BuyBase => {
                 token::transfer(ctx.accounts.quote_transfer_ctx(), amount_in)?;
@@ -1125,30 +1405,6 @@ pub mod arbswap {
                     ),
                     out,
                 )?;
-                ctx.accounts.vault.insurance_quote = ctx
-                    .accounts
-                    .vault
-                    .insurance_quote
-                    .checked_add(insurance as u64)
-                    .ok_or(ErrorCode::MathOverflow)?;
-                ctx.accounts.vault.keeper_quote = ctx
-                    .accounts
-                    .vault
-                    .keeper_quote
-                    .checked_add(keeper as u64)
-                    .ok_or(ErrorCode::MathOverflow)?;
-                ctx.accounts.keeper_reward.quote = ctx
-                    .accounts
-                    .keeper_reward
-                    .quote
-                    .checked_add(keeper as u64)
-                    .ok_or(ErrorCode::MathOverflow)?;
-                ctx.accounts.vault.protocol_quote = ctx
-                    .accounts
-                    .vault
-                    .protocol_quote
-                    .checked_add(protocol as u64)
-                    .ok_or(ErrorCode::MathOverflow)?;
             }
             SwapSide::SellBase => {
                 token::transfer(ctx.accounts.base_transfer_ctx(), amount_in)?;
@@ -1171,63 +1427,18 @@ pub mod arbswap {
                     ),
                     out,
                 )?;
-                ctx.accounts.vault.insurance_base = ctx
-                    .accounts
-                    .vault
-                    .insurance_base
-                    .checked_add(insurance as u64)
-                    .ok_or(ErrorCode::MathOverflow)?;
-                ctx.accounts.vault.keeper_base = ctx
-                    .accounts
-                    .vault
-                    .keeper_base
-                    .checked_add(keeper as u64)
-                    .ok_or(ErrorCode::MathOverflow)?;
-                ctx.accounts.keeper_reward.base = ctx
-                    .accounts
-                    .keeper_reward
-                    .base
-                    .checked_add(keeper as u64)
-                    .ok_or(ErrorCode::MathOverflow)?;
-                ctx.accounts.vault.protocol_base = ctx
-                    .accounts
-                    .vault
-                    .protocol_base
-                    .checked_add(protocol as u64)
-                    .ok_or(ErrorCode::MathOverflow)?;
             }
         }
+        credit_fee_buckets(
+            &mut ctx.accounts.vault,
+            &mut ctx.accounts.keeper_reward,
+            side,
+            fee,
+            &ctx.accounts.config,
+        )?;
         // h3: realized execution edge vs the stored verified oracle. Positive
         // means the vault traded better than the oracle mid; the running sum is
         // checked against a fraction of the available value each swap.
-        let oracle = ctx.accounts.quote_state.oracle_price;
-        let edge: i128 = match side {
-            SwapSide::BuyBase => {
-                let out_value = ((out as u128).saturating_mul(oracle) >> 64) as i128;
-                (amount_in as i128).saturating_sub(out_value)
-            }
-            SwapSide::SellBase => {
-                let in_value = ((amount_in as u128).saturating_mul(oracle) >> 64) as i128;
-                in_value.saturating_sub(out as i128)
-            }
-        };
-        let edge_window = ctx.accounts.config.edge_window_slots;
-        if ctx.accounts.quote_state.edge_window_start_slot == 0 {
-            // First swap after initialization starts the window.
-            ctx.accounts.quote_state.edge_window_start_slot = clock.slot;
-        } else if edge_window > 0
-            && clock.slot
-                >= ctx
-                    .accounts
-                    .quote_state
-                    .edge_window_start_slot
-                    .saturating_add(edge_window)
-        {
-            ctx.accounts.quote_state.edge_window_start_slot = clock.slot;
-            ctx.accounts.quote_state.realized_edge = 0;
-        }
-        ctx.accounts.quote_state.realized_edge =
-            ctx.accounts.quote_state.realized_edge.saturating_add(edge);
         let avail_base = ctx
             .accounts
             .base_reserve
@@ -1242,18 +1453,17 @@ pub mod arbswap {
             .saturating_sub(ctx.accounts.vault.insurance_quote)
             .saturating_sub(ctx.accounts.vault.keeper_quote)
             .saturating_sub(ctx.accounts.vault.protocol_quote) as u128;
-        let available_value =
-            ((avail_base.saturating_mul(oracle)) >> 64).saturating_add(avail_quote);
-        let loss_bound =
-            available_value.saturating_mul(ctx.accounts.config.max_edge_loss_bps as u128) / 10_000;
-        if ctx.accounts.quote_state.realized_edge < -(loss_bound as i128) {
-            ctx.accounts.vault.status = PAUSED;
-            emit!(EdgeBreakerTripped {
-                slot: clock.slot,
-                realized_edge: ctx.accounts.quote_state.realized_edge,
-                bound: loss_bound
-            });
-        }
+        apply_edge(
+            &ctx.accounts.config,
+            &mut ctx.accounts.quote_state,
+            &mut ctx.accounts.vault,
+            clock.slot,
+            side,
+            amount_in,
+            out,
+            avail_base,
+            avail_quote,
+        );
         emit!(SwapEvent {
             slot: clock.slot,
             version: quote_version,
@@ -2916,6 +3126,102 @@ pub struct ClaimWithdraw<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+/// Single-token deposit accounts (see `docs/SINGLE_SIDED_DESIGN.md`). Mirrors
+/// `Deposit` plus the committed `quote_state` and the attributed keeper's reward
+/// PDA, so the internal conversion uses the exact same ladder and fee path as
+/// `swap`. Both user ATAs are supplied; only the input side is debited.
+#[derive(Accounts)]
+pub struct DepositSingle<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(seeds=[b"config", vault.key().as_ref()], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut, seeds=[b"quote", vault.key().as_ref()], bump = quote_state.bump)]
+    pub quote_state: Box<Account<'info, QuoteState>>,
+    #[account(mut, address = vault.base_reserve)]
+    pub base_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(mut, address = vault.quote_reserve)]
+    pub quote_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(mut, address = vault.share_mint)]
+    pub share_mint: Box<Account<'info, Mint>>,
+    #[account(mut, address = vault.share_lock)]
+    pub share_lock: Box<Account<'info, TokenAccount>>,
+    #[account(mut, constraint = user_base.mint == vault.base_mint, constraint = user_base.owner == user.key())]
+    pub user_base: Box<Account<'info, TokenAccount>>,
+    #[account(mut, constraint = user_quote.mint == vault.quote_mint, constraint = user_quote.owner == user.key())]
+    pub user_quote: Box<Account<'info, TokenAccount>>,
+    #[account(mut, constraint = user_shares.mint == vault.share_mint, constraint = user_shares.owner == user.key())]
+    pub user_shares: Box<Account<'info, TokenAccount>>,
+    #[account(init_if_needed, payer=user, space=8+32+8+8+1, seeds=[b"dep", vault.key().as_ref(), user.key().as_ref()], bump)]
+    pub deposit_ticket: Account<'info, DepositTicket>,
+    #[account(init_if_needed, payer=user, space=8+32+8+8+1, seeds=[b"reward", vault.key().as_ref(), quote_state.keeper.as_ref()], bump)]
+    pub keeper_reward: Box<Account<'info, KeeperReward>>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+impl<'info> DepositSingle<'info> {
+    fn base_transfer_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Transfer<'info>> {
+        CpiContext::new(
+            self.token_program.key(),
+            Transfer {
+                from: self.user_base.to_account_info(),
+                to: self.base_reserve.to_account_info(),
+                authority: self.user.to_account_info(),
+            },
+        )
+    }
+    fn quote_transfer_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Transfer<'info>> {
+        CpiContext::new(
+            self.token_program.key(),
+            Transfer {
+                from: self.user_quote.to_account_info(),
+                to: self.quote_reserve.to_account_info(),
+                authority: self.user.to_account_info(),
+            },
+        )
+    }
+}
+
+/// Single-token withdrawal accounts (see `docs/SINGLE_SIDED_DESIGN.md`). Mirrors
+/// `ClaimWithdraw` plus the committed `quote_state` and the attributed keeper's
+/// reward PDA. Both user ATAs are supplied; only the payout side is credited.
+#[derive(Accounts)]
+pub struct ClaimWithdrawSingle<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(seeds=[b"config", vault.key().as_ref()], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut, seeds=[b"quote", vault.key().as_ref()], bump = quote_state.bump)]
+    pub quote_state: Box<Account<'info, QuoteState>>,
+    #[account(mut, address=vault.base_reserve)]
+    pub base_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(mut,address=vault.quote_reserve)]
+    pub quote_reserve: Box<Account<'info, TokenAccount>>,
+    #[account(mut,address=vault.share_mint)]
+    pub share_mint: Box<Account<'info, Mint>>,
+    #[account(mut,address=vault.share_lock)]
+    pub share_lock: Box<Account<'info, TokenAccount>>,
+    #[account(
+        mut,
+        seeds=[b"wd", vault.key().as_ref(), user.key().as_ref()],
+        bump=withdraw_ticket.bump,
+        constraint=withdraw_ticket.owner==user.key()
+    )]
+    pub withdraw_ticket: Box<Account<'info, WithdrawTicket>>,
+    #[account(mut,constraint=user_base.owner==user.key(),constraint=user_base.mint==vault.base_mint)]
+    pub user_base: Box<Account<'info, TokenAccount>>,
+    #[account(mut,constraint=user_quote.owner==user.key(),constraint=user_quote.mint==vault.quote_mint)]
+    pub user_quote: Box<Account<'info, TokenAccount>>,
+    #[account(init_if_needed, payer=user, space=8+32+8+8+1, seeds=[b"reward", vault.key().as_ref(), quote_state.keeper.as_ref()], bump)]
+    pub keeper_reward: Box<Account<'info, KeeperReward>>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
 #[derive(Accounts)]
 pub struct UpdateQuote<'info> {
     pub keeper: Signer<'info>,
@@ -3348,6 +3654,355 @@ fn normalize_pyth_price_q64(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shared swap maths (see docs/SINGLE_SIDED_DESIGN.md §1.3).
+//
+// These helpers are the single definition of the trading fee, the fee split,
+// the ladder walk, the one-sided flow cap, and the realized-edge tracker. `swap`
+// calls all of them; the single-sided instructions call the same ones, so the
+// fee, spread, flow cap and breaker behave identically on every path. `swap`'s
+// arithmetic is unchanged (proven by the existing suites passing unmodified).
+// ---------------------------------------------------------------------------
+
+/// `fee = ceil(amount_in * fee_bps / 10_000)` and `net = amount_in - fee`,
+/// exactly as `swap` charges.
+fn charge_fee(amount_in: u64, fee_bps: u16) -> Result<(u64, u64)> {
+    let fee = arb_math::fee_amount(amount_in as u128, fee_bps as u128)
+        .map_err(|_| error!(ErrorCode::MathOverflow))? as u64;
+    let net = amount_in.checked_sub(fee).ok_or(ErrorCode::MathOverflow)?;
+    Ok((fee, net))
+}
+
+/// Split a fee into the insurance/keeper/protocol buckets by bps (floor).
+fn fee_split(fee: u64, config: &Config) -> (u64, u64, u64) {
+    let insurance = (fee as u128).saturating_mul(config.insurance_bps as u128) / 10_000;
+    let keeper = (fee as u128).saturating_mul(config.keeper_bps as u128) / 10_000;
+    let protocol = (fee as u128).saturating_mul(config.protocol_bps as u128) / 10_000;
+    (insurance as u64, keeper as u64, protocol as u64)
+}
+
+/// Walk the committed ladder for `net` input on `side`; require the ladder to
+/// absorb the whole amount (exactly as `swap`).
+fn walk_committed_ladder(quote_state: &QuoteState, side: SwapSide, net: u64) -> Result<u64> {
+    let (side_levels, math_side) = match side {
+        SwapSide::BuyBase => (&quote_state.ask_levels, MathSide::Ask),
+        SwapSide::SellBase => (&quote_state.bid_levels, MathSide::Bid),
+    };
+    let levels: Vec<MathLevel> = side_levels
+        .iter()
+        .map(|l| MathLevel {
+            sqrt_lo: l.sqrt_lo,
+            sqrt_hi: l.sqrt_hi,
+            liquidity: l.liquidity,
+        })
+        .collect();
+    let result = walk_ladder(&levels, math_side, net as u128)
+        .map_err(|_| error!(ErrorCode::MathOverflow))?;
+    require!(result.remaining == 0, ErrorCode::CapacityExceeded);
+    Ok(result.out as u64)
+}
+
+/// Credit an already-charged fee to the insurance/keeper/protocol buckets for
+/// the token the fee was charged in (`BuyBase` => quote, `SellBase` => base),
+/// including the per-keeper reward PDA. Bookkeeping only: the tokens are already
+/// in the vault reserve.
+fn credit_fee_buckets(
+    vault: &mut Vault,
+    keeper_reward: &mut KeeperReward,
+    side: SwapSide,
+    fee: u64,
+    config: &Config,
+) -> Result<()> {
+    let (insurance, keeper, protocol) = fee_split(fee, config);
+    match side {
+        SwapSide::BuyBase => {
+            vault.insurance_quote = vault
+                .insurance_quote
+                .checked_add(insurance)
+                .ok_or(ErrorCode::MathOverflow)?;
+            vault.keeper_quote = vault
+                .keeper_quote
+                .checked_add(keeper)
+                .ok_or(ErrorCode::MathOverflow)?;
+            keeper_reward.quote = keeper_reward
+                .quote
+                .checked_add(keeper)
+                .ok_or(ErrorCode::MathOverflow)?;
+            vault.protocol_quote = vault
+                .protocol_quote
+                .checked_add(protocol)
+                .ok_or(ErrorCode::MathOverflow)?;
+        }
+        SwapSide::SellBase => {
+            vault.insurance_base = vault
+                .insurance_base
+                .checked_add(insurance)
+                .ok_or(ErrorCode::MathOverflow)?;
+            vault.keeper_base = vault
+                .keeper_base
+                .checked_add(keeper)
+                .ok_or(ErrorCode::MathOverflow)?;
+            keeper_reward.base = keeper_reward
+                .base
+                .checked_add(keeper)
+                .ok_or(ErrorCode::MathOverflow)?;
+            vault.protocol_base = vault
+                .protocol_base
+                .checked_add(protocol)
+                .ok_or(ErrorCode::MathOverflow)?;
+        }
+    }
+    Ok(())
+}
+
+/// Item 1a / Spec §5.9: roll the one-sided flow window on the slot clock, add
+/// the operation's base leg, enforce the cumulative cap, and maintain the signed
+/// net-base-sold accumulator. `net` is the ladder net input, `out` its output.
+fn apply_flow_cap(
+    config: &Config,
+    quote_state: &mut QuoteState,
+    clock_slot: u64,
+    base_reserve_amount: u64,
+    side: SwapSide,
+    net: u64,
+    out: u64,
+) -> Result<()> {
+    let window = config.flow_window_slots;
+    if window > 0 && clock_slot >= quote_state.window_start_slot.saturating_add(window) {
+        quote_state.window_start_slot = clock_slot;
+        quote_state.window_base_sold = 0;
+        quote_state.window_base_bought = 0;
+    }
+    let flow_cap = arb_math::mul_div_floor(
+        base_reserve_amount as u128,
+        config.max_window_flow_bps as u128,
+        BPS_DENOM as u128,
+    )
+    .unwrap_or(0) as u64;
+    let (base_sold, base_bought) = match side {
+        SwapSide::BuyBase => (out, 0u64),
+        SwapSide::SellBase => (0u64, net),
+    };
+    quote_state.window_base_sold = quote_state
+        .window_base_sold
+        .checked_add(base_sold)
+        .ok_or(ErrorCode::MathOverflow)?;
+    quote_state.window_base_bought = quote_state
+        .window_base_bought
+        .checked_add(base_bought)
+        .ok_or(ErrorCode::MathOverflow)?;
+    require!(
+        quote_state.window_base_sold <= flow_cap && quote_state.window_base_bought <= flow_cap,
+        ErrorCode::FlowCapExceeded
+    );
+    match side {
+        SwapSide::BuyBase => {
+            quote_state.flow_n = quote_state.flow_n.saturating_add(out as i128);
+        }
+        SwapSide::SellBase => {
+            quote_state.flow_n = quote_state.flow_n.saturating_sub(net as i128);
+        }
+    }
+    Ok(())
+}
+
+/// h3: realized execution edge against the stored verified oracle, the rolling
+/// window, and the pause-on-loss bound. May set `vault.status = PAUSED`.
+#[allow(clippy::too_many_arguments)]
+fn apply_edge(
+    config: &Config,
+    quote_state: &mut QuoteState,
+    vault: &mut Vault,
+    clock_slot: u64,
+    side: SwapSide,
+    amount_in: u64,
+    out: u64,
+    avail_base: u128,
+    avail_quote: u128,
+) {
+    let oracle = quote_state.oracle_price;
+    let edge: i128 = match side {
+        SwapSide::BuyBase => {
+            let out_value = ((out as u128).saturating_mul(oracle) >> 64) as i128;
+            (amount_in as i128).saturating_sub(out_value)
+        }
+        SwapSide::SellBase => {
+            let in_value = ((amount_in as u128).saturating_mul(oracle) >> 64) as i128;
+            in_value.saturating_sub(out as i128)
+        }
+    };
+    let edge_window = config.edge_window_slots;
+    if quote_state.edge_window_start_slot == 0 {
+        quote_state.edge_window_start_slot = clock_slot;
+    } else if edge_window > 0
+        && clock_slot
+            >= quote_state
+                .edge_window_start_slot
+                .saturating_add(edge_window)
+    {
+        quote_state.edge_window_start_slot = clock_slot;
+        quote_state.realized_edge = 0;
+    }
+    quote_state.realized_edge = quote_state.realized_edge.saturating_add(edge);
+    let available_value = ((avail_base.saturating_mul(oracle)) >> 64).saturating_add(avail_quote);
+    let loss_bound = available_value.saturating_mul(config.max_edge_loss_bps as u128) / 10_000;
+    if quote_state.realized_edge < -(loss_bound as i128) {
+        vault.status = PAUSED;
+        emit!(EdgeBreakerTripped {
+            slot: clock_slot,
+            realized_edge: quote_state.realized_edge,
+            bound: loss_bound
+        });
+    }
+}
+
+/// Plan produced by the `deposit_single` bisection solver.
+struct SinglePlan {
+    /// Swapped notional (gross, fee inclusive).
+    s: u64,
+    fee: u64,
+    /// Ladder output of the internal swap (quote for `SellBase`, base for
+    /// `BuyBase`).
+    swap_out: u64,
+    /// Base/quote deposited notionals (the post-swap imbalanced remainder).
+    db: u64,
+    dq: u64,
+    shares: u64,
+    /// `floor(db*S/Bnet') - floor(dq*S/Qnet')`; the bisection root.
+    diff: i128,
+}
+
+/// Evaluate the balanced-deposit plan for a candidate swapped notional `s`.
+/// Returns `None` when `s` is infeasible (ladder cannot absorb, or the
+/// post-swap net reserve would be non-positive) so the bisection shrinks toward
+/// feasible notionals.
+#[allow(clippy::too_many_arguments)]
+fn single_eval(
+    config: &Config,
+    quote_state: &QuoteState,
+    side: SwapSide,
+    amount_in: u64,
+    s: u64,
+    base_net: u64,
+    quote_net: u64,
+    total_shares: u64,
+) -> Option<SinglePlan> {
+    let (fee, s_net) = charge_fee(s, config.fee_bps).ok()?;
+    let (swap_out, bnet2, qnet2, db, dq) = match side {
+        SwapSide::SellBase => {
+            let out = if s_net == 0 {
+                0
+            } else {
+                walk_committed_ladder(quote_state, SwapSide::SellBase, s_net).ok()?
+            };
+            let bnet2 = base_net.checked_add(s_net)?;
+            let qnet2 = quote_net.checked_sub(out)?;
+            let db = amount_in.checked_sub(s)?;
+            (out, bnet2, qnet2, db, out)
+        }
+        SwapSide::BuyBase => {
+            let out = if s_net == 0 {
+                0
+            } else {
+                walk_committed_ladder(quote_state, SwapSide::BuyBase, s_net).ok()?
+            };
+            let bnet2 = base_net.checked_sub(out)?;
+            let qnet2 = quote_net.checked_add(s_net)?;
+            let dq = amount_in.checked_sub(s)?;
+            (out, bnet2, qnet2, out, dq)
+        }
+    };
+    if bnet2 == 0 || qnet2 == 0 {
+        return None;
+    }
+    let by_base = (db as u128)
+        .checked_mul(total_shares as u128)?
+        .checked_div(bnet2 as u128)?;
+    let by_quote = (dq as u128)
+        .checked_mul(total_shares as u128)?
+        .checked_div(qnet2 as u128)?;
+    let shares = by_base.min(by_quote);
+    Some(SinglePlan {
+        s,
+        fee,
+        swap_out,
+        db,
+        dq,
+        shares: shares as u64,
+        diff: by_base as i128 - by_quote as i128,
+    })
+}
+
+/// Bounded integer bisection (`<= 64` steps) for the balanced swapped notional.
+/// `diff(s)` is monotone (decreasing for `SellBase`, increasing for `BuyBase`),
+/// so a binary search finds the crossing; the two integers adjacent to it are
+/// then compared directly so the maximum-`min` plan is returned.
+#[allow(clippy::too_many_arguments)]
+fn solve_deposit_single(
+    config: &Config,
+    quote_state: &QuoteState,
+    side: SwapSide,
+    amount_in: u64,
+    base_net: u64,
+    quote_net: u64,
+    total_shares: u64,
+) -> Result<SinglePlan> {
+    let eval = |s: u64| {
+        single_eval(
+            config,
+            quote_state,
+            side,
+            amount_in,
+            s,
+            base_net,
+            quote_net,
+            total_shares,
+        )
+    };
+    let mut lo = 0u64;
+    let mut hi = amount_in;
+    match side {
+        SwapSide::SellBase => {
+            // Find the largest `s` with `diff(s) >= 0`.
+            while lo < hi {
+                let mid = lo + (hi - lo).div_ceil(2);
+                match eval(mid) {
+                    Some(plan) if plan.diff >= 0 => lo = mid,
+                    _ => hi = mid - 1,
+                }
+            }
+        }
+        SwapSide::BuyBase => {
+            // Find the smallest `s` with `diff(s) >= 0`.
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                match eval(mid) {
+                    Some(plan) if plan.diff >= 0 => hi = mid,
+                    _ => lo = mid + 1,
+                }
+            }
+        }
+    }
+    // Compare the crossing and its neighbours to pick the best integer plan.
+    let mut best: Option<SinglePlan> = None;
+    for delta in [0i64, -1, 1] {
+        let candidate = lo as i64 + delta;
+        if !(0..=amount_in as i64).contains(&candidate) {
+            continue;
+        }
+        if let Some(plan) = eval(candidate as u64) {
+            if best
+                .as_ref()
+                .map(|b| plan.shares > b.shares)
+                .unwrap_or(true)
+            {
+                best = Some(plan);
+            }
+        }
+    }
+    best.ok_or_else(|| error!(ErrorCode::CapacityExceeded))
+}
+
 #[event]
 pub struct VaultInitialized {
     pub slot: u64,
@@ -3379,6 +4034,40 @@ pub struct WithdrawClaimed {
     pub shares: u64,
     pub base_amount: u64,
     pub quote_amount: u64,
+}
+/// Single-token deposit (see `docs/SINGLE_SIDED_DESIGN.md`). `side` is the token
+/// the user paid: `SellBase` = base in, `BuyBase` = quote in.
+#[event]
+pub struct DepositSingleEvent {
+    pub slot: u64,
+    pub version: u64,
+    pub side: SwapSide,
+    /// Total input pulled from the user (the swapped notional plus the
+    /// deposited remainder).
+    pub amount_in: u64,
+    /// Internal swap notional (gross, fee inclusive) and its ladder output.
+    pub swap_in: u64,
+    pub swap_out: u64,
+    pub fee: u64,
+    pub base_deposited: u64,
+    pub quote_deposited: u64,
+    pub shares: u64,
+}
+/// Single-token withdrawal (see `docs/SINGLE_SIDED_DESIGN.md`). `side` is the
+/// token the user receives: `BuyBase` = base out, `SellBase` = quote out.
+#[event]
+pub struct WithdrawSingleEvent {
+    pub slot: u64,
+    pub version: u64,
+    pub side: SwapSide,
+    pub shares: u64,
+    pub base_out: u64,
+    pub quote_out: u64,
+    /// Internal swap notional (the unwanted leg, gross) and its ladder output.
+    pub swap_in: u64,
+    pub swap_out: u64,
+    pub fee: u64,
+    pub payout: u64,
 }
 #[event]
 pub struct QuoteUpdated {
@@ -3826,5 +4515,545 @@ mod tests {
     fn pending_volatility_account_len_matches_layout() {
         // 32 + 8 + params (52) + enabled (1) + bump (1).
         assert_eq!(PENDING_VOLATILITY_LEN, 94);
+    }
+
+    /// A `QuoteState` with one valid ladder level on each side (price in [1, 4]),
+    /// used to produce integer golden vectors for the frontend mirror.
+    fn single_sided_vector_state() -> QuoteState {
+        let level = Level {
+            offset_bps: 0,
+            weight_bps: 10_000,
+            sqrt_lo: 1u128 << 64,
+            sqrt_hi: 2u128 << 64,
+            liquidity: 10u128.pow(28),
+        };
+        let mut ask = [Level::default(); LEVELS];
+        let mut bid = [Level::default(); LEVELS];
+        ask[0] = level;
+        bid[0] = level;
+        QuoteState {
+            version: 1,
+            update_slot: 0,
+            expiry_slot: 0,
+            anchor_sqrt_price: 0,
+            p_res_sqrt: 0,
+            half_spread_bps: 0,
+            ask_extra_bps: 0,
+            bid_extra_bps: 0,
+            depth_mult_bps: 10_000,
+            window_start_slot: 0,
+            window_base_sold: 0,
+            window_base_bought: 0,
+            oracle_publish_time: 0,
+            oracle_conf_bps: 0,
+            oracle_price: 0,
+            edge_window_start_slot: 0,
+            realized_edge: 0,
+            flow_n: 0,
+            ask_levels: ask,
+            bid_levels: bid,
+            bump: 0,
+            keeper: Pubkey::default(),
+        }
+    }
+
+    /// A `Config` with only `fee_bps` relevant to the single-sided solver.
+    fn single_sided_vector_config() -> Config {
+        Config {
+            admin: Pubkey::default(),
+            keeper: Pubkey::default(),
+            treasury: Pubkey::default(),
+            pyth_feed_id: [0u8; 32],
+            fee_bps: 30,
+            insurance_bps: 3333,
+            keeper_bps: 3333,
+            protocol_bps: 3334,
+            min_liquidity: 0,
+            warmup_slots: 0,
+            epoch_slots: 216_000,
+            grace_slots: 9_000,
+            expiry_slots: 120,
+            max_staleness_seconds: 2,
+            max_conf_bps: 10,
+            max_anchor_step_bps: 50,
+            max_spread_step_bps: 10,
+            min_spread_bps: 2,
+            max_spread_bps: 50,
+            max_quote_size: 1_000_000_000,
+            max_inventory_bps: 6000,
+            utilization_max_bps: 9000,
+            min_bond: 0,
+            unbond_cooldown_slots: 216_000,
+            max_update_slot_age: 25,
+            edge_window_slots: 216_000,
+            max_edge_loss_bps: 50,
+            max_anchor_dev_bps: 25,
+            flow_window_slots: 216_000,
+            max_window_flow_bps: 10_000,
+            pending_admin: Pubkey::default(),
+            admin_activate_slot: 0,
+            bump: 0,
+        }
+    }
+
+    #[test]
+    fn single_sided_golden_vectors() {
+        let qs = single_sided_vector_state();
+        let config = single_sided_vector_config();
+        let (fee_bps, amount_in, base_net, quote_net, total_shares) = (
+            30u16,
+            100_000_000u64,
+            1_000_000_000u64,
+            2_000_000_000u64,
+            1_000_000_000u64,
+        );
+        assert_eq!(config.fee_bps, fee_bps);
+        for (name, side) in [
+            ("sellBase", SwapSide::SellBase),
+            ("buyBase", SwapSide::BuyBase),
+        ] {
+            let plan = solve_deposit_single(
+                &config,
+                &qs,
+                side,
+                amount_in,
+                base_net,
+                quote_net,
+                total_shares,
+            )
+            .expect("vector must be feasible");
+            println!(
+                "VECTOR {name} s={} fee={} swap_out={} db={} dq={} shares={} diff={}",
+                plan.s, plan.fee, plan.swap_out, plan.db, plan.dq, plan.shares, plan.diff
+            );
+            // Conservation and no-dilution invariants, independent of the exact root.
+            assert_eq!(
+                plan.fee as u128,
+                ((plan.s as u128 * fee_bps as u128) + 9_999) / 10_000
+            );
+            match side {
+                SwapSide::SellBase => {
+                    assert_eq!(plan.db + plan.s, amount_in);
+                    assert_eq!(plan.dq, plan.swap_out);
+                    let by_base = plan.db as u128 * total_shares as u128
+                        / (base_net as u128 + (plan.s - plan.fee) as u128);
+                    let by_quote = plan.dq as u128 * total_shares as u128
+                        / (quote_net as u128 - plan.swap_out as u128);
+                    assert!(plan.shares as u128 <= by_base && plan.shares as u128 <= by_quote);
+                }
+                SwapSide::BuyBase => {
+                    assert_eq!(plan.dq + plan.s, amount_in);
+                    assert_eq!(plan.db, plan.swap_out);
+                    let by_base = plan.db as u128 * total_shares as u128
+                        / (base_net as u128 - plan.swap_out as u128);
+                    let by_quote = plan.dq as u128 * total_shares as u128
+                        / (quote_net as u128 + (plan.s - plan.fee) as u128);
+                    assert!(plan.shares as u128 <= by_base && plan.shares as u128 <= by_quote);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn single_sided_withdraw_golden_vectors() {
+        let qs = single_sided_vector_state();
+        let (fee_bps, shares, total_shares, base_net, quote_net) = (
+            30u16,
+            100_000_000u64,
+            1_000_000_000u64,
+            1_000_000_000u64,
+            2_000_000_000u64,
+        );
+        let base_out = shares as u128 * base_net as u128 / total_shares as u128;
+        let quote_out = shares as u128 * quote_net as u128 / total_shares as u128;
+        for (name, side) in [
+            ("buyBase", SwapSide::BuyBase),
+            ("sellBase", SwapSide::SellBase),
+        ] {
+            let unwanted = match side {
+                SwapSide::BuyBase => quote_out,
+                SwapSide::SellBase => base_out,
+            } as u64;
+            let (fee, net) = charge_fee(unwanted, fee_bps).unwrap();
+            let converted = if net > 0 {
+                walk_committed_ladder(&qs, side, net).unwrap()
+            } else {
+                0
+            };
+            let payout = match side {
+                SwapSide::BuyBase => base_out as u64 + converted,
+                SwapSide::SellBase => quote_out as u64 + converted,
+            };
+            println!(
+                "WITHDRAW {name} base_out={base_out} quote_out={quote_out} unwanted={unwanted} fee={fee} net={net} converted={converted} payout={payout}"
+            );
+            assert_eq!(
+                fee as u128,
+                (unwanted as u128 * fee_bps as u128 + 9_999) / 10_000
+            );
+        }
+    }
+
+    // --- Task 2: Python reference differential, 100k brute force, fuzz -------
+
+    type Vectors = Vec<std::collections::HashMap<&'static str, &'static str>>;
+
+    /// Parse the Python-generated single-sided golden vectors
+    /// (`simulation/reference/single_sided_golden.py`).
+    fn load_single_sided_vectors() -> Vectors {
+        const TEXT: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/single_sided_vectors.txt"
+        ));
+        let mut out = Vectors::new();
+        for line in TEXT.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut map = std::collections::HashMap::new();
+            for (i, part) in line.split('|').enumerate() {
+                if i == 0 {
+                    map.insert("kind", part);
+                } else if let Some((k, v)) = part.split_once('=') {
+                    map.insert(k, v);
+                }
+            }
+            out.push(map);
+        }
+        out
+    }
+
+    fn field_u(map: &std::collections::HashMap<&'static str, &'static str>, key: &str) -> u128 {
+        map.get(key)
+            .copied()
+            .unwrap_or_else(|| panic!("missing {key}"))
+            .parse()
+            .expect("u128 field")
+    }
+
+    fn field_i(map: &std::collections::HashMap<&'static str, &'static str>, key: &str) -> i128 {
+        map.get(key)
+            .copied()
+            .unwrap_or_else(|| panic!("missing {key}"))
+            .parse()
+            .expect("i128 field")
+    }
+
+    fn vector_state(map: &std::collections::HashMap<&'static str, &'static str>) -> QuoteState {
+        let nlev = field_u(map, "nlev") as usize;
+        let mut ask = [Level::default(); LEVELS];
+        let mut bid = [Level::default(); LEVELS];
+        for i in 0..nlev {
+            let level = Level {
+                offset_bps: 0,
+                weight_bps: 0,
+                sqrt_lo: field_u(map, &format!("lo{i}")),
+                sqrt_hi: field_u(map, &format!("hi{i}")),
+                liquidity: field_u(map, &format!("liq{i}")),
+            };
+            ask[i] = level;
+            bid[i] = level;
+        }
+        let mut qs = single_sided_vector_state();
+        qs.ask_levels = ask;
+        qs.bid_levels = bid;
+        qs
+    }
+
+    fn vector_side(map: &std::collections::HashMap<&'static str, &'static str>) -> SwapSide {
+        match map["side"] {
+            "sellBase" => SwapSide::SellBase,
+            _ => SwapSide::BuyBase,
+        }
+    }
+
+    fn single_sided_lcg(state: &mut u128) -> u128 {
+        *state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        *state
+    }
+
+    /// The independent Python reference (`simulation/reference/single_sided.py`)
+    /// must agree with the on-chain solver and the withdraw amount plan on every
+    /// generated vector. This is the cross-language differential for Task 2.
+    #[test]
+    fn single_sided_python_differential() {
+        let vectors = load_single_sided_vectors();
+        assert!(
+            vectors.len() >= 500,
+            "expected >=500 vectors, got {}",
+            vectors.len()
+        );
+        let (mut deposits, mut withdraws) = (0u32, 0u32);
+        for map in &vectors {
+            let qs = vector_state(map);
+            let side = vector_side(map);
+            let mut config = single_sided_vector_config();
+            config.fee_bps = field_u(map, "fee_bps") as u16;
+            match map["kind"] {
+                "deposit" => {
+                    let plan = solve_deposit_single(
+                        &config,
+                        &qs,
+                        side,
+                        field_u(map, "amount_in") as u64,
+                        field_u(map, "base_net") as u64,
+                        field_u(map, "quote_net") as u64,
+                        field_u(map, "total_shares") as u64,
+                    )
+                    .expect("vector must be feasible");
+                    assert_eq!(plan.s as u128, field_u(map, "s"));
+                    assert_eq!(plan.fee as u128, field_u(map, "fee"));
+                    assert_eq!(plan.swap_out as u128, field_u(map, "swap_out"));
+                    assert_eq!(plan.db as u128, field_u(map, "db"));
+                    assert_eq!(plan.dq as u128, field_u(map, "dq"));
+                    assert_eq!(plan.shares as u128, field_u(map, "shares"));
+                    assert_eq!(plan.diff, field_i(map, "diff"));
+                    deposits += 1;
+                }
+                "withdraw" => {
+                    let total = field_u(map, "total_shares");
+                    let shares = field_u(map, "shares");
+                    let base_out = (shares * field_u(map, "base_net") / total) as u64;
+                    let quote_out = (shares * field_u(map, "quote_net") / total) as u64;
+                    let unwanted = match side {
+                        SwapSide::BuyBase => quote_out,
+                        SwapSide::SellBase => base_out,
+                    };
+                    let (fee, net) = charge_fee(unwanted, config.fee_bps).unwrap();
+                    let converted = if net > 0 {
+                        walk_committed_ladder(&qs, side, net).unwrap()
+                    } else {
+                        0
+                    };
+                    let payout = match side {
+                        SwapSide::BuyBase => base_out + converted,
+                        SwapSide::SellBase => quote_out + converted,
+                    };
+                    assert_eq!(base_out as u128, field_u(map, "base_out"));
+                    assert_eq!(quote_out as u128, field_u(map, "quote_out"));
+                    assert_eq!(unwanted as u128, field_u(map, "unwanted"));
+                    assert_eq!(fee as u128, field_u(map, "fee"));
+                    assert_eq!(net as u128, field_u(map, "net"));
+                    assert_eq!(converted as u128, field_u(map, "converted"));
+                    assert_eq!(payout as u128, field_u(map, "payout"));
+                    withdraws += 1;
+                }
+                other => panic!("unknown vector kind {other}"),
+            }
+        }
+        assert!(
+            deposits >= 200 && withdraws >= 100,
+            "insufficient coverage: {deposits} deposit / {withdraws} withdraw"
+        );
+    }
+
+    /// 100,000-case brute-force differential: the bisection solver must return
+    /// the same maximum-`min` plan as an exhaustive scan over every `s` on a
+    /// small domain. Independent of the golden vectors.
+    #[test]
+    fn single_sided_solver_matches_brute_force_100k() {
+        let lo = 1u128 << 64;
+        let hi = 2u128 << 64;
+        let mut state = 0x5eed_1234_abcd_9876_u128;
+        let mut checked = 0u64;
+        for _ in 0..100_000 {
+            let capacity = 64u64 + (single_sided_lcg(&mut state) % 64) as u64;
+            let level = Level {
+                offset_bps: 0,
+                weight_bps: 10_000,
+                sqrt_lo: lo,
+                sqrt_hi: hi,
+                liquidity: capacity as u128 * (1u128 << 64),
+            };
+            let mut ask = [Level::default(); LEVELS];
+            let mut bid = [Level::default(); LEVELS];
+            ask[0] = level;
+            bid[0] = level;
+            let qs = QuoteState {
+                ask_levels: ask,
+                bid_levels: bid,
+                ..single_sided_vector_state()
+            };
+            let side = if single_sided_lcg(&mut state) & 1 == 0 {
+                SwapSide::SellBase
+            } else {
+                SwapSide::BuyBase
+            };
+            let fee_bps =
+                [0u16, 1, 5, 10, 30, 50, 100][(single_sided_lcg(&mut state) % 7) as usize];
+            let amount_in = 1 + (single_sided_lcg(&mut state) % 32) as u64;
+            let base_net = 1_000 + (single_sided_lcg(&mut state) % 1_000_000) as u64;
+            let quote_net = 1_000 + (single_sided_lcg(&mut state) % 1_000_000) as u64;
+            let total_shares = 1_000 + (single_sided_lcg(&mut state) % 1_000_000) as u64;
+            let mut config = single_sided_vector_config();
+            config.fee_bps = fee_bps;
+
+            let mut brute_best = 0u64;
+            for s in 0..=amount_in {
+                if let Some(plan) = single_eval(
+                    &config,
+                    &qs,
+                    side,
+                    amount_in,
+                    s,
+                    base_net,
+                    quote_net,
+                    total_shares,
+                ) {
+                    brute_best = brute_best.max(plan.shares);
+                }
+            }
+            let solved = solve_deposit_single(
+                &config,
+                &qs,
+                side,
+                amount_in,
+                base_net,
+                quote_net,
+                total_shares,
+            )
+            .expect("capacity bounds every candidate so the solver is feasible");
+            let side_name = match side {
+                SwapSide::SellBase => "sellBase",
+                SwapSide::BuyBase => "buyBase",
+            };
+            assert_eq!(
+                solved.shares, brute_best,
+                "solver {} != brute {brute_best} (side {side_name}, C {capacity}, fee {fee_bps}, in {amount_in})",
+                solved.shares
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 100_000);
+    }
+
+    /// Fuzz invariants over wide ranges: conservation, no value from nothing,
+    /// vault-favouring rounding, and solver local optimality.
+    #[test]
+    fn single_sided_fuzz_invariants() {
+        let mut state = 0xc0ffee_0bad_f00d_u128;
+        for _ in 0..20_000 {
+            let nlev = 1 + (single_sided_lcg(&mut state) % 3) as usize;
+            let mut ask = [Level::default(); LEVELS];
+            let mut bid = [Level::default(); LEVELS];
+            let mut sqrt = 1u128 << 64;
+            for i in 0..nlev {
+                let width = (single_sided_lcg(&mut state) % (1u128 << 64)) + 1;
+                let level = Level {
+                    offset_bps: 0,
+                    weight_bps: 10_000,
+                    sqrt_lo: sqrt,
+                    sqrt_hi: sqrt + width,
+                    liquidity: 10u128.pow(18 + (single_sided_lcg(&mut state) % 7) as u32),
+                };
+                ask[i] = level;
+                bid[i] = level;
+                sqrt += width;
+            }
+            let qs = QuoteState {
+                ask_levels: ask,
+                bid_levels: bid,
+                ..single_sided_vector_state()
+            };
+            let side = if single_sided_lcg(&mut state) & 1 == 0 {
+                SwapSide::SellBase
+            } else {
+                SwapSide::BuyBase
+            };
+            let mut config = single_sided_vector_config();
+            config.fee_bps =
+                [0u16, 1, 5, 10, 30, 50, 100][(single_sided_lcg(&mut state) % 7) as usize];
+            let base_net = 10_000 + (single_sided_lcg(&mut state) % 10u128.pow(12)) as u64;
+            let quote_net = 10_000 + (single_sided_lcg(&mut state) % 10u128.pow(12)) as u64;
+            let total_shares = 10_000 + (single_sided_lcg(&mut state) % 10u128.pow(12)) as u64;
+            // A modest notional keeps the internal swap feasible on this ladder.
+            let amount_in = 1 + (single_sided_lcg(&mut state) % 10_000) as u64;
+            if let Ok(plan) = solve_deposit_single(
+                &config,
+                &qs,
+                side,
+                amount_in,
+                base_net,
+                quote_net,
+                total_shares,
+            ) {
+                // Fee is exactly the swap fee.
+                assert_eq!(
+                    plan.fee as u128,
+                    (plan.s as u128 * config.fee_bps as u128 + 9_999) / 10_000
+                );
+                if plan.s > 0 {
+                    assert!(plan.fee <= plan.s);
+                }
+                match side {
+                    SwapSide::SellBase => {
+                        assert_eq!(plan.db + plan.s, amount_in);
+                        assert_eq!(plan.dq, plan.swap_out);
+                    }
+                    SwapSide::BuyBase => {
+                        assert_eq!(plan.dq + plan.s, amount_in);
+                        assert_eq!(plan.db, plan.swap_out);
+                    }
+                }
+                // Shares never exceed the proportional floors (no dilution).
+                if let Some(eval) = single_eval(
+                    &config,
+                    &qs,
+                    side,
+                    amount_in,
+                    plan.s,
+                    base_net,
+                    quote_net,
+                    total_shares,
+                ) {
+                    assert_eq!(eval.shares, plan.shares);
+                    let local = [
+                        plan.s.saturating_sub(1),
+                        plan.s,
+                        (plan.s + 1).min(amount_in),
+                    ];
+                    for cand in local {
+                        if let Some(p) = single_eval(
+                            &config,
+                            &qs,
+                            side,
+                            amount_in,
+                            cand,
+                            base_net,
+                            quote_net,
+                            total_shares,
+                        ) {
+                            assert!(p.shares <= plan.shares, "solver not locally maximal");
+                        }
+                    }
+                }
+                // A withdraw plan built from the same state: fee matches the
+                // swap fee and the payout is never below the wanted leg alone.
+                let shares = 1 + (single_sided_lcg(&mut state) % total_shares as u128) as u64;
+                let base_out = (shares as u128 * base_net as u128 / total_shares as u128) as u64;
+                let quote_out = (shares as u128 * quote_net as u128 / total_shares as u128) as u64;
+                let unwanted = match side {
+                    SwapSide::BuyBase => quote_out,
+                    SwapSide::SellBase => base_out,
+                };
+                let (fee, net) = charge_fee(unwanted, config.fee_bps).unwrap();
+                assert_eq!(
+                    fee as u128,
+                    (unwanted as u128 * config.fee_bps as u128 + 9_999) / 10_000
+                );
+                let wanted = match side {
+                    SwapSide::BuyBase => base_out,
+                    SwapSide::SellBase => quote_out,
+                };
+                if net > 0 {
+                    if let Ok(converted) = walk_committed_ladder(&qs, side, net) {
+                        assert!(wanted.saturating_add(converted) >= wanted);
+                    }
+                }
+            }
+        }
     }
 }

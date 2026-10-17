@@ -99,6 +99,21 @@ export const TRANSACTION_DISABLED_REASON: string | null = READ_ONLY_MODE
     ? `Transactions are disabled: this build only permits trading on Devnet (configured cluster: ${CLUSTER}).`
     : null;
 
+/**
+ * Task 4.3: single-sided deposit/withdraw is gated behind an explicit build
+ * flag (`VITE_ENABLE_SINGLE_SIDED=true`). It defaults to **false** and is
+ * additionally ANDed with transaction availability, so a read-only, non-devnet,
+ * or unset build can never expose the single-sided path (fail closed). The flag
+ * is enabled in the demo build only after the on-chain smoke in Task 6.5.
+ */
+export const SINGLE_SIDED_ENABLED =
+  ENV.VITE_ENABLE_SINGLE_SIDED === 'true' && TRANSACTIONS_ENABLED;
+
+/** Why single-sided is not available, or null when it is enabled. */
+export const SINGLE_SIDED_DISABLED_REASON: string | null = SINGLE_SIDED_ENABLED
+  ? null
+  : 'Single-sided deposit/withdraw is disabled in this build (set VITE_ENABLE_SINGLE_SIDED=true in a trade-enabled Devnet build).';
+
 /** Canonical Devnet genesis hash — verified before on-chain data is trusted. */
 export const EXPECTED_GENESIS_HASH =
   'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';

@@ -76,5 +76,8 @@ met. **Option 1 is not shown.**
   pool quote/fill data) is a **one-hour real-quote proxy run** (persistence
   0.997; round-trip proxy −0.29 bps); it is **not a fill gap**, so there is still
   **no measured claim about competitors' fills**.
-- Devnet is not deployed; the live keeper transport is NOT DONE.
+- Devnet program and vault **are deployed** (program `2mwpYHpZ…`, ELF
+  `c8725a23…`, `cargo build-sbf` reproduces the deployed hash); the live keeper
+  runs via `scripts/devnet/keeper_live.ts`. The browser **wallet-signed** swap is
+  operator-only; CLI-signed devnet evidence is recorded instead.
 - Independent audit pending.

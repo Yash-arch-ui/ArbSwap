@@ -1,0 +1,81 @@
+# QA.md — hard questions and honest answers
+
+Prepared for judges/reviewers. Numbers are not repeated here; see
+`docs/CLAIMS.md` and `artifacts/public/` (single source of truth). "No known
+issues in self-review, independent audit pending."
+
+## Q1. What is ArbSwap, in one sentence?
+An on-chain, keeper-quoted RFQ-style AMM for a WSOL/USDC (devnet test-token)
+pair: a permissionless bonded keeper commits a signed ladder quote; traders swap
+against it; LPs deposit/withdraw with warm-up and epoch settlement.
+
+## Q2. Is the value thesis (Option 1) shown?
+**No — and we say so.** Option 1 is **not shown**. The routed/volume study did not
+meet the pre-registered bar on the available data (see `docs/P1_RESULTS.md`,
+`docs/THESIS.md`, `docs/RESULTS.md`). We report the negative result rather than
+reframe it.
+
+## Q3. Why does ArbSwap get a near-zero routed-volume share against a tight
+propAMM-like venue?
+Because a tight, well-capitalized propAMM-like venue already quotes inside us on
+the modeled flow; we do not win share on price in that regime. Our claimed edge
+is in the **volatility/jump** regime and in **LP-facing** properties, not raw
+taker share. The losing regimes are shown, not hidden (`docs/CLAIMS.md`).
+
+## Q4. What is the stale-quote exposure?
+Quotes are valid for **120 slots** (about 30 s at ~0.248 s/slot on this devnet).
+The **oracle must be within 2 s at commit time**, but a `swap` does **not**
+re-check oracle age — so a longer quote validity increases stale-price exposure.
+This is bounded by the anchor-deviation bound (`max_anchor_dev_bps`), the
+per-window flow cap, and the realized-edge breaker. It is a **known, bounded
+residual risk**, not eliminated. Measured 2026-10-17 (5-min observation): a
+"fresh" (unexpired) quote carried an oracle price up to **~31 s** old at sample
+time — i.e. *fresh quote* means *unexpired*, not *fresh oracle*; the monitor now
+reports both (`scripts/devnet/fresh_monitor_core.ts`).
+
+## Q5. What is the single-sided deposit/withdrawal design, and its risk?
+Single-token entry/exit is built natively on the vault's **own ladder**
+(`docs/SINGLE_SIDED_DESIGN.md`): `deposit_single` swaps part of the input
+internally, then deposits both legs; `claim_withdraw_single` converts the
+unwanted leg and pays one token. It **inherits the same stale-quote exposure as a
+swap** (bounded by the same anchor-deviation bound, flow cap and edge breaker).
+Status: implemented in `vault/program/src/lib.rs`, mirror-verified against a
+Python reference (600 golden vectors, 100k differential, 20k fuzz), LiteSVM-tested
+(25 cases; CU `deposit_single` 161,693 / `claim_withdraw_single` 49,355), and
+**deployed on devnet** (upgrade `21VdJsBe…`, sha256 `c8725a23…`; `cargo build-sbf`
+reproduces the deployed hash). The browser UI is behind `VITE_ENABLE_SINGLE_SIDED`
+(**fail-closed; off by default**). A live single-token smoke has now been executed
+on devnet (`scripts/devnet/single_sided_smoke.ts`): `deposit_single` then
+`claim_withdraw_single` for both the base (WSOL) and quote (USDC) directions, with
+exact reserve/share/ticket accounting verified (see `docs/DEVNET.md`). The live
+smoke is **CLI-signed by the operator**; the browser **wallet-signed** single-token
+path is not yet exercised, so the feature flag stays off.
+
+## Q6. Who controls the upgrade authority?
+A **single key** (`ddGs6hk5…`) today. This is a real centralization point. A
+multisig (e.g. Squads) is the intended successor; the program already supports a
+timelocked admin rotation (`propose_admin`/`accept_admin`/`cancel_admin`). Not
+yet rotated on devnet.
+
+## Q7. What did you not verify / what is external?
+- Independent security audit: **pending** (none).
+- Real-pool value data (E8) and the one-hour proxy: **not done**.
+- Browser **wallet-signed** swap: only the operator can do it (we recorded
+  CLI-signed devnet evidence instead).
+- Some dependency advisories are **waived, dated** (`docs/WEB_ASSUMPTIONS.md`,
+  `frontend/audit-allowlist.json`); the gate verifies waived packages are absent
+  from the built bundle.
+
+## Q8. Are the tokens real?
+No. All tokens are **devnet test tokens** with no value.
+
+## Q9. Why is the CSP not strict (no `unsafe-inline`)?
+Browser wallet extensions inject an inline provider script; removing
+`script-src 'unsafe-inline'` breaks wallet detection on a deployed origin
+(D-013). There is **no `unsafe-eval`**.
+
+## Q10. How is correctness guarded?
+Guard-mutation table (`docs/SECURITY_CHECKLIST.md`), full LiteSVM lifecycle +
+adversarial suites, Python reference parity + golden vectors, differential and
+fuzz targets, docs/bundle single-source-of-truth checks, and a secrets scan over
+tracked files and the built bundle.

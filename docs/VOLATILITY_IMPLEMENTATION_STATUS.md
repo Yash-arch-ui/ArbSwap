@@ -349,7 +349,8 @@ applied after the timelock: **`VolatilityState.enabled = true`** as of slot
 snapshots are recorded in `docs/VOLATILITY_DEVNET_DEPLOYMENT.md` and
 `docs/VOLATILITY_ROLLOUT.md`. The configured volatility-aware keeper performs
 the observations (an *independent* observer separate from the keeper was not
-stood up). No further authorization is pending for this rollout.
+stood up). No further authorization is pending for this rollout. Re-verified
+read-only on `deposit-withdraw` (2026-10-17): `enabled = true`, nonce 190.
 
 ### 5.3 Acceptance-criteria checklist (from the plan, §Acceptance)
 

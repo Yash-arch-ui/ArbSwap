@@ -19,6 +19,7 @@ APY or return projection.
 | 2 | Bounded keeper (anchor/spread/capacity/flow/slot age) | **SUPPORTED** | `anchor_far_from_the_oracle_is_rejected`, `level_far_from_the_anchor_is_rejected`, `a_ladder_deeper_than_the_reserves_is_rejected`, `a_zero_spread_quote_is_rejected`, `window_flow_cap_stops_one_sided_flow`, `an_old_update_slot_is_rejected`; mutation table `docs/SECURITY_CHECKLIST.md` §2c | bounds only; not a profitability claim |
 | 3 | Safe failure on keeper/oracle failure | **SUPPORTED** | `trip_breaker_on_expiry`, `trip_breaker_on_stored_staleness`, `no_trip_with_a_stale_foreign_account`, `rejected_wide_confidence_leaves_the_old_quote_to_expire`, `keeper_outage_lets_the_quote_expire` | breaker is state-only; admin reset only |
 | 4 | Fair pro-rata accounting | **SUPPORTED** | `first_depositor_inflation_loses_at_most_rounding`, `sell_then_buy_same_size_never_creates_value`, `lifecycle_deposit_quote_swap_breaker_withdraw_preserves_value`, `account_spaces_match_serialized_sizes` | no ERC-4626 virtual-share offset; `MIN_LIQUIDITY` is a mitigation, not a proof |
+| 4b | Single-token deposit / withdrawal against the vault's own committed ladder | **SUPPORTED (LiteSVM + Python differential + frontend parity + live devnet smoke)** | `vault/program/tests/litesvm_single_sided.rs` (25 tests); independent Python reference + **600** golden vectors (`vault/program/tests/single_sided_vectors.txt`) cross-checked in `single_sided_python_differential`, **100,000**-case brute-force differential `single_sided_solver_matches_brute_force_100k`, fuzz `single_sided_fuzz_invariants` (20,000); `simulation/reference/test_single_sided.py`; program golden-vector unit tests mirrored in `app/test/singleSided.test.ts` (15); UI states `app/test/task4-single-sided-ui.test.ts` (18); live devnet smoke `scripts/devnet/single_sided_smoke.ts` — `deposit_single`+`claim_withdraw_single` for both base and quote directions, exact accounting (see `docs/DEVNET.md`); `docs/SINGLE_SIDED_DESIGN.md`; D-015/D-016/D-017/D-018, D-020 | trades at the committed quote, so it shares the swap's stale-quote exposure (bounded by anchor deviation, flow cap, edge breaker); the live smoke is **CLI-signed by the operator** (browser wallet-signed path not exercised); `VITE_ENABLE_SINGLE_SIDED` remains **off by default** |
 | 5 | Bonded keepers (bond / unbond / slash) | **SUPPORTED** | `bond_keeper` + `unbond_keeper_cooldown_and_release`, `unbond_partial_and_full_release`, `slash_during_unbond_reduces_the_release`, `unbond_keeper_rejects_a_bond_from_another_vault` (`9817b21`) | the bond is quote-token only |
 | 5b | Open bonded keeper network (permissionless when `min_bond > 0`) | **SUPPORTED (LiteSVM)** | `permissionless_bonded_keeper_may_quote_when_min_bond_is_set`, `update_quote_requires_a_keeper_bond`, `bond_keeper`/`unbond_keeper`/`slash_keeper`; mutation S4.4 | quoting is permissionless **once bonded**; the `min_bond == 0` MVP path stays allowlisted; no reward auction/competition schedule yet |
 | 6 | Two-sided quoting (bid + ask) | **SUPPORTED** | `keeper_two_sided_quote_executes_both_directions`, `two_sided_ladder_is_mirrored_at_zero_skew` (`fdc97c7`); Python parity ask+bid (`test_keeper_parity.py`) | the keeper emits both sides; on-chain stores both |
@@ -44,17 +45,18 @@ APY or return projection.
 ## Commands
 
 ```bash
-cargo test --workspace        # 211 Rust tests
-.venv/bin/pytest simulation -q # 233 Python tests
+cargo test --workspace        # 290 Rust tests
+.venv/bin/pytest simulation -q # 239 Python tests
 anchor build                  # SBF program
 ./scripts/headline.sh         # headline chart (no data/keys)
 ```
 
 ## Devnet demo configuration (limits)
 
-**Scheduled (pending the timelocked parameter apply; not yet active):** Devnet demo
-configuration: quotes remain valid for 120 slots (about 30 s) so a person can
+**Active (the timelocked parameter apply executed at slot `511663484`):** Devnet
+demo configuration: quotes remain valid for 120 slots (about 30 s) so a person can
 swap; the oracle must still be within 2 s at quote commit, but the swap does not
 re-check oracle age, so a longer validity increases exposure to stale-price
 fills; test funds only; the realized-edge breaker and the per-window flow cap
-remain active. This is a configuration, not a protocol guarantee.
+remain active. This is a configuration, not a protocol guarantee. Re-verified
+read-only on 2026-10-17 (`VolatilityState.enabled = true`).

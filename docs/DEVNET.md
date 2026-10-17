@@ -656,3 +656,121 @@ Adds `expiry_slots` to `ParamsUpdate` (admin-tunable via the timelocked
 
 **Parameter change (S2-37 Task 3) is PENDING**: `set_params(expiry_slots=120)` is
 not yet proposed/applied; the live `Config.expiry_slots` remains 10 until then.
+
+## STEP 3 — single-sided upgrade + live two-sided smoke (2026-10-16)
+
+Task 6 of the single-sided execution prompt. Adds `deposit_single` and
+`claim_withdraw_single` (and shared helpers) as **purely additive** code: no
+`Config`/`Vault`/`QuoteState` layout change, no change to any existing
+instruction. Build is `cargo build-sbf` in a clean target dir; the deployed
+program is byte-identical to the reviewed artifact.
+
+| | |
+|---|---|
+| Repo commit | `00dee6a` (branch `deposit-withdraw`) |
+| Program id | `2mwpYHpZ2TS6TjG3CbKBqQAwUv4hw7XrAbg4Kb6hyiNm` |
+| Upgrade authority (public key) | `ddGs6hk5E4oPzSnwFfX4pD4DDhDTLTwRddv1VQym7bH` |
+| Fee payer (public key) | `8R3VDePSxK4iQ5FYvTwfw16D72QWx7qXhZkYvtKGCQSH` |
+| New ELF (clean build) | **933,240 bytes**, sha256 `c8725a23698de9d0779041771936c443e39d92f36b4c5353c20ce87b597cb015` |
+| On-chain account | 933,240 bytes, sha256 `c8725a23…` — **MATCH** (`devnet_program_hash.py`) |
+| Upgrade signature | `21VdJsBeRkrX3WVTPx6pdYmfrPCnaqqh4VuudJoJwrQkkmm5ts9o9XD1EtvFs36z7E4Rp5y5F82iAkcQ4Cy3wioB` |
+| Upgrade slot / block time | 511682809 / 1792146982 (2026-10-16T10:36:22Z) |
+| Previous ELF (rollback) | `~/arbswap-rollback/arbswap_pre_single_sided.so` (849,368 B, sha256 `42eeac64…`) — **not used** |
+| Release preflight (`release_preflight.ts`) | `ok:true`; vault Active; Config field-by-field unchanged; QuoteState len 897 |
+| Post-upgrade keeper (5 min) | quote versions 4795→4810, 0 failures, author `8R3V…` |
+
+### Task 6.5 — live two-sided lifecycle (`scripts/devnet/two_sided_lifecycle.ts`)
+
+Simulate-then-submit, admin `8R3V…`, one molar-proportional round trip:
+deposit 1,000,000 base atoms (0.001 WSOL) + 127,817 quote atoms (0.127817 USDC).
+
+| Step | Signature | Slot / time | Result |
+|---|---|---|---|
+| (b) deposit | `2szDwnxJGALdEmC2G1oh7EgRa36wFU5xFYSKSCsoyqwWkCRqu8tsznu1GqUuWVu9g7nn6RxPy4tRhCFpNeELHi8Q` | 511687211 / 10:53:48Z | `DepositEvent{shares:359,111, base_amount:999,995, quote_amount:127,817}`; `total_shares` 184,925,609→185,284,720 |
+| (c) request_withdraw | `28exTx39CFbkAuQK1wKQgf67mUc1rmHcspEhLSC9JTDmkG3Nywwbjxj7Nf5q5FwaW8mLjy7voHdKrsoXQMfW1DdZ` | 511689827 / 11:04:12Z | warm-up elapsed (`activate_slot` 511,687,361); shares 359,111 moved to `share_lock`; ticket epoch = vault.epoch+1 |
+| (c) crank_epoch | `jyy8EHShc3jcCunHXHHfqGT1FWE7xrMkqnBouTV7SxCMKgC6qd8x4nn8288D8zLs8cR2UVXaUk2ApN7idDfEYQK` | 511689839 / 11:04:15Z | vault epoch 0→1 (≥ `epoch_start + 1,500`) |
+| (c) claim_withdraw | `hWenydz7pxAvUxseriyXpytpi1MRhN6YwVvWepPCbV9eQ7LAmQXonWUgi44NQuXxmAWfhxxKvfqLyfzuDhNn8te` | 511689856 / 11:04:19Z | `WithdrawClaimed{base_amount:999,994, quote_amount:127,816}` |
+
+Verification (all automated checks PASS): token deltas **equal** the claim event
+**and** the pro-rata formula `shares · net_reserve / total_shares`
+(expected_base 999,994 = delta_base 999,994; expected_quote 127,816 =
+delta_quote 127,816); `total_shares` 185,284,720→184,925,609 (Δ = 359,111 =
+ticket shares, burned from `share_lock`); reserves after (base 514,951,395 /
+quote 65,820,108) **≥** liabilities (base 498 / quote 372). The `WithdrawClaimed`
+`shares` field reads `0` because the ticket is zeroed before the emit
+(`lib.rs:726` then `:729`) — cosmetic, the burned amount is verified via
+`total_shares`.
+
+**(d) claim while the quote is expired.** Confirmed a real expired window on a
+two-sided path: slot 511,690,109 ≥ `QuoteState.expiry_slot` 511,690,087
+(version 4862) — the quote does lapse between keeper refreshes. `claim_withdraw`
+takes **no** `quote_state` account and performs no freshness check (account list
+above), so the on-chain claim `hWenyd…` is valid regardless of quote age; a
+re-simulation against the already-settled ticket fails only with `Custom 6004`
+(`InvalidAmount`, 0 shares), never with any staleness error.
+
+**(a)/(e) single-token live smoke.** Not run in the 2026-10-16 freeze window (no
+single-sided CLI existed). It was executed in the 2026-10-17 defect-closure
+session — see **STEP 4** below. `VITE_ENABLE_SINGLE_SIDED` is still **not** set in
+any build (the browser wallet-signed path remains unexercised).
+
+**No rollback triggered** (6.4): hash matched, vault Active, all smokes green.
+
+### Task 8.2 — live BuyBase / SellBase swaps (`scripts/devnet/swap_smoke.ts`)
+
+Operator-run live smoke: waits for a genuinely fresh committed quote, builds the
+same account set the dApp signs (manual Borsh), **simulates**, and only then
+submits + confirms. Admin `8R3V…`, devnet test tokens only, fee 1 bps.
+
+| Side | Signature | Slot | Input | Quote version |
+|---|---|---|---|---|
+| BuyBase | `5zu74zPrkVwgZmXcxs3R34BssSeiktzrvcRNFA2gPhNidfVHWNo7oaM2gz74QCqBpJVUgE9VjaDerecSJDfMuznx` | 511779271 | 0.5 USDC (500,000 atoms) | 5974 |
+| SellBase | `5jxap9NzQN54GTbyBGDDYzicG12a2iQDkSqh2gvVRm3gyo98ETAQeSbwPzew3b2FGPuVqvCrGNUuLYnKHgj1JU3T` | 511779315 | 0.005 WSOL (5,000,000 atoms) | 5974 |
+
+Both attributed to the active keeper `8R3V…` and confirmed via
+`getSignatureStatuses` polling (no websocket). The read-only `swap_preflight.ts`
+carried a `system_program` account bug (`PublicKey.default` at index 9); it is
+correctly `SystemProgram.programId` in `swap_smoke.ts`.
+
+## STEP 4 — live single-sided smoke, both directions (2026-10-17)
+
+Issue B of the defect-closure session. `scripts/devnet/single_sided_smoke.ts`
+(manual Borsh, no IDL coder) runs the full single-sided money path with the
+authorized operator wallet `8R3V…` on devnet test tokens: `deposit_single` →
+warm-up (150 slots) → `request_withdraw` → `crank_epoch` → `claim_withdraw_single`.
+Each transaction is built, **simulated**, and only then submitted + confirmed.
+A fresh committed quote is required for both single instructions (a keeper was
+running: `keeper_live.ts`). An explicit 600,000-CU limit is set (the ladder walk
+exceeds the 200k simulation default).
+
+**Direction A — base (WSOL) in / base out.** Deposit `SellBase` 1,000,000 base
+atoms (0.001 WSOL); claim `BuyBase`.
+
+| Step | Signature | Slot | Result |
+|---|---|---|---|
+| deposit_single(SellBase) | `2bxdQt991LuGMvfySnQuidNZPtrB8ABW94a2LeFNt9mB8XWF5NiYZBRNRnRbkbQYtvgvnY2iGut4NfUEkEos9o3w` | 511995180 | base reserve +1,000,000; quote untouched; 161,594 shares minted; ticket = 161,594; `total_shares` 215,830,954→215,992,548 |
+| request_withdraw | `2w7MKipiVXxtfNbiyBbf1NRppKFfW9CB6FQNZYXU3PsmtA7kmsw5aVofyYst937aFKWqRgxJfpwHVB7RXxjN97p2` | — | 161,594 shares → `share_lock`; ticket epoch = vault.epoch+1 |
+| crank_epoch | `3yKdxB6hfRa6sDDUaCsTncHsjg2wSiAhgiFNyRC3TwoHZPbf3r5qMKWhf1FUonwaZVDJy3vyqeWS83tadvTTMJFq` | — | epoch advanced (≥ `epoch_start + 1,500`) |
+| claim_withdraw_single(BuyBase) | `3axkjhveM65QydFiofVu1XnuBq3eQV5EDbDocXANBiS8AKFbg6GE6YxEx9QjAg3vyQHbbuqyg2xtHaLxbzk3TH2w` | — | base payout 998,739; quote untouched; 161,594 burned from `share_lock`; ticket zeroed; `total_shares` back to 215,830,954 |
+
+**Direction B — quote (USDC) in / quote out.** Deposit `BuyBase` 100,000 quote
+atoms (0.1 USDC); claim `SellBase`.
+
+| Step | Signature | Slot | Result |
+|---|---|---|---|
+| deposit_single(BuyBase) | `4CGvVWHe26g4aoLDitNQKBdaoDMavSf8BtZXdoghGRqCdDFFGu8VEGpHEcd28tjVpTX34WvaCH34bCHHE6NKubEr` | 511996088 | quote reserve +100,000; base untouched; 154,317 shares minted; ticket = 154,317 |
+| request_withdraw | `4EEccUreMH6vQ4kBgwjTge4wT1qV83bV9N3ZJFjdfqb4q3YF9EyTYbLmJd2aoqADsBMpWJZeo8kRZ8RtRqeiFT37` | — | 154,317 shares → `share_lock` |
+| crank_epoch | `39dCTYHEhLsmzqeWdfz5E3oSVKcBJSXeZxtiKLUoqBD9Ho5aDoezBbhgyLqPG7cpavvKPEdzCL68Z7B1BDUZ8nHQ` | — | epoch advanced |
+| claim_withdraw_single(SellBase) | `5qcfKemi9EnDzBFj9jCLANtcgWU8jMsRr2Vi1tCFbi6TAi8pxFyDZ6y7dk6hg28Wd1yNR7RAUyAz6EXXE14k6DLj` | — | quote payout 99,937; base untouched; 154,317 burned from `share_lock`; ticket zeroed; `total_shares` back to 215,830,954 |
+
+All automated checks PASS in both directions: input-only token movement, whole
+input to the reserve, `minted shares == ticket shares`, `total_shares` delta ==
+ticket shares, payout > 0, the non-payout ATA untouched, and the ticket zeroed.
+Round-trip cost (1 bps fee on the swapped portion + integer rounding): direction A
+1,000,000→998,739 base atoms; direction B 100,000→99,937 quote atoms.
+
+**Scope / honesty.** These are **CLI-signed by the operator** (not a browser
+wallet), on devnet **test tokens**, against the deployed program
+`c8725a23…` which `cargo build-sbf` reproduces byte-for-byte. The browser
+wallet-signed single-token path is **not** exercised, so `VITE_ENABLE_SINGLE_SIDED`
+stays **off by default**. Keeper used: `keeper_live.ts`, author `8R3V…`.

@@ -3,9 +3,18 @@
 // stale gap, and the number of committed versions observed. Never signs.
 //
 //   DURATION_SEC=1200 INTERVAL_MS=400 npx tsx fresh_monitor.ts
+//
+// Issue D: it now reports both the sample fraction (the historical metric) and a
+// wall-clock time-weighted fraction, the effective sampling period, and the
+// maximum oracle age seen on "fresh" (unexpired) samples — because an unexpired
+// quote is not necessarily a fresh-oracle quote. Set MIN_FRESH=<0..1> to make the
+// monitor exit non-zero below that time-weighted threshold.
 import { Connection, PublicKey } from "@solana/web3.js";
 import { resolveRpcConfig, redactUrl } from "./rpc";
+import { summarise, type FreshSample } from "./fresh_monitor_core";
 
+// Anchor account layout (8-byte discriminator): version@8, expiry_slot@24,
+// oracle_publish_time@104 (i64, seconds).
 const QUOTE_STATE = new PublicKey("5MsGbdHv3ouXrHT9f7JVQ6b7eVETTiVCzYSGw5DTYAgG");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -17,10 +26,8 @@ async function main(): Promise<void> {
   console.error(`monitor rpc=${redactUrl(cfg.endpoints[0])} duration=${durationMs / 1000}s interval=${interval}ms`);
 
   const start = Date.now();
-  let n = 0, fresh = 0, commits = 0, longestStaleMs = 0, staleStart: number | null = null;
-  let lastVersion = -1n;
-  const versionFresh = new Map<string, number>();
   const end = start + durationMs;
+  const samples: FreshSample[] = [];
   while (Date.now() < end) {
     const t = Date.now();
     try {
@@ -31,30 +38,26 @@ async function main(): Promise<void> {
       if (info?.data) {
         const version = info.data.readBigUInt64LE(8);
         const expiry = Number(info.data.readBigUInt64LE(24));
+        const publishTime = Number(info.data.readBigInt64LE(104));
         const isFresh = version > 0n && slot < expiry;
-        n += 1;
-        if (isFresh) {
-          fresh += 1;
-          versionFresh.set(version.toString(), (versionFresh.get(version.toString()) ?? 0) + 1);
-          if (staleStart != null) { longestStaleMs = Math.max(longestStaleMs, t - staleStart); staleStart = null; }
-        } else if (staleStart == null) {
-          staleStart = t;
-        }
-        if (version !== lastVersion && lastVersion !== -1n) commits += 1;
-        if (version !== lastVersion) lastVersion = version;
+        const oracleAgeMs = publishTime > 0 ? t - publishTime * 1000 : null;
+        samples.push({ t, fresh: isFresh, version, slot, expirySlot: expiry, oracleAgeMs });
       }
     } catch { /* transient */ }
     await sleep(interval);
   }
-  if (staleStart != null) longestStaleMs = Math.max(longestStaleMs, Date.now() - staleStart);
-  const fraction = n > 0 ? fresh / n : 0;
-  const rule = fraction >= 0.8 ? "green" : fraction >= 0.5 ? "amber" : "red";
-  console.log(JSON.stringify({
-    samples: n, fresh, fresh_fraction: Number(fraction.toFixed(3)),
-    longest_stale_ms: longestStaleMs, commits_observed: commits,
-    last_version: lastVersion.toString(),
-    versions_with_fresh_samples: versionFresh.size, decision: rule,
-  }, null, 2));
+
+  const summary = summarise(samples, Date.now());
+  console.log(JSON.stringify(summary, null, 2));
+
+  const minFresh = process.env.MIN_FRESH;
+  if (minFresh !== undefined && minFresh !== "") {
+    const threshold = Number(minFresh);
+    if (Number.isFinite(threshold) && summary.fresh_fraction_time_weighted < threshold) {
+      console.error(`fresh fraction (time-weighted) ${summary.fresh_fraction_time_weighted} < MIN_FRESH ${threshold}`);
+      process.exit(1);
+    }
+  }
 }
 
 main().catch((e) => { console.error(String((e as Error).message ?? e)); process.exit(1); });

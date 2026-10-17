@@ -139,7 +139,7 @@ describe('S2-35 execution mode is explicit and transaction-enabled on Devnet', (
     // VaultPage: the success status follows its awaited submit, and the
     // in-flight state is a neutral "pending" (never a red failure cross shown
     // before the transaction result is known).
-    expect(vault.indexOf("status: 'success'")).toBeGreaterThan(vault.indexOf('await depositOnChain('));
+    expect(vault.indexOf("status: 'success'")).toBeGreaterThan(vault.indexOf('await sendSwapTransaction('));
     expect(vault).toMatch(/status: 'pending'/);
     // The old unconditional "✓" render (success on any notice) must be gone.
     expect(vault).not.toMatch(/>✓ \{notice\}/);

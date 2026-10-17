@@ -51,6 +51,7 @@ Cluster: **Solana Devnet** · genesis `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkr
   **Apply signature `23gBbdKwtBYXRDoGEtaUtdkCTS3rWpSecUVYNt1puA3PUeYqmYT2yhuNwhmjgaRw5UxdpGv8Dx9bqFrAbXReVQos`** (finalized, `VolatilityParamsApplied` emitted).
 - Decoded post-apply on-chain `VolatilityState`: **`enabled = true`**; applied params match the proposal (short/medium λ defaults, `jump_multiple 4`, `max_sigma_q64 2^60`, `jump_cooldown_slots 1800`, `vol_spread_coeff_bps 1000`, `vol_depth_coeff_bps 2000`, `max_observation_age_slots 3600`). The proposal is disarmed (`pending.activate_slot = u64::MAX`) so it cannot be applied twice.
 - Enforcement is therefore **LIVE**: every quote update/stage/commit requires the volatility PDA and passes the guards.
+- **Re-verified independently (read-only) on this branch's final session, 2026-10-17:** `npx tsx volatility_admin.ts status` decoded `enabled: true`, `observationNonce 190`, `jumpMultiple 4`, `jumpDetected: true` with `jumpUntilSlot` in the future. Enforcement remains **LIVE**.
 - Recorded liveness nuance: live `max_spread_bps = 50` with default `vol_spread_coeff_bps = 1000` means the jump-multiplied floor can exceed 50 bps in high-volatility/jump conditions, so the keeper fail-closes (skips) rather than quote; observed on-chain as `Custom 6037` (`UpdateSlotTooOld`) / `Custom 6039` (`StalePendingQuote`) commit rejections alongside provider-throttling gaps. This is a liveness characteristic, not a safety hole. A future timelocked re-proposal can lower the coefficient if a different operating policy is desired.
 
 ## Local gates (this execution)
@@ -77,7 +78,7 @@ Cluster: **Solana Devnet** · genesis `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkr
 ## Timelock wait + liveness (measured)
 
 - Timelock elapsed: activation slot `511663348` was reached and **`apply_volatility_params` was executed at slot `511663484`** (signature `23gBbdKw…`). Enforcement is now `enabled = true`; there is no remaining wait.
-- Keeper/observation health remains strong: volatility `observation_nonce` climbed to **139+**, `last_price_q64 > 0`, observation fresh (age ≪ 3600); the jump detector is exercising the cooldown (`jump_detected = true`, `jump_until_slot` in the future). QuoteState liveness continues with `fresh: true` in the majority of samples; brief `Custom 6037`/`6039` commit rejections and provider `429` gaps are transients.
+- Keeper/observation health remains strong: volatility `observation_nonce` climbed to **190+ (re-checked 2026-10-17)**, `last_price_q64 > 0`, observation fresh (age ≪ 3600); the jump detector is exercising the cooldown (`jump_detected = true`, `jump_until_slot` in the future). QuoteState liveness continues with `fresh: true` in the majority of samples; brief `Custom 6037`/`6039` commit rejections and provider `429` gaps are transients.
 - No further admin action is required for this rollout. A future policy change (e.g. lowering `vol_spread_coeff_bps` to reduce fail-closed skips) must go through a fresh `propose_volatility_params` → `apply_volatility_params` timelock cycle.
 
 ## Bundle-freshness root cause (resolved as a precise finding)
