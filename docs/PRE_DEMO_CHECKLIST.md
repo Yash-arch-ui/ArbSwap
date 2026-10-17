@@ -18,6 +18,9 @@ Devnet only. Test tokens only. Keep the keeper (tmux `arbswap-keeper`) running.
 - [ ] Vault page: deposit/withdraw panels render; balances correct; no mock data.
 - [ ] Risk/Overview: live QuoteState/volatility values; limits text present.
 - [ ] Run the one-command check: `scripts/devnet/demo_check.sh` (read-only).
+- [ ] Single-sided toggles are **hidden** (default build has
+      `VITE_ENABLE_SINGLE_SIDED` unset). Do not enable them for the default demo;
+      see `docs/BROWSER_WALLET_SMOKE.md` for the separate, wallet-gated test.
 
 ## T-0
 - [ ] Backup video ready on the laptop **and** phone (`docs/demo_backup.mp4`) in

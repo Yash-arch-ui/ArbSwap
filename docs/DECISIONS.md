@@ -326,3 +326,45 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
   recorded commit. Regenerating (rather than weakening the gate) keeps the
   published numbers consistent with the committed tree.
 - **Rejected:** Weakening/disabling the freshness check; leaving the bundle stale.
+
+### D-025 — Frontend transaction reliability hardening (Vault path)
+- **Decision:** Three source-only hardening changes to `VaultPage`:
+  1. **Runtime Devnet genesis gate.** `blocked()` (and the single-sided preview)
+     now requires `genesisVerified` from `ProtocolContext`, mirroring the swap
+     gate. A custom RPC pointed at another cluster can no longer move assets
+     through the vault path.
+  2. **Re-simulate before signing.** `runDepositConfirm` / `handleClaimConfirm`
+     refresh the blockhash and then re-run `simulateTransaction`; a prepared
+     transaction that no longer simulates (state/quote moved) is discarded rather
+     than submitted.
+  3. **Stale-preview invalidation.** A monotonic `requestSeq` ref invalidates any
+     in-flight preview build when the user changes an input or mode/side, so a
+     slow async response can never overwrite newer UI state or present a preview
+     for old inputs.
+- **Reason:** These close the residual "correct network selection", "re-simulate
+  if state changed", and "stale completions overwrite newer state" gaps listed in
+  the reliability review. All are behavior-preserving on the happy path.
+- **Tests:** `app/test/vault-pending-status.test.ts` (+3 source-level checks).
+- **Rejected:** Blocking on the wallet adapter's network instead of the runtime
+  genesis check (the adapter can be on a different endpoint); re-simulating
+  without refreshing the blockhash (would simulate against a stale hash).
+
+### D-026 — Browser wallet single-sided smoke is the sole remaining feature gate
+- **Decision:** Added `docs/BROWSER_WALLET_SMOKE.md` (prerequisites, exact
+  navigation, expected wallet prompts, expected on-chain effects, failure
+  behavior, stop/rollback, evidence to record). `VITE_ENABLE_SINGLE_SIDED` stays
+  **OFF** in the committed default until the user completes this wallet-signed
+  test and the signatures are independently verified against devnet.
+- **Reason:** CLI-signed devnet smoke (D-020) does not prove browser-wallet
+  integration; the flag policy is fail-closed.
+- **Rejected:** Enabling the flag for demo completeness; automating a wallet
+  signature.
+
+### D-027 — Corrected a stale "Devnet is not deployed" claim in HEADLINE.md
+- **Decision:** `docs/HEADLINE.md` said "Devnet is not deployed; the live keeper
+  transport is NOT DONE", which contradicts the verified deployment. Corrected to
+  the verified state (program `2mwpYHpZ…`, ELF `c8725a23…`, live keeper via
+  `keeper_live.ts`, browser wallet-signed swap operator-only).
+- **Reason:** Submission claims must be accurate; the on-chain deployment and
+  reproducible hash were independently re-verified this session.
+- **Rejected:** Leaving the understated claim (it is still an inaccuracy).

@@ -28,7 +28,10 @@ The **oracle must be within 2 s at commit time**, but a `swap` does **not**
 re-check oracle age — so a longer quote validity increases stale-price exposure.
 This is bounded by the anchor-deviation bound (`max_anchor_dev_bps`), the
 per-window flow cap, and the realized-edge breaker. It is a **known, bounded
-residual risk**, not eliminated.
+residual risk**, not eliminated. Measured 2026-10-17 (5-min observation): a
+"fresh" (unexpired) quote carried an oracle price up to **~31 s** old at sample
+time — i.e. *fresh quote* means *unexpired*, not *fresh oracle*; the monitor now
+reports both (`scripts/devnet/fresh_monitor_core.ts`).
 
 ## Q5. What is the single-sided deposit/withdrawal design, and its risk?
 Single-token entry/exit is built natively on the vault's **own ladder**

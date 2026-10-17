@@ -1,5 +1,27 @@
 # PROGRESS.md — ArbSwap principal-engineer run
 
+## RUN: SUBMISSION LOCK & HARDENING (2026-10-17, IST) — `deposit-withdraw`
+
+Independent re-verification of `7f59963` plus frontend reliability hardening.
+No program upgrade; tag `demo-freeze-1` = `2155731` preserved; flag stays OFF.
+
+| Area | Status | Evidence |
+|---|---|---|
+| Baseline/git integrity | PASS | branch/HEAD/remote `0 0`; tag at `2155731`; stash + untracked `json` preserved |
+| Rust/Solana | PASS | fmt; CI clippy; `cargo test --workspace` **290**; `cargo build-sbf` full hash MATCH |
+| Python | PASS | 237 passed / 2 skipped (raw aggTrades archive absent) |
+| Frontend | PASS | oxlint; **182** Vitest; `tsc -b` + `yarn build`; dist keyless |
+| Script/repo gates | PASS | docs-consistency; bundle-freshness; banned; secrets; keeper/broadcast/volatility/reclaim/fresh-monitor tests |
+| Deployment identity | PASS | program `2mwpYHpZ…` 933,240 B, sha256 `c8725a23…015`, on-chain == local build |
+| Frontend reliability | FIXED | D-025: runtime genesis gate, re-simulate before sign, stale-preview invalidation |
+| Browser wallet smoke | BLOCKED (user) | `docs/BROWSER_WALLET_SMOKE.md`; flag off |
+| Claims accuracy | FIXED | D-027: corrected stale "Devnet is not deployed" in HEADLINE.md |
+| Keeper liveness (fresh 5-min obs) | PASS | 2026-10-17: 451 samples, fresh **87.8%** (time-weighted **88.0%**), longest stale 22.2 s, 19 commits, `max_oracle_age 31.4 s` → green |
+
+See `docs/DECISIONS.md` D-025…D-027.
+
+---
+
 ## RUN: DEFECT CLOSURE & DEMO-READINESS (2026-10-17, IST) — `deposit-withdraw`
 
 Baseline preserved: branch `deposit-withdraw`, HEAD/tag `demo-freeze-1` = `2155731`
