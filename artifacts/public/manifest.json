@@ -1,5 +1,5 @@
 {
-  "commit": "54e2eea1937b7740466cb0234b01464280534b17",
+  "commit": "5066d80ffeb0b6be0ea30a0919d255022c671ea1",
   "data_sha256": {},
   "files": {
     "cu.json": {
@@ -16,7 +16,7 @@
     },
     "headline.json": {
       "schema": "../schema/headline.json",
-      "sha256": "4296e80c360dd786b7a5bdd9f52f7093748713915bedb448f4c411c254dcc0f4"
+      "sha256": "d5a283429e0a686ffe887671bd6fdde0622e614ac15bb6498ae871431223fca2"
     },
     "held_out.json": {
       "schema": "../schema/held_out.json",
@@ -24,7 +24,7 @@
     },
     "lvr_history.json": {
       "schema": "../schema/lvr_history.json",
-      "sha256": "fbe72e37f1afbe9f5176d47f043c67f50dd8e956fd9b66a4033ff6a96d3966c7"
+      "sha256": "ec1fb65c3b7ae99627e74598a03617a281d6b00ad9ec3e1227b892e74a05108f"
     },
     "mutation.json": {
       "schema": "../schema/mutation.json",
@@ -47,5 +47,5 @@
   "generated": "2026-10-17",
   "parameter_hash": "00f20314308569dfaa97f871f7752604e0fe392efe7075c79f30815e508e2de6",
   "schema_version": "1.0.0",
-  "short": "54e2eea"
+  "short": "5066d80"
 }
