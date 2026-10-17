@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { APP_RPC_FAILOVER } from '../chain/rpcFailover';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
@@ -40,6 +40,7 @@ export const VaultPage: React.FC = () => {
     shareBalanceAtoms,
     vaultAtoms,
     walletAtoms,
+    genesisVerified,
   } = useProtocol();
   const connection = APP_RPC_FAILOVER.connection;
   const { connected, publicKey, wallet } = useWallet();
@@ -85,7 +86,24 @@ export const VaultPage: React.FC = () => {
       setNotice({ text: disabledReason ?? 'Transactions are disabled in this build.', status: 'error' });
       return true;
     }
+    // Fail closed unless the RPC endpoint has been verified as Devnet at
+    // runtime (mirrors the swap gate): a custom RPC pointed at another cluster
+    // must never be allowed to move assets.
+    if (!genesisVerified) {
+      setNotice({ text: 'Transactions are unavailable until the RPC endpoint is verified as Devnet.', status: 'error' });
+      return true;
+    }
     return false;
+  };
+
+  // Stale-preview guard: each preview build takes a sequence number. Any input
+  // change (or a newer preview) invalidates in-flight builds so a slow response
+  // can never overwrite newer UI state or present a preview for old inputs.
+  const requestSeq = useRef(0);
+  const invalidatePreviews = () => {
+    requestSeq.current += 1;
+    setDepPreview(null);
+    setClaimPreview(null);
   };
 
   const claimState = claimWithdrawState({
@@ -219,6 +237,7 @@ export const VaultPage: React.FC = () => {
     setIsWorking(true);
     setNotice(null);
     setDepPreview(null);
+    const seq = ++requestSeq.current;
     try {
       const base = parseUnits(depositSol, tokens.SOL.decimals);
       const quote = parseUnits(depositUsdc, tokens.USDC.decimals);
@@ -237,6 +256,7 @@ export const VaultPage: React.FC = () => {
       const tx = await buildDepositTransaction(connection, wallet, base, quote, minShares);
       const sim = await simulateSwap(connection, tx);
       if (!sim.ok) throw new Error(sim.reason ?? 'The transaction simulation failed.');
+      if (seq !== requestSeq.current) return; // inputs changed while simulating
       setNotice(null);
       setDepPreview({
         tx,
@@ -251,6 +271,7 @@ export const VaultPage: React.FC = () => {
         ],
       });
     } catch (error) {
+      if (seq !== requestSeq.current) return; // stale: a newer input/preview won
       const msg = (error as Error).message ?? 'unknown error';
       const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
       const human = cancelled
@@ -267,10 +288,12 @@ export const VaultPage: React.FC = () => {
     if (!SINGLE_SIDED_ENABLED) { setNotice({ text: SINGLE_SIDED_DISABLED_REASON ?? 'Single-sided is disabled.', status: 'error' }); return; }
     if (isWorking) return;
     if (!connected || !publicKey || !wallet) { setVisible(true); return; }
+    if (!genesisVerified) { setNotice({ text: 'Transactions are unavailable until the RPC endpoint is verified as Devnet.', status: 'error' }); return; }
     if (singleDepositReason) { setNotice({ text: singleDepositReason, status: 'error' }); return; }
     setIsWorking(true);
     setNotice(null);
     setDepPreview(null);
+    const seq = ++requestSeq.current;
     try {
       if (!vaultAtoms) throw new Error('vault state not loaded yet');
       const fresh = await fetchFreshQuote(connection);
@@ -289,6 +312,7 @@ export const VaultPage: React.FC = () => {
       const tx = await buildDepositSingleTransaction(connection, wallet, depositInputSide, depositSingleAmountAtoms, minShares, minSwapOut);
       const sim = await simulateSwap(connection, tx);
       if (!sim.ok) throw new Error(sim.reason ?? 'The transaction simulation failed.');
+      if (seq !== requestSeq.current) return; // inputs changed while simulating
       setNotice(null);
       setDepPreview({
         tx,
@@ -305,6 +329,7 @@ export const VaultPage: React.FC = () => {
         ],
       });
     } catch (error) {
+      if (seq !== requestSeq.current) return; // stale: a newer input/preview won
       const msg = (error as Error).message ?? 'unknown error';
       const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
       setNotice({ text: cancelled ? 'Deposit signing was cancelled by user.' : `Single-sided deposit failed: ${msg.slice(0, 160)}`, status: cancelled ? 'cancelled' : 'error' });
@@ -323,7 +348,8 @@ export const VaultPage: React.FC = () => {
       // expired or the blockhash may have aged while it sat on screen. Never
       // resubmit a stale transaction: for the single-sided path (which trades
       // against the committed ladder) re-read and re-validate the quote, and in
-      // all cases refresh the blockhash against the live cluster.
+      // all cases refresh the blockhash and re-simulate against the live
+      // cluster so a state change cannot silently submit a failing tx.
       if (depositMode === 'single') {
         const fresh = await fetchFreshQuote(connection);
         const freshReason = submitFreshnessReason(fresh);
@@ -334,6 +360,12 @@ export const VaultPage: React.FC = () => {
         }
       }
       depPreview.tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash;
+      const sim = await simulateSwap(connection, depPreview.tx);
+      if (!sim.ok) {
+        setNotice({ text: `The prepared deposit no longer simulates (${sim.reason ?? 'simulation failed'}). It was discarded; review and re-preview.`, status: 'error' });
+        setDepPreview(null);
+        return;
+      }
       const signature = await sendSwapTransaction(connection, wallet, depPreview.tx);
       setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}... Shares activate after warm-up. ${explorerTxUrl(signature)}`, status: 'success' });
       setDepPreview(null);
@@ -402,6 +434,7 @@ export const VaultPage: React.FC = () => {
     setIsWorking(true);
     setNotice(null);
     setClaimPreview(null);
+    const seq = ++requestSeq.current;
     try {
       let tx: Transaction;
       let summary: string;
@@ -451,9 +484,11 @@ export const VaultPage: React.FC = () => {
       }
       const sim = await simulateSwap(connection, tx);
       if (!sim.ok) throw new Error(sim.reason ?? 'The transaction simulation failed.');
+      if (seq !== requestSeq.current) return; // inputs changed while simulating
       setNotice(null);
       setClaimPreview({ tx, summary, lines });
     } catch (error) {
+      if (seq !== requestSeq.current) return; // stale: a newer input/preview won
       const msg = (error as Error).message ?? 'unknown error';
       const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
       setNotice({ text: cancelled ? 'Claim signing was cancelled by user.' : `Claim preparation failed: ${msg.slice(0, 160)}`, status: cancelled ? 'cancelled' : 'error' });
@@ -483,6 +518,12 @@ export const VaultPage: React.FC = () => {
         }
       }
       claimPreview.tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash;
+      const sim = await simulateSwap(connection, claimPreview.tx);
+      if (!sim.ok) {
+        setNotice({ text: `The prepared claim no longer simulates (${sim.reason ?? 'simulation failed'}). It was discarded; review and re-preview.`, status: 'error' });
+        setClaimPreview(null);
+        return;
+      }
       const signature = await sendSwapTransaction(connection, wallet, claimPreview.tx);
       setNotice({ text: `Claim confirmed ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, status: 'success' });
       setClaimPreview(null);
@@ -500,6 +541,7 @@ export const VaultPage: React.FC = () => {
   const setWithdrawPercent = (pct: number) => {
     if (shareBalanceAtoms === null) return;
     const next = (shareBalanceAtoms * BigInt(pct)) / 100n;
+    invalidatePreviews();
     setWithdrawShares(formatUnits(next, ACTIVE_VAULT.shareDecimals));
   };
 
@@ -650,8 +692,8 @@ export const VaultPage: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Deposit with:</span>
-                <button type="button" data-testid="deposit-mode-both" className={`uni-max ${depositMode === 'both' ? 'active' : ''}`} onClick={() => { setDepositMode('both'); setDepPreview(null); }}>Both tokens</button>
-                <button type="button" data-testid="deposit-mode-single" className={`uni-max ${depositMode === 'single' ? 'active' : ''}`} onClick={() => { setDepositMode('single'); setDepPreview(null); }} disabled={!SINGLE_SIDED_ENABLED} title={SINGLE_SIDED_DISABLED_REASON ?? undefined}>Single token</button>
+                <button type="button" data-testid="deposit-mode-both" className={`uni-max ${depositMode === 'both' ? 'active' : ''}`} onClick={() => { setDepositMode('both'); invalidatePreviews(); }}>Both tokens</button>
+                <button type="button" data-testid="deposit-mode-single" className={`uni-max ${depositMode === 'single' ? 'active' : ''}`} onClick={() => { setDepositMode('single'); invalidatePreviews(); }} disabled={!SINGLE_SIDED_ENABLED} title={SINGLE_SIDED_DISABLED_REASON ?? undefined}>Single token</button>
               </div>
 
               {depositMode === 'both' ? (
@@ -670,7 +712,7 @@ export const VaultPage: React.FC = () => {
                         value={depositSol}
                         onChange={(e) => {
                           setDepositSol(e.target.value);
-                          setDepPreview(null);
+                          invalidatePreviews();
                           const n = parseFloat(e.target.value) || 0;
                           setDepositUsdc((n * quoteState.oraclePrice).toFixed(2));
                         }}
@@ -690,7 +732,7 @@ export const VaultPage: React.FC = () => {
                         value={depositUsdc}
                         onChange={(e) => {
                           setDepositUsdc(e.target.value);
-                          setDepPreview(null);
+                          invalidatePreviews();
                           const n = parseFloat(e.target.value) || 0;
                           setDepositSol((n / quoteState.oraclePrice).toFixed(4));
                         }}
@@ -719,14 +761,14 @@ export const VaultPage: React.FC = () => {
 
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Token:</span>
-                    <button type="button" data-testid="deposit-side-sol" className={`uni-max ${depositInputSide === 'sellBase' ? 'active' : ''}`} onClick={() => { setDepositInputSide('sellBase'); setDepPreview(null); }}>SOL</button>
-                    <button type="button" data-testid="deposit-side-usdc" className={`uni-max ${depositInputSide === 'buyBase' ? 'active' : ''}`} onClick={() => { setDepositInputSide('buyBase'); setDepPreview(null); }}>USDC</button>
+                    <button type="button" data-testid="deposit-side-sol" className={`uni-max ${depositInputSide === 'sellBase' ? 'active' : ''}`} onClick={() => { setDepositInputSide('sellBase'); invalidatePreviews(); }}>SOL</button>
+                    <button type="button" data-testid="deposit-side-usdc" className={`uni-max ${depositInputSide === 'buyBase' ? 'active' : ''}`} onClick={() => { setDepositInputSide('buyBase'); invalidatePreviews(); }}>USDC</button>
                   </div>
 
                   <div className="uni-panel uni-panel-sell">
                     <span className="uni-panel-label">{depositInputSymbol} Deposit</span>
                     <div className="uni-panel-row">
-                      <input className="uni-amount mono" value={depositSingleAmount} onChange={(e) => { setDepositSingleAmount(e.target.value); setDepPreview(null); }} />
+                      <input className="uni-amount mono" value={depositSingleAmount} onChange={(e) => { setDepositSingleAmount(e.target.value); invalidatePreviews(); }} />
                       <div className="uni-token-pill">
                         {(depositInputSide === 'sellBase' ? tokens.SOL.logo : tokens.USDC.logo) && <img src={depositInputSide === 'sellBase' ? tokens.SOL.logo : tokens.USDC.logo} alt={depositInputSymbol} />}
                         <span>{depositInputSymbol}</span>
@@ -806,8 +848,8 @@ export const VaultPage: React.FC = () => {
 
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Receive as:</span>
-                <button type="button" data-testid="withdraw-mode-both" className={`uni-max ${withdrawMode === 'both' ? 'active' : ''}`} onClick={() => { setWithdrawMode('both'); setClaimPreview(null); }}>Both tokens</button>
-                <button type="button" data-testid="withdraw-mode-single" className={`uni-max ${withdrawMode === 'single' ? 'active' : ''}`} onClick={() => { setWithdrawMode('single'); setClaimPreview(null); }} disabled={!SINGLE_SIDED_ENABLED} title={SINGLE_SIDED_DISABLED_REASON ?? undefined}>One token</button>
+                <button type="button" data-testid="withdraw-mode-both" className={`uni-max ${withdrawMode === 'both' ? 'active' : ''}`} onClick={() => { setWithdrawMode('both'); invalidatePreviews(); }}>Both tokens</button>
+                <button type="button" data-testid="withdraw-mode-single" className={`uni-max ${withdrawMode === 'single' ? 'active' : ''}`} onClick={() => { setWithdrawMode('single'); invalidatePreviews(); }} disabled={!SINGLE_SIDED_ENABLED} title={SINGLE_SIDED_DISABLED_REASON ?? undefined}>One token</button>
               </div>
 
               <div className="uni-panel uni-panel-sell">
@@ -816,9 +858,9 @@ export const VaultPage: React.FC = () => {
                   <input
                     className="uni-amount mono"
                     value={withdrawShares}
-                    onChange={(e) => { setWithdrawShares(e.target.value); setClaimPreview(null); }}
+                    onChange={(e) => { setWithdrawShares(e.target.value); invalidatePreviews(); }}
                   />
-                  <button type="button" className="uni-max" onClick={() => setWithdrawShares(vaultState.userShares.toString())}>Max</button>
+                  <button type="button" className="uni-max" onClick={() => { invalidatePreviews(); setWithdrawShares(vaultState.userShares.toString()); }}>Max</button>
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                   {[25, 50, 75, 100].map((pct) => (
@@ -846,8 +888,8 @@ export const VaultPage: React.FC = () => {
 
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>Token:</span>
-                    <button type="button" data-testid="withdraw-payout-sol" className={`uni-max ${withdrawPayoutSide === 'buyBase' ? 'active' : ''}`} onClick={() => { setWithdrawPayoutSide('buyBase'); setClaimPreview(null); }}>SOL</button>
-                    <button type="button" data-testid="withdraw-payout-usdc" className={`uni-max ${withdrawPayoutSide === 'sellBase' ? 'active' : ''}`} onClick={() => { setWithdrawPayoutSide('sellBase'); setClaimPreview(null); }}>USDC</button>
+                    <button type="button" data-testid="withdraw-payout-sol" className={`uni-max ${withdrawPayoutSide === 'buyBase' ? 'active' : ''}`} onClick={() => { setWithdrawPayoutSide('buyBase'); invalidatePreviews(); }}>SOL</button>
+                    <button type="button" data-testid="withdraw-payout-usdc" className={`uni-max ${withdrawPayoutSide === 'sellBase' ? 'active' : ''}`} onClick={() => { setWithdrawPayoutSide('sellBase'); invalidatePreviews(); }}>USDC</button>
                   </div>
                   <div style={{ padding: '12px 16px', background: 'var(--uni-surface2)', borderRadius: 16, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>

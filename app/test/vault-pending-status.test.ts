@@ -86,3 +86,44 @@ describe('Vault status UI: pending, success, cancelled and error are distinct', 
     expect(blockhash).toBeGreaterThan(define);
   });
 });
+
+describe('Vault transaction reliability hardening', () => {
+  it('fails closed unless the RPC endpoint is verified as Devnet at runtime', () => {
+    // The build-time cluster check is not sufficient on its own; the vault path
+    // must also require the runtime genesis verification (as the swap path does).
+    expect(vaultSrc).toMatch(/genesisVerified/);
+    const blocked = vaultSrc.slice(vaultSrc.indexOf('const blocked = ()'), vaultSrc.indexOf('const blocked = ()') + 500);
+    expect(blocked).toMatch(/if \(!genesisVerified\)/);
+    // The single-sided preview must also check it.
+    expect(vaultSrc).toMatch(/if \(!genesisVerified\) \{ setNotice/);
+  });
+
+  it('re-simulates a prepared transaction against live state before signing it', () => {
+    // Both confirm handlers must re-simulate after refreshing the blockhash and
+    // discard the tx if it no longer simulates (state/quote moved).
+    for (const [confirm, sendExpr] of [
+      ['runDepositConfirm', 'await sendSwapTransaction(connection, wallet, depPreview.tx)'],
+      ['handleClaimConfirm', 'await sendSwapTransaction(connection, wallet, claimPreview.tx)'],
+    ] as const) {
+      const start = vaultSrc.indexOf(`const ${confirm}`);
+      expect(start, `${confirm} must exist`).toBeGreaterThan(-1);
+      const body = vaultSrc.slice(start, vaultSrc.indexOf(sendExpr, start));
+      expect(body, `${confirm} must re-simulate before send`).toMatch(/const sim = await simulateSwap\(connection, (depPreview|claimPreview)\.tx\)/);
+      expect(body, `${confirm} must discard a failing re-simulation`).toMatch(/no longer simulates/);
+    }
+  });
+
+  it('invalidates an in-flight preview when the user changes an input', () => {
+    // A stale async preview must not overwrite newer UI state.
+    expect(vaultSrc).toMatch(/const requestSeq = useRef\(0\)/);
+    expect(vaultSrc).toMatch(/const invalidatePreviews = \(\) => \{\s*requestSeq\.current \+= 1;/);
+    // Inputs and mode/side toggles invalidate rather than only clearing one preview.
+    expect(vaultSrc).toMatch(/setDepositSol\(e\.target\.value\);\s*invalidatePreviews\(\)/);
+    expect(vaultSrc).toMatch(/setDepositUsdc\(e\.target\.value\);\s*invalidatePreviews\(\)/);
+    expect(vaultSrc).toMatch(/setDepositSingleAmount\(e\.target\.value\); invalidatePreviews\(\)/);
+    expect(vaultSrc).toMatch(/setWithdrawShares\(e\.target\.value\); invalidatePreviews\(\)/);
+    // Preview handlers take a sequence number and guard before applying results.
+    expect(vaultSrc).toMatch(/const seq = \+\+requestSeq\.current;/);
+    expect(vaultSrc).toMatch(/if \(seq !== requestSeq\.current\) return;/);
+  });
+});
