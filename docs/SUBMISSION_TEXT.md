@@ -27,7 +27,9 @@ dApp.
 - **No independent audit** ("no known issues in self-review, independent audit
   pending").
 - The single-sided **browser UI** is behind `VITE_ENABLE_SINGLE_SIDED` (off by
-  default) and the single-token **live smoke was not run** (`docs/SINGLE_SIDED_DESIGN.md`).
+  default). A live single-token smoke (CLI-signed) has passed for both base and
+  quote directions; the browser **wallet-signed** path is not yet exercised, so
+  the flag stays off (`docs/SINGLE_SIDED_DESIGN.md`, `docs/DEVNET.md`).
 - Real-pool E8 value data and the one-hour proxy are not done.
 - Tokens are **devnet test tokens**, not real assets.
 

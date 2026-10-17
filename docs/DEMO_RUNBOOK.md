@@ -71,11 +71,14 @@ See `docs/EPOCH_CHECK.md` for the full derivation.
 ## Single-token deposit / withdrawal (flag-gated; default off)
 
 The single-token Vault controls are hidden unless the build sets
-`VITE_ENABLE_SINGLE_SIDED=true` **and** transactions are enabled. Keep it off for
-the default demo build until an on-chain smoke of `deposit_single` /
-`claim_withdraw_single` has passed.
+`VITE_ENABLE_SINGLE_SIDED=true` **and** transactions are enabled. Keep it **off**
+for the default demo build. An on-chain CLI smoke of `deposit_single` /
+`claim_withdraw_single` has passed for both directions (2026-10-17,
+`docs/DEVNET.md` STEP 4), but the **browser wallet-signed** path has not been
+exercised, so the flag stays off; the default demo uses the two-sided Vault flow.
 
-If (and only if) the smoke passed and you want to show the path:
+If (and only if) you have also completed a browser wallet-signed single-token
+smoke and want to show the path:
 
 1. Build/run with the flag:
    `VITE_ENABLE_SINGLE_SIDED=true yarn --cwd app dev` (or set it in the demo

@@ -38,11 +38,15 @@ unwanted leg and pays one token. It **inherits the same stale-quote exposure as 
 swap** (bounded by the same anchor-deviation bound, flow cap and edge breaker).
 Status: implemented in `vault/program/src/lib.rs`, mirror-verified against a
 Python reference (600 golden vectors, 100k differential, 20k fuzz), LiteSVM-tested
-(22 cases; CU `deposit_single` 161,693 / `claim_withdraw_single` 49,355), and
-**deployed on devnet** (upgrade `21VdJsBe…`, sha256 `c8725a23…`). The browser UI
-is behind `VITE_ENABLE_SINGLE_SIDED` (**fail-closed; off by default**). Live
-evidence is the two-sided lifecycle (deposit→request→crank→claim) plus the
-expired-quote window; the single-token **live smoke was not run**.
+(25 cases; CU `deposit_single` 161,693 / `claim_withdraw_single` 49,355), and
+**deployed on devnet** (upgrade `21VdJsBe…`, sha256 `c8725a23…`; `cargo build-sbf`
+reproduces the deployed hash). The browser UI is behind `VITE_ENABLE_SINGLE_SIDED`
+(**fail-closed; off by default**). A live single-token smoke has now been executed
+on devnet (`scripts/devnet/single_sided_smoke.ts`): `deposit_single` then
+`claim_withdraw_single` for both the base (WSOL) and quote (USDC) directions, with
+exact reserve/share/ticket accounting verified (see `docs/DEVNET.md`). The live
+smoke is **CLI-signed by the operator**; the browser **wallet-signed** single-token
+path is not yet exercised, so the feature flag stays off.
 
 ## Q6. Who controls the upgrade authority?
 A **single key** (`ddGs6hk5…`) today. This is a real centralization point. A

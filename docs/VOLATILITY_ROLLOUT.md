@@ -378,14 +378,22 @@ Each of these is a separate approval, not covered by any blanket go-ahead:
 
 - [x] Build artifact + hash recorded + local suite green.
 - [x] Volatility-aware TypeScript keeper implemented and locally verified (§3b).
-- [ ] Restart the supervisor with the volatility-aware keeper (`keeper_live.ts`).
-- [ ] Upgrade the program on devnet.
-- [ ] `initialize_volatility` for each vault.
-- [ ] First `observe_volatility` (baseline).
-- [ ] `propose_volatility_params` (enable).
-- [ ] `apply_volatility_params` after the timelock.
-- [ ] Negative/smoke tests (§8).
-- [ ] Any rollback/disablement proposal and apply.
+- [x] Restart the supervisor with the volatility-aware keeper (`keeper_live.ts`).
+- [x] Upgrade the program on devnet.
+- [x] `initialize_volatility` for each vault.
+- [x] First `observe_volatility` (baseline).
+- [x] `propose_volatility_params` (enable).
+- [x] `apply_volatility_params` after the timelock.
+- [x] Negative/smoke tests (§8).
+- [x] Any rollback/disablement proposal and apply.
+
+> **Evidence (all phases PASS — see `docs/VOLATILITY_DEVNET_DEPLOYMENT.md`):** upgrade `2fQanNCC…`
+> (slot 511445760); `initialize_volatility` `5c6wZBsG…` (enabled=false); first observation by
+> the already-running volatility-aware keeper (Phase D); `propose_volatility_params(enabled=true)`
+> `27PQmipm…` (activate_slot 511663348); **`apply_volatility_params` `23gBbdKw…` at slot 511663484**
+> → on-chain `VolatilityState.enabled = true`, pending disarmed (`activate_slot = u64::MAX`); no
+> rollback/disablement was needed. Negative/smoke coverage: LiteSVM volatility + breaker suites and
+> the Phase D liveness smoke. Re-verified read-only on `deposit-withdraw` (2026-10-17): `enabled = true`.
 
 ## 10a. Operational sequence (authorization-gated)
 
@@ -444,7 +452,7 @@ Current state (this execution):
 | C initialize PDA (disabled) | **PASS** (`5c6wZBsG…`) |
 | D observation + quote liveness | **PASS / ongoing** (keeper auto-observed; quotes advancing) |
 | E propose (enabled) | **PASS** (`27PQmipm…`) |
-| E apply | **PENDING** — waits `activate_slot 511663348` (~24 h); enforcement currently DISABLED |
+| E apply | **PASS** (`23gBbdKw…`, slot 511663484); enforcement `enabled = true`, pending disarmed |
 
 Liveness: quote maintenance is running under the volatility-aware TS keeper with
 the required PDA; brief expiry gaps persist due to provider `429` throttling.

@@ -25,8 +25,10 @@ claim Option 1.
 9. **Single-sided entry/exit.** Natively on the vault's own ladder
    (`deposit_single`/`claim_withdraw_single`): implemented, mirrored by a Python
    reference (600 vectors + 100k differential + 20k fuzz), LiteSVM-tested,
-   deployed on devnet; browser UI behind a fail-closed flag (off by default).
-   Bounded residual risk (inherits the swap's stale-quote exposure).
+   deployed on devnet; **live devnet smoke passed for both base and quote
+   directions** (CLI-signed); browser UI behind a fail-closed flag (off by
+   default, pending a wallet-signed smoke). Bounded residual risk (inherits the
+   swap's stale-quote exposure).
 10. **Status & next.** Gate-green repo, fresh bundle, ready-to-deploy dApp
-    (`docs/DEPLOY_FRONTEND.md`); next = audit, E8 real-pool data, live
-    single-token smoke.
+    (`docs/DEPLOY_FRONTEND.md`); next = audit, E8 real-pool data, browser
+    wallet-signed single-token smoke.

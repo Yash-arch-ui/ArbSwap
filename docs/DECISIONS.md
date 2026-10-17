@@ -243,3 +243,86 @@ Each entry: **Decision**, **Reason**, **Rejected alternative**. Kept append-only
   freeze window (scope/time risk); leaving Task 6.5 unrun (the gate requires a
   live check); setting the single-sided flag without a passing (a) (would expose
   an unproven-on-devnet path).
+
+### D-020 — 2026-10-17 defect-closure session: live single-sided devnet smoke passed, flag stays OFF
+- **Decision:** Built `scripts/devnet/single_sided_smoke.ts` (manual Borsh, no
+  IDL coder) and executed the full single-sided money path live on devnet with
+  the authorized operator wallet, for **both directions**: `deposit_single`
+  (base in) → warm-up → `request_withdraw` → `crank_epoch` →
+  `claim_withdraw_single` (base out); and `deposit_single` (quote/USDC in) →
+  ... → `claim_withdraw_single` (quote/USDC out). Every accounting check passed
+  (input-only token movement, whole input to reserve, minted shares == ticket,
+  `total_shares` delta == ticket shares, payout > 0, other ATA untouched, ticket
+  zeroed). Signatures in `docs/DEVNET.md` STEP 4. **`VITE_ENABLE_SINGLE_SIDED`
+  remains off by default.**
+- **Reason:** The live CLI-signed smoke proves the deployed program's single-sided
+  path, but the browser **wallet-signed** path (the actual demo path) has not been
+  exercised, and the deployed frontend is a keyless build that does not set the
+  flag. The release policy is fail-closed: do not expose an unverified wallet path
+  for demo completeness. This matches D-017's default-off stance and the
+  `docs/DEMO_RUNBOOK.md` gate.
+- **Rejected:** Flipping the flag on because the CLI smoke passed (masks the
+  unverified browser path); re-deploying/upgrading to "force" the feature (the
+  upgrade cutoff has passed); reporting the smoke as a browser result.
+
+### D-021 — Issue A: the two-sided claim is intentionally quote-free and pro-rata; no program change
+- **Decision:** Investigated the recorded "expired quote window" (`QuoteState.
+  expiry_slot 511,690,087`; observed slot 511,690,109). Determination: the
+  two-sided `claim_withdraw` **deliberately** takes no `quote_state` account and
+  settles `shares * (reserve - fee buckets) / total_shares` from the **live**
+  reserves; `WithdrawTicket` stores only `{owner, shares, epoch}` — no fixed price
+  or amount. Expiry is enforced only where a committed quote is consumed:
+  `swap`, `deposit_single`, `claim_withdraw_single` (`slot < expiry_slot`). The
+  observed lapse affected only quote-consuming paths (which fail closed) and is a
+  **liveness** characteristic, not an exploitable stale-price claim. No source
+  change (which would require a program upgrade, prohibited post-cutoff).
+- **Reason:** Adding a quote/freshness check to the two-sided claim would change
+  its semantics (sandwich-resistant live pro-rata settlement) without evidence of
+  a defect. The correct action is regression coverage of the boundary.
+- **Evidence/tests:** `deposit_single_expiry_boundary_is_exclusive`,
+  `claim_withdraw_single_expiry_boundary_is_exclusive`,
+  `withdraw_ticket_fixes_shares_only_and_settles_pro_rata`,
+  `two_sided_claim_withdraw_still_works_with_an_expired_quote` (LiteSVM).
+- **Residual risk (documented, not fixed):** the program does not re-check oracle
+  age at swap, so a quote can be unexpired while its embedded Pyth price is older
+  than `max_staleness_seconds`; bounded by `max_anchor_dev_bps`, the flow cap and
+  the edge breaker (`docs/QA.md` Q4).
+
+### D-022 — Issue C: ported the Vault pending-status UI fix; reconciled applied-volatility docs
+- **Decision:** Ported the `volatility`/`main` fix `1e17dcd` (explicit
+  `NoticeStatus = pending|success|cancelled|error`) onto this branch's superset
+  `VaultPage` — converting the single-sided notice sites too, and keeping the
+  "success only after the awaited submit" invariant. Reconciled the stale
+  "APPLY PENDING" claims in `docs/VOLATILITY_DEVNET_DEPLOYMENT.md`,
+  `docs/VOLATILITY_IMPLEMENTATION_STATUS.md`, `docs/VOLATILITY_ROLLOUT.md` to the
+  applied state, after **re-verifying on-chain read-only** (2026-10-17:
+  `VolatilityState.enabled = true`, nonce 190, jump active).
+- **Reason:** The pending-status bug rendered a red "Request Failed" card for a
+  transaction that was merely awaiting a wallet signature; the doc mismatch was a
+  verified stale claim. No live config was mutated to make docs match.
+- **Rejected:** Cherry-picking `1e17dcd` blindly (it targets a `VaultPage` with no
+  single-sided UI); merging `main`; editing deployment docs without an on-chain
+  check.
+
+### D-023 — Issue D: freshness metric clarified (sample vs time-weighted; oracle age surfaced)
+- **Decision:** Kept the historical **sample fraction** (the 87% figure) as the
+  primary reported metric for backward compatibility, and added a **wall-clock
+  time-weighted** fraction, the **effective sampling period**, and the **maximum
+  oracle age** on fresh samples (`scripts/devnet/fresh_monitor_core.ts`, 15 unit
+  checks). The monitor can fail non-zero via `MIN_FRESH`. No keeper cadence,
+  economics, or on-chain parameter was changed.
+- **Reason:** The 87% is arithmetically correct (2340/2689 = 0.870, 30-min window,
+  `expiry_slots=120`), but it is a **sample** fraction whose sampling period
+  (~669 ms, not 400 ms) is inflated by RPC latency; and "fresh" means *unexpired*,
+  not *fresh oracle*. Surfacing both prevents over-claiming liveness.
+- **Rejected:** Changing the decision basis to silently rewrite the historical 87%
+  claim; changing keeper cadence or expiry to improve the number (market-risk).
+
+### D-024 — Bundle regenerated at the post-fix HEAD
+- **Decision:** After all source changes, regenerate the published artifact bundle
+  (`scripts/measure_cu.sh` → `export_artifacts.py` → `publish_artifacts.py`) so
+  `check_bundle_freshness.py` passes with the recorded commit as HEAD.
+- **Reason:** The freshness gate requires no source change after the bundle's
+  recorded commit. Regenerating (rather than weakening the gate) keeps the
+  published numbers consistent with the committed tree.
+- **Rejected:** Weakening/disabling the freshness check; leaving the bundle stale.

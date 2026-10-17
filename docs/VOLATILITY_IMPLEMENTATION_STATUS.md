@@ -340,13 +340,17 @@ rejection test (covered indirectly by the context `init` constraint). These woul
 need additional `PriceUpdateV2` fixtures; the math itself is covered by the 13
 host vectors.
 
-### 5.2 Devnet rollout + observer — requires authorization
+### 5.2 Devnet rollout + observer — **done (authorized and executed)**
 
-Deploy/upgrade the program to a test deployment, initialize the volatility PDA,
-propose then apply params (after the timelock), run an independent observer
-separate from the configured keeper, and publish tx signatures + account
-snapshots. Prepared but unexecuted: see `docs/VOLATILITY_ROLLOUT.md`. No
-deploy/upgrade is performed without explicit authorization.
+The program was upgraded on Devnet, the volatility PDA initialized, the
+volatility-aware keeper observed the baseline, and params were proposed then
+applied after the timelock: **`VolatilityState.enabled = true`** as of slot
+`511663484` (apply `23gBbdKw…`, pending disarmed). Tx signatures and account
+snapshots are recorded in `docs/VOLATILITY_DEVNET_DEPLOYMENT.md` and
+`docs/VOLATILITY_ROLLOUT.md`. The configured volatility-aware keeper performs
+the observations (an *independent* observer separate from the keeper was not
+stood up). No further authorization is pending for this rollout. Re-verified
+read-only on `deposit-withdraw` (2026-10-17): `enabled = true`, nonce 190.
 
 ### 5.3 Acceptance-criteria checklist (from the plan, §Acceptance)
 

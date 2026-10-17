@@ -1,5 +1,31 @@
 # PROGRESS.md — ArbSwap principal-engineer run
 
+## RUN: DEFECT CLOSURE & DEMO-READINESS (2026-10-17, IST) — `deposit-withdraw`
+
+Baseline preserved: branch `deposit-withdraw`, HEAD/tag `demo-freeze-1` = `2155731`
+(not moved). All work below is additive; no program upgrade, no main-branch
+mutation, no privileged state write. Full per-issue report:
+`docs/DEPOSIT_WITHDRAW_AUDIT.md` §9.
+
+| Issue | Status | Evidence |
+|---|---|---|
+| A quote expiry / claim correctness | RESOLVED (no program change) | two-sided claim is quote-free pro-rata (intentional); 3 new LiteSVM boundary/ownership tests (`litesvm_single_sided.rs` 22→25); D-021 |
+| B single-sided live smoke | PASS (CLI-signed, both directions) | `scripts/devnet/single_sided_smoke.ts`; all accounting checks PASS; flag **off**; `docs/DEVNET.md` STEP 4; D-020 |
+| C cross-branch regressions | RESOLVED | ported `1e17dcd` pending-status UI; reconciled `7186606` volatility docs after read-only re-verify (`enabled=true`); `vault-pending-status.test.ts` (8 tests); D-022 |
+| D keeper liveness | RESOLVED (measurement) | `fresh_monitor_core.ts` time-weighted + oracle-age + `MIN_FRESH`; 15 unit checks; 87% scope clarified; D-023 |
+| E frontend safety | RESOLVED | stale single-sided deposit tx now revalidated+blockhash-refreshed; preview/sidebar share mismatch fixed; re-entry guards; cancel classification |
+| F economic claims | RECONCILED | Option-1 still NOT shown; no audit claim; simulations labeled; devnet config marked active |
+| G reproducible verification | PASS | fmt; CI clippy; `cargo test --workspace` **290**; `cargo build-sbf` hash MATCH `c8725a23…`; Python 237/2; app 179 Vitest + build; docs/bundle/banned/secrets; fresh_monitor 15 |
+| H release docs | DONE | PROGRESS/DEVNET/DECISIONS/QA/SUBMISSION/PITCH/CLAIMS + audit §9; D-020…D-024 |
+
+**Not done (honest).** Browser **wallet-signed** single-token smoke (flag stays
+off); Option-1 value thesis not shown; independent audit not done; E8 real-pool
+data / one-hour proxy not done. The 87% is a **sample** fraction over one 30-min
+window (not a guarantee); the monitor now also reports a time-weighted fraction
+and oracle age. Tokens are devnet test tokens.
+
+---
+
 ## RUN: FINAL EXECUTION — single-sided deposit/withdraw (2026-10-16, IST)
 
 **Branch:** `deposit-withdraw` (copy of `volatility`; operator override, see
