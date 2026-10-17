@@ -49,8 +49,11 @@ export const VaultPage: React.FC = () => {
   const [depositSol, setDepositSol] = useState<string>('0.1');
   const [depositUsdc, setDepositUsdc] = useState<string>('11.00');
   const [withdrawShares, setWithdrawShares] = useState<string>('0');
-  // Notice carries a severity so the UI never shows a success check on a failure.
-  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  // Notice carries an explicit status: a neutral "pending" while a transaction is
+  // in flight, and success/cancelled/error only once the chain result is known.
+  // This prevents a red failure cross from rendering before the transaction lands.
+  type NoticeStatus = 'pending' | 'success' | 'cancelled' | 'error';
+  const [notice, setNotice] = useState<{ text: string; status: NoticeStatus } | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
   // Task 4.1/4.2: single-sided deposit ("Deposit with") and withdrawal
   // ("Receive as") are opt-in; 0.5% slippage is the documented default.
@@ -79,7 +82,7 @@ export const VaultPage: React.FC = () => {
   const disabledReason = TRANSACTION_DISABLED_REASON;
   const blocked = (): boolean => {
     if (!TRANSACTIONS_ENABLED) {
-      setNotice({ text: disabledReason ?? 'Transactions are disabled in this build.', ok: false });
+      setNotice({ text: disabledReason ?? 'Transactions are disabled in this build.', status: 'error' });
       return true;
     }
     return false;
@@ -208,6 +211,7 @@ export const VaultPage: React.FC = () => {
 
   const handleDeposit = async () => {
     if (blocked()) return;
+    if (isWorking) return;
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
@@ -229,7 +233,7 @@ export const VaultPage: React.FC = () => {
       const expected = expectedDepositShares({ baseAmount: base, quoteAmount: quote, ...vaultAtoms });
       if (expected <= 0n) throw new Error('deposit too small for the current vault');
       const minShares = minWithSlippage(expected, slippageBps);
-      setNotice({ text: 'Simulating deposit before signing…', ok: false });
+      setNotice({ text: 'Simulating deposit before signing…', status: 'pending' });
       const tx = await buildDepositTransaction(connection, wallet, base, quote, minShares);
       const sim = await simulateSwap(connection, tx);
       if (!sim.ok) throw new Error(sim.reason ?? 'The transaction simulation failed.');
@@ -248,10 +252,11 @@ export const VaultPage: React.FC = () => {
       });
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
-      const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      const human = cancelled
         ? 'Deposit signing was cancelled by user.'
         : `Deposit failed: ${msg.slice(0, 160)}`;
-      setNotice({ text: human, ok: false });
+      setNotice({ text: human, status: cancelled ? 'cancelled' : 'error' });
     } finally {
       setIsWorking(false);
     }
@@ -259,9 +264,10 @@ export const VaultPage: React.FC = () => {
 
   // Task 4.1: single-sided deposit preview (build + simulate, no signing).
   const handleDepositSinglePreview = async () => {
-    if (!SINGLE_SIDED_ENABLED) { setNotice({ text: SINGLE_SIDED_DISABLED_REASON ?? 'Single-sided is disabled.', ok: false }); return; }
+    if (!SINGLE_SIDED_ENABLED) { setNotice({ text: SINGLE_SIDED_DISABLED_REASON ?? 'Single-sided is disabled.', status: 'error' }); return; }
+    if (isWorking) return;
     if (!connected || !publicKey || !wallet) { setVisible(true); return; }
-    if (singleDepositReason) { setNotice({ text: singleDepositReason, ok: false }); return; }
+    if (singleDepositReason) { setNotice({ text: singleDepositReason, status: 'error' }); return; }
     setIsWorking(true);
     setNotice(null);
     setDepPreview(null);
@@ -300,7 +306,8 @@ export const VaultPage: React.FC = () => {
       });
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
-      setNotice({ text: /user rejected|declined|cancel/i.test(msg) ? 'Deposit signing was cancelled by user.' : `Single-sided deposit failed: ${msg.slice(0, 160)}`, ok: false });
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      setNotice({ text: cancelled ? 'Deposit signing was cancelled by user.' : `Single-sided deposit failed: ${msg.slice(0, 160)}`, status: cancelled ? 'cancelled' : 'error' });
     } finally {
       setIsWorking(false);
     }
@@ -308,17 +315,34 @@ export const VaultPage: React.FC = () => {
 
   const runDepositConfirm = async () => {
     if (!depPreview || !wallet) return;
+    if (isWorking) return;
     setIsWorking(true);
     setNotice(null);
     try {
+      // The preview was built and simulated earlier, so the quote may have
+      // expired or the blockhash may have aged while it sat on screen. Never
+      // resubmit a stale transaction: for the single-sided path (which trades
+      // against the committed ladder) re-read and re-validate the quote, and in
+      // all cases refresh the blockhash against the live cluster.
+      if (depositMode === 'single') {
+        const fresh = await fetchFreshQuote(connection);
+        const freshReason = submitFreshnessReason(fresh);
+        if (freshReason) {
+          setNotice({ text: `${freshReason} The prepared deposit was discarded.`, status: 'error' });
+          setDepPreview(null);
+          return;
+        }
+      }
+      depPreview.tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash;
       const signature = await sendSwapTransaction(connection, wallet, depPreview.tx);
-      setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}... Shares activate after warm-up. ${explorerTxUrl(signature)}`, ok: true });
+      setNotice({ text: `Deposit confirmed ${signature.slice(0, 8)}... Shares activate after warm-up. ${explorerTxUrl(signature)}`, status: 'success' });
       setDepPreview(null);
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
-      setNotice({ text: /user rejected|declined|cancel/i.test(msg) ? 'Deposit signing was cancelled by user.' : `Deposit failed: ${msg.slice(0, 160)}`, ok: false });
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      setNotice({ text: cancelled ? 'Deposit signing was cancelled by user.' : `Deposit failed: ${msg.slice(0, 160)}`, status: cancelled ? 'cancelled' : 'error' });
     } finally {
       setIsWorking(false);
     }
@@ -326,43 +350,55 @@ export const VaultPage: React.FC = () => {
 
   const handleWithdraw = async () => {
     if (blocked()) return;
+    if (isWorking) return;
     if (!connected || !publicKey || !wallet) {
       setVisible(true);
       return;
     }
-    setNotice({ text: 'Queueing withdrawal…', ok: false });
+    setIsWorking(true);
+    setNotice({ text: 'Queueing withdrawal… Awaiting wallet signature and confirmation.', status: 'pending' });
     try {
       const signature = await requestWithdrawOnChain(connection, wallet, sharesToWithdrawAtoms);
-      setNotice({ text: `Withdrawal queued ${signature.slice(0, 8)}… for Epoch ${vaultState.epoch + 1}.`, ok: true });
+      setNotice({ text: `Withdrawal queued ${signature.slice(0, 8)}… for Epoch ${vaultState.epoch + 1}.`, status: 'success' });
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
-      const human = /user rejected|rejected the request|declined|cancel/i.test(msg)
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      const human = cancelled
         ? 'Withdrawal queue signing was cancelled by user.'
-        : `Withdraw request failed: ${msg.slice(0, 120)}`;
-      setNotice({ text: human, ok: false });
+        : `Withdraw request failed: ${msg.slice(0, 160)}`;
+      setNotice({ text: human, status: cancelled ? 'cancelled' : 'error' });
+    } finally {
+      setIsWorking(false);
     }
   };
 
   const handleCrank = async () => {
     if (blocked()) return;
+    if (isWorking) return;
     if (!connected || !publicKey || !wallet) { setVisible(true); return; }
-    setNotice({ text: 'Advancing epoch (crank)…', ok: false });
+    setIsWorking(true);
+    setNotice({ text: 'Advancing epoch (crank)… Awaiting wallet signature and confirmation.', status: 'pending' });
     try {
       const signature = await crankEpoch(connection, wallet);
-      setNotice({ text: `Epoch cranked ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, ok: true });
+      setNotice({ text: `Epoch cranked ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, status: 'success' });
       await refreshProtocol();
     } catch (error) {
-      setNotice({ text: `Crank failed: ${(error as Error).message?.slice(0, 120) ?? 'unknown error'}`, ok: false });
+      const msg = (error as Error).message ?? 'unknown error';
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      setNotice({ text: cancelled ? 'Crank signing was cancelled by user.' : `Crank failed: ${msg.slice(0, 160)}`, status: cancelled ? 'cancelled' : 'error' });
+    } finally {
+      setIsWorking(false);
     }
   };
 
   // Build + simulate the claim (both-token or single-token), never signs here.
   const handleClaimPreview = async () => {
     if (blocked()) return;
+    if (isWorking || isClaiming) return;
     if (!connected || !publicKey || !wallet) { setVisible(true); return; }
-    if (!claimState.allowed) { setNotice({ text: claimState.reason, ok: false }); return; }
+    if (!claimState.allowed) { setNotice({ text: claimState.reason, status: 'error' }); return; }
     setIsWorking(true);
     setNotice(null);
     setClaimPreview(null);
@@ -371,8 +407,8 @@ export const VaultPage: React.FC = () => {
       let summary: string;
       let lines: string[];
       if (withdrawMode === 'single') {
-        if (!SINGLE_SIDED_ENABLED) { setNotice({ text: SINGLE_SIDED_DISABLED_REASON ?? 'Single-sided is disabled.', ok: false }); return; }
-        if (singleWithdrawReason) { setNotice({ text: singleWithdrawReason, ok: false }); return; }
+        if (!SINGLE_SIDED_ENABLED) { setNotice({ text: SINGLE_SIDED_DISABLED_REASON ?? 'Single-sided is disabled.', status: 'error' }); return; }
+        if (singleWithdrawReason) { setNotice({ text: singleWithdrawReason, status: 'error' }); return; }
         if (!vaultAtoms) throw new Error('vault state not loaded yet');
         const fresh = await fetchFreshQuote(connection);
         const freshReason = submitFreshnessReason(fresh);
@@ -381,7 +417,7 @@ export const VaultPage: React.FC = () => {
           sqrtLo: BigInt(l.sqrtLo.toString()), sqrtHi: BigInt(l.sqrtHi.toString()), liquidity: BigInt(l.liquidity.toString()),
         }));
         const plan = withdrawSinglePlan({
-          side: withdrawPayoutSide, shares: sharesToWithdrawAtoms, totalShares: vaultAtoms.totalShares,
+          side: withdrawPayoutSide, shares: withdrawSharesAtomsForPlan, totalShares: vaultAtoms.totalShares,
           baseNet: vaultAtoms.baseNet, quoteNet: vaultAtoms.quoteNet, feeBps, levels,
         });
         if (plan.capacityExceeded) throw new Error('Exceeds quoted depth: claim both tokens instead.');
@@ -400,14 +436,14 @@ export const VaultPage: React.FC = () => {
         ];
       } else {
         tx = await buildClaimWithdrawTransaction(connection, wallet);
-        const estSol = sharesToWithdrawAtoms > 0n && vaultAtoms
-          ? (sharesToWithdrawAtoms * vaultAtoms.baseNet) / vaultAtoms.totalShares : 0n;
-        const estQuote = sharesToWithdrawAtoms > 0n && vaultAtoms
-          ? (sharesToWithdrawAtoms * vaultAtoms.quoteNet) / vaultAtoms.totalShares : 0n;
+        const estSol = withdrawSharesAtomsForPlan > 0n && vaultAtoms
+          ? (withdrawSharesAtomsForPlan * vaultAtoms.baseNet) / vaultAtoms.totalShares : 0n;
+        const estQuote = withdrawSharesAtomsForPlan > 0n && vaultAtoms
+          ? (withdrawSharesAtomsForPlan * vaultAtoms.quoteNet) / vaultAtoms.totalShares : 0n;
         summary = 'Claim withdrawal as both tokens (pro-rata)';
         lines = [
           `Instruction: claim_withdraw (both tokens)`,
-          `Shares redeemed: ${sharesToWithdrawAtoms.toString()} (atoms)`,
+          `Shares redeemed: ${withdrawSharesAtomsForPlan.toString()} (atoms)`,
           `Estimated base out: ${formatUnits(estSol, tokens.SOL.decimals, 6)} SOL`,
           `Estimated quote out: ${formatUnits(estQuote, tokens.USDC.decimals, 6)} USDC`,
           `Payout to: your SOL and USDC accounts`,
@@ -418,7 +454,9 @@ export const VaultPage: React.FC = () => {
       setNotice(null);
       setClaimPreview({ tx, summary, lines });
     } catch (error) {
-      setNotice({ text: `Claim preparation failed: ${(error as Error).message?.slice(0, 160) ?? 'unknown error'}`, ok: false });
+      const msg = (error as Error).message ?? 'unknown error';
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      setNotice({ text: cancelled ? 'Claim signing was cancelled by user.' : `Claim preparation failed: ${msg.slice(0, 160)}`, status: cancelled ? 'cancelled' : 'error' });
     } finally {
       setIsWorking(false);
     }
@@ -426,27 +464,34 @@ export const VaultPage: React.FC = () => {
 
   const handleClaimConfirm = async () => {
     if (!claimPreview || !wallet) return;
+    if (isClaiming) return;
     setIsClaiming(true);
     setNotice(null);
     try {
       // Re-validate against a freshly read quote immediately before signing.
-      const fresh = await fetchFreshQuote(connection);
-      const freshReason = submitFreshnessReason(fresh);
-      if (freshReason) {
-        // A quote that expired between preview and confirm fails closed; never
-        // resubmit the stale transaction.
-        setNotice({ text: `${freshReason} The prepared claim was discarded.`, ok: false });
-        setClaimPreview(null);
-        return;
+      // Only the single-sided path converts against the committed ladder and
+      // requires a fresh quote; two-sided claims settle from live reserves.
+      if (withdrawMode === 'single') {
+        const fresh = await fetchFreshQuote(connection);
+        const freshReason = submitFreshnessReason(fresh);
+        if (freshReason) {
+          // A quote that expired between preview and confirm fails closed; never
+          // resubmit the stale transaction.
+          setNotice({ text: `${freshReason} The prepared claim was discarded.`, status: 'error' });
+          setClaimPreview(null);
+          return;
+        }
       }
+      claimPreview.tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash;
       const signature = await sendSwapTransaction(connection, wallet, claimPreview.tx);
-      setNotice({ text: `Claim confirmed ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, ok: true });
+      setNotice({ text: `Claim confirmed ${signature.slice(0, 8)}... ${explorerTxUrl(signature)}`, status: 'success' });
       setClaimPreview(null);
       await refreshProtocol();
       await refreshBalances();
     } catch (error) {
       const msg = (error as Error).message ?? 'unknown error';
-      setNotice({ text: /user rejected|declined|cancel/i.test(msg) ? 'Claim signing was cancelled by user.' : `Claim failed: ${msg.slice(0, 120)}`, ok: false });
+      const cancelled = /user rejected|rejected the request|declined|cancel/i.test(msg);
+      setNotice({ text: cancelled ? 'Claim signing was cancelled by user.' : `Claim failed: ${msg.slice(0, 160)}`, status: cancelled ? 'cancelled' : 'error' });
     } finally {
       setIsClaiming(false);
     }
@@ -887,23 +932,30 @@ export const VaultPage: React.FC = () => {
 
           {notice && (
             <div
-              className={`vault-status-card ${notice.ok ? 'success' : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject') ? 'cancelled' : 'error'}`}
+              className={`vault-status-card ${notice.status}`}
               style={{
                 marginTop: 14,
                 padding: '12px 16px',
                 borderRadius: 12,
-                border: notice.ok 
-                  ? '1px solid rgba(0, 229, 176, 0.4)' 
-                  : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
-                  ? '1px solid rgba(255, 170, 0, 0.4)'
-                  : '1px solid rgba(255, 80, 80, 0.4)',
-                background: notice.ok 
-                  ? 'rgba(0, 229, 176, 0.08)' 
-                  : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
-                  ? 'rgba(255, 170, 0, 0.08)'
-                  : 'rgba(255, 80, 80, 0.08)',
+                border:
+                  notice.status === 'success'
+                    ? '1px solid rgba(0, 229, 176, 0.4)'
+                    : notice.status === 'cancelled'
+                    ? '1px solid rgba(255, 170, 0, 0.4)'
+                    : notice.status === 'pending'
+                    ? '1px solid rgba(120, 170, 255, 0.4)'
+                    : '1px solid rgba(255, 80, 80, 0.4)',
+                background:
+                  notice.status === 'success'
+                    ? 'rgba(0, 229, 176, 0.08)'
+                    : notice.status === 'cancelled'
+                    ? 'rgba(255, 170, 0, 0.08)'
+                    : notice.status === 'pending'
+                    ? 'rgba(120, 170, 255, 0.08)'
+                    : 'rgba(255, 80, 80, 0.08)',
               }}
-              role={notice.ok ? 'status' : 'alert'}
+              role={notice.status === 'success' || notice.status === 'pending' ? 'status' : 'alert'}
+              aria-live={notice.status === 'pending' ? 'polite' : 'assertive'}
             >
               <div style={{
                 display: 'flex',
@@ -911,18 +963,23 @@ export const VaultPage: React.FC = () => {
                 gap: 8,
                 fontWeight: 600,
                 fontSize: 13,
-                color: notice.ok 
-                  ? 'var(--uni-success, #00e5b0)' 
-                  : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
-                  ? 'var(--uni-warning, #f5a623)'
-                  : '#ff5050',
+                color:
+                  notice.status === 'success'
+                    ? 'var(--uni-success, #00e5b0)'
+                    : notice.status === 'cancelled'
+                    ? 'var(--uni-warning, #f5a623)'
+                    : notice.status === 'pending'
+                    ? 'var(--uni-accent1, #5b8def)'
+                    : '#ff5050',
                 marginBottom: 4,
               }}>
                 <span>
-                  {notice.ok 
-                    ? '✓ Operation Confirmed' 
-                    : notice.text.toLowerCase().includes('cancel') || notice.text.toLowerCase().includes('reject')
+                  {notice.status === 'success'
+                    ? '✓ Operation Confirmed'
+                    : notice.status === 'cancelled'
                     ? '✕ Request Cancelled'
+                    : notice.status === 'pending'
+                    ? '◌ Submitting…'
                     : '✕ Request Failed'}
                 </span>
                 <span style={{
@@ -932,7 +989,13 @@ export const VaultPage: React.FC = () => {
                   background: 'rgba(255, 255, 255, 0.1)',
                   fontWeight: 500,
                 }}>
-                  {notice.ok ? 'On-Chain Devnet' : notice.text.toLowerCase().includes('cancel') ? 'Wallet Notice' : 'Notice'}
+                  {notice.status === 'success'
+                    ? 'On-Chain Devnet'
+                    : notice.status === 'cancelled'
+                    ? 'Wallet Notice'
+                    : notice.status === 'pending'
+                    ? 'In Flight'
+                    : 'Notice'}
                 </span>
               </div>
               <p style={{ margin: 0, fontSize: 13, color: 'var(--uni-neutral1)', lineHeight: 1.5 }}>
