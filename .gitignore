@@ -15,8 +15,11 @@ simulation/data/raw/
 *.json.gz
 # Program keypair is generated locally by `anchor keys` / keygen
 target/deploy/*.json
-# Markdown (spec, plan, audit, docs) is tracked. Only generated analytics
-# output is ignored.
+# Docs: ignore every markdown file under docs/ except the core three.
+/docs/*.md
+!/docs/ANALYTICS.md
+!/docs/ARCHITECTURE.md
+!/docs/ASSUMPTIONS.md
 # Generated analytics output (dashboard, event dumps)
 simulation/analytics/out/
 
