@@ -585,9 +585,9 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           </p>
 
           <p className="hero-live">
-            Live on Solana Devnet: SOL/USDC Vault v{quoteState.version} · Slot {quoteState.currentSlot}
+            Live on Solana Devnet: SOL/USDC Vault · Slot {quoteState.currentSlot}
             {quoteState.hasQuote && quoteState.status !== 'Fresh'
-              ? ` · Quote ${quoteState.status.toLowerCase()} (last-known, not executable)`
+              ? ' · Quotes outdated (last-known, not executable)'
               : ' · Verified Pyth Feed'}
           </p>
 

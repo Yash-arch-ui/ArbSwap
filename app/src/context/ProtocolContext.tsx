@@ -395,9 +395,9 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           expired: !isFresh,
           version: hasQuote ? Number(state.quoteData?.version ?? 0) : 0,
           reason: isFresh
-            ? `Fresh quote v${Number(state.quoteData?.version ?? 0)} (expires slot ${Number(state.quoteData?.expirySlot ?? 0)}).`
+            ? 'Keeper quotes are live.'
             : hasQuote
-              ? 'Quote is present but expired at the current slot.'
+              ? 'Keeper quotes are outdated; prices have expired.'
               : 'No quote has been published by the keeper.',
         },
         keeper: { state: 'unverified', reason: 'Keeper submission status is not observable from the chain.' },
@@ -630,8 +630,8 @@ export const ProtocolProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               u.status === 'Unavailable'
                 ? 'No quote has been published by the keeper.'
                 : u.executable
-                  ? `Fresh quote v${u.version} (expires slot ${u.expirySlot}).`
-                  : `Quote v${u.version} is ${u.status.toLowerCase()} at slot ${u.currentSlot} (expiry slot ${u.expirySlot}).`,
+                  ? 'Keeper quotes are live.'
+                  : 'Keeper quotes are outdated; prices have expired.',
           },
         }));
         setLastUpdatedAt((t) => t ?? Math.floor(Date.now() / 1000));

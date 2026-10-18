@@ -104,29 +104,26 @@ export const OnchainAnalyticsPanel: React.FC = () => {
   const cov = hist?.coverage ?? d.index_status?.coverage;
   const fresh = d.freshness;
   const trading = d.trading;
-  const age = Math.round(state.ageSeconds);
 
   return (
     <Panel title="On-chain history (indexed, read-only)">
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        <span className="badge badge-fresh mono">INDEXED HISTORY</span>
-        <span className="badge badge-neutral mono">LIVE SNAPSHOT</span>
-        {state.stale && <span className="badge badge-critical mono">STALE EXPORT ({age}s old)</span>}
+        <span className="badge badge-neutral mono">INDEXED HISTORY</span>
+        <span className="badge badge-neutral mono">HISTORICAL · as of {d.generated_at.slice(0, 10)}</span>
+        {state.problem && <span className="badge badge-critical mono">INDEX INCOMPLETE</span>}
       </div>
 
       <p className="mono" style={{ fontSize: 12, color: 'var(--uni-neutral2)' }}>
-        Snapshot {d.generated_at} ({age}s ago · network {d.network ?? 'unknown'}).
-        {cov ? ` Indexed coverage: slots ${cov.first_slot}–${cov.last_slot} (${cov.transactions} txs, ${cov.events} events).` : ''}
-        {d.index_status?.last_indexed_at ? ` Last successful indexing: ${d.index_status.last_indexed_at}.` : ''}
-        {state.stale ? ' STALE: historical only, not live.' : ''}
+        Historical snapshot from {d.generated_at} (network {d.network ?? 'unknown'}).
+        {cov ? ` Covers ${cov.transactions} transactions (${cov.events} events).` : ''}
+        {state.problem ? ` Warning: ${state.problem}.` : ''}
       </p>
 
       {/* Live snapshot (distinct from indexed history) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, margin: '12px 0' }}>
-        <Metric label="Quote version (live)" value={fresh?.quote_version != null ? `v${fresh.quote_version}` : 'n/a'} />
         <Metric
           label="Quote status (live)"
-          value={fresh?.quote_expired === true ? 'EXPIRED' : fresh?.quote_expired === false ? 'fresh' : 'n/a'}
+          value={fresh?.quote_expired === true ? 'Outdated' : fresh?.quote_expired === false ? 'Live' : 'Unavailable'}
           tone={fresh?.quote_expired === true ? 'var(--uni-warning)' : undefined}
         />
         <Metric label="Current slot @ export" value={fresh?.current_slot != null ? String(fresh.current_slot) : 'n/a'} />

@@ -77,10 +77,12 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
 
       <div className="uni-nav-right">
         {/* Cluster & Quote Heartbeat pill */}
-        <div className="uni-cluster-pill" title="Solana cluster and on-chain quote version">
+        <div className="uni-cluster-pill" title="Solana cluster and whether the keeper's quotes are current">
           <span className="uni-dot" />
           <span>{CLUSTER === 'mainnet-beta' ? 'Mainnet' : CLUSTER === 'devnet' ? 'Devnet' : 'Localnet'}</span>
-          <span style={{ color: 'var(--uni-neutral2)', fontSize: 12 }}>quote v{quoteState.version}</span>
+          <span style={{ color: quoteState.status === 'Fresh' ? 'var(--uni-accent1)' : 'var(--uni-warning)', fontSize: 12 }}>
+            {quoteState.status === 'Fresh' ? 'quotes live' : 'quotes outdated'}
+          </span>
           <ModeBadge />
           <span
             style={{ color: genesisVerified && programVerified ? 'var(--uni-accent1)' : 'var(--uni-warning)', fontSize: 11 }}

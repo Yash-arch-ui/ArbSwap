@@ -172,8 +172,8 @@ export const SwapPage: React.FC = () => {
     if (rpcRateLimited) {
       return {
         tone: 'warning',
-        title: 'Devnet RPC is rate-limiting requests (HTTP 429).',
-        body: 'Live vault and quote data could not be refreshed. Trading remains unavailable until the data read succeeds.',
+        title: 'Network is busy.',
+        body: 'Live prices could not be refreshed. Trading is paused until the connection recovers.',
       };
     }
     if (transportError) {
@@ -203,8 +203,8 @@ export const SwapPage: React.FC = () => {
     if (quoteState.hasQuote && quoteState.status !== 'Fresh') {
       return {
         tone: 'warning',
-        title: `Quote ${quoteState.status.toLowerCase()}.`,
-        body: `Version v${quoteState.version}, expiry slot ${quoteState.expirySlot} (current slot ${quoteState.currentSlot}). Swaps stay disabled until the keeper commits a new staged quote.`,
+        title: 'Quotes are outdated.',
+        body: 'Live prices have expired. Trading resumes automatically once the keeper publishes a fresh quote.',
       };
     }
     return null;
@@ -358,7 +358,7 @@ export const SwapPage: React.FC = () => {
 
       {rpcStatus.autoRetryPaused && (
         <div className="uni-card" style={{ marginBottom: 12 }} role="status">
-          Background retries are paused to avoid hammering the rate-limited provider. Use <strong>Retry now</strong> above to try again.
+          Auto-retry is paused to avoid overloading the network. Use <strong>Retry now</strong> above to try again.
         </div>
       )}
 
@@ -437,11 +437,10 @@ export const SwapPage: React.FC = () => {
           )}
 
           <div className="depth-footer mono">
-            <span>Version {quoteState.hasQuote ? `v${quoteState.version}` : 'n/a'}</span>
             <span
               className={`depth-status-badge ${quoteState.status === 'Fresh' ? 'fresh' : quoteState.status === 'Unavailable' ? 'unavailable' : 'aging'}`}
             >
-              {quoteState.status}
+              {quoteState.status === 'Fresh' ? 'Quotes live' : quoteState.status === 'Unavailable' ? 'No quotes' : 'Quotes outdated'}
             </span>
             <span>Slot {quoteState.currentSlot}</span>
             {quoteState.hasQuote && (
@@ -463,7 +462,9 @@ export const SwapPage: React.FC = () => {
           <div className="uni-tabs">
             <span className="uni-tab-title">Swap</span>
             <span style={{ fontSize: 13, color: 'var(--uni-neutral2)', fontFamily: 'var(--uni-mono)' }}>
-              {quoteState.hasQuote ? `v${quoteState.version} · ${quoteState.status}` : 'quote unavailable'}
+              {quoteState.hasQuote
+                ? quoteState.status === 'Fresh' ? 'Quotes live' : 'Quotes outdated'
+                : 'Quote unavailable'}
             </span>
           </div>
 
@@ -556,7 +557,7 @@ export const SwapPage: React.FC = () => {
                 <div><dt>Minimum output (on-chain)</dt><dd className="mono" style={{ color: 'var(--uni-accent1)', fontWeight: 600 }}>{formatUnits(preview.minOut, outToken.decimals, 6)} {outTokenSymbol}</dd></div>
                 <div><dt>Fee</dt><dd className="mono">{feeBps} bps</dd></div>
                 <div><dt>Slippage tolerance</dt><dd className="mono">{(slippageBps / 100).toFixed(2)}%</dd></div>
-                <div><dt>Quote version / expiry</dt><dd className="mono">v{preview.version.toString()} · slot {preview.expirySlot}</dd></div>
+                <div><dt>Quote status</dt><dd className="mono">{quoteState.status === 'Fresh' ? 'Live' : 'Outdated'} · expires at slot {preview.expirySlot}</dd></div>
                 <div><dt>Wallet / network</dt><dd className="mono">{publicKey ? `${publicKey.toBase58().slice(0, 4)}…${publicKey.toBase58().slice(-4)}` : 'not connected'} · {CLUSTER}</dd></div>
               </dl>
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>

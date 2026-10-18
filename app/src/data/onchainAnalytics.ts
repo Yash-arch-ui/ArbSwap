@@ -83,13 +83,29 @@ export interface OnchainAnalytics {
 
 export type AnalyticsExportState =
   | { status: 'loading' }
-  | { status: 'available'; data: OnchainAnalytics; ageSeconds: number; stale: boolean }
+  | { status: 'available'; data: OnchainAnalytics; ageSeconds: number; problem: string | null }
   | { status: 'missing' }
   | { status: 'malformed'; reason: string }
   | { status: 'error'; reason: string };
 
-/** Exports older than this (seconds) are marked stale. */
-export const STALE_AFTER_SECONDS = 3_600;
+/**
+ * This export is an intentionally historical, read-only archive: its age is
+ * informational and must never be presented as a failure. A snapshot is only
+ * flagged when the export is structurally broken/incomplete (the indexer
+ * reported ingest errors, or the indexed coverage window is empty) — i.e. stale
+ * content, not merely an old timestamp.
+ */
+export function exportProblem(data: OnchainAnalytics): string | null {
+  const errors = data.index_status?.ingest_errors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    return `the indexer reported ${errors.length} ingest error(s)`;
+  }
+  const cov = data.history?.coverage ?? data.index_status?.coverage;
+  if (cov && (cov.last_slot === null || cov.last_slot === undefined)) {
+    return 'the indexed coverage window is empty';
+  }
+  return null;
+}
 
 /** Parse an export body into a state. Pure and testable. */
 export function interpretExport(raw: unknown, nowMs: number): AnalyticsExportState {
@@ -102,11 +118,12 @@ export function interpretExport(raw: unknown, nowMs: number): AnalyticsExportSta
     return { status: 'malformed', reason: 'missing or invalid generated_at' };
   }
   const ageSeconds = Math.max(0, (nowMs - Date.parse(generatedAt)) / 1000);
+  const data = obj as unknown as OnchainAnalytics;
   return {
     status: 'available',
-    data: obj as unknown as OnchainAnalytics,
+    data,
     ageSeconds,
-    stale: ageSeconds > STALE_AFTER_SECONDS,
+    problem: exportProblem(data),
   };
 }
 
