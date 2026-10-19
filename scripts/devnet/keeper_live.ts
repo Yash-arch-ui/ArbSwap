@@ -35,7 +35,7 @@ import {
   backoffDelayMs,
   type CommitObservation,
 } from "./keeper_commit";
-import { resolveRpcConfig, redactUrl, RpcPool } from "./rpc";
+import { resolveRpcConfig, redactUrl, RpcPool, classifyRpcError } from "./rpc";
 import { broadcastTransaction, type RpcEndpoint } from "./broadcast";
 import { reclaimStaleVaas } from "./keeper_reclaim";
 import {
@@ -231,7 +231,7 @@ async function main() {
   // only — the program remains the source of truth for quote validity.
   const pool = new RpcPool({ endpoints: rpcConfig.endpoints, cluster: rpcConfig.cluster });
   await pool.assertCluster();
-  const connection = pool.connection;
+  let connection = pool.connection;
   // S2-35: the same signed bytes are broadcast to every configured endpoint
   // concurrently; the first to land wins and duplicate submissions collapse to
   // the one signature. This removes a single-provider send bottleneck without
@@ -391,12 +391,15 @@ async function main() {
   const quoteAvail = BigInt(quoteBal.value.amount);
   console.log("reserves", baseAvail.toString(), quoteAvail.toString());
 
-  const attempts = Number(process.env.ATTEMPTS ?? 8);
+  const attemptsRaw = Number(process.env.ATTEMPTS ?? 8);
+  // ATTEMPTS=0 means run until the process is stopped: the keeper commits
+  // continuously, so there is no fixed-window handover gap.
+  const attempts = attemptsRaw <= 0 ? Number.POSITIVE_INFINITY : attemptsRaw;
   const runSeconds = Number(process.env.RUN_SECONDS ?? 0);
   const deadline = Date.now() + runSeconds * 1000;
   let success = false;
   let failures = 0;
-  for (let attempt = 1; attempt <= attempts && !(success && runSeconds === 0); attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (runSeconds > 0 && Date.now() > deadline) break;
     // S2-42: at the start of each cycle (no tx of this cycle exists yet), reclaim
     // keeper-owned encoded-VAA accounts left orphaned by earlier failed pushes.
@@ -430,14 +433,24 @@ async function main() {
     try {
       const [u, s, bh] = await Promise.all([
         hermes.getLatestPriceUpdates([`0x${FEED_ID}`], { encoding: "base64" }),
-        connection.getSlot("processed"),
-        connection.getLatestBlockhash("processed"),
+        // RpcPool fails over to ARBSWAP_RPC_FALLBACKS on 429/timeout/network.
+        pool.run((conn) => conn.getSlot("processed")),
+        pool.run((conn) => conn.getLatestBlockhash("processed")),
       ]);
       updates = u; slot = s; blockhash = bh.blockhash;
+      connection = pool.connection;
     } catch (e) {
       failures += 1;
-      console.error(`attempt=${attempt} fetch/read failed: ${(e as Error).message}; backing off`);
-      await sleep(backoffDelayMs(failures, backoffBase, backoffCap));
+      const kind = classifyRpcError(e);
+      let retryMs = backoffDelayMs(failures, backoffBase, backoffCap);
+      if (kind === "rate_limited") {
+        const next = pool.rotate();
+        connection = pool.connection;
+        retryMs = 250;
+        console.error(`attempt=${attempt} fetch/read rate-limited; rotating to ${redactUrl(next)} and retrying in ${retryMs}ms`);
+      }
+      console.error(`attempt=${attempt} fetch/read failed (${kind}): ${(e as Error).message}; backing off`);
+      await sleep(retryMs);
       continue;
     }
     const hermesMs = Date.now() - tH;
@@ -722,12 +735,19 @@ async function main() {
           update_slot: (qs?.data.readBigUInt64LE(16) ?? 0n).toString(),
         }),
       );
+      const updateSlot = qs?.data.readBigUInt64LE(16) ?? 0n;
+      const ageSlots = currentSlot != null && currentSlot > updateSlot ? currentSlot - updateSlot : 0n;
+      const publishAgeMs = commitBlockTime != null ? Math.max(0, commitBlockTime * 1000 - publishTime * 1000) : null;
+      console.log(
+        `commit ok ts=${new Date().toISOString()} slot=${txSlot} ` +
+          `quote_age_ms=${publishAgeMs ?? "?"} quote_age_slots=${ageSlots.toString()} ` +
+          `expiry_slot=${expirySlot ?? "?"} version=${(newVersion ?? 0n).toString()} ` +
+          `keeper=${keeper.publicKey.toBase58()}`,
+      );
       if (process.env.SIMULATE_SWAP === "1") {
         await simulateSwap(connection, keeper, qs!.data);
       }
-      if (runSeconds > 0) {
-        await sleep(200);
-      }
+      await sleep(Number(process.env.KEEPER_CYCLE_SLEEP_MS ?? 200));
     } else {
       failures += 1;
       await sleep(backoffDelayMs(failures, backoffBase, backoffCap));

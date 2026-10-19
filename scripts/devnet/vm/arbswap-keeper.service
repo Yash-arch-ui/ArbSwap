@@ -1,24 +1,32 @@
 [Unit]
-Description=ArbSwap Devnet quote keeper (bounded, supervised, single instance)
+Description=ArbSwap Devnet quote keeper (continuous, single instance)
 After=network-online.target
 Wants=network-online.target
+# Never stop restarting because of a burst of failures.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-# Paths are environment-specific; adjust to the host. The RPC URL and API key
-# come from the gitignored EnvironmentFile (never committed, never logged).
+# Paths are environment-specific; this unit assumes the repo at /opt/arbswap and
+# a dedicated service user. The RPC URL, API key and keeper key path come from
+# the gitignored EnvironmentFile (never committed, never logged).
+User=arbswap
+Group=arbswap
 WorkingDirectory=/opt/arbswap/scripts/devnet
 EnvironmentFile=/opt/arbswap/.env
-Environment=ARBSWAP_KEYPAIR=/home/ubuntu/.config/solana/id.json
-ExecStart=/bin/bash -lc 'exec ./keeper_loop.sh "$ARBSWAP_RPC_URL" 600'
-Restart=on-failure
-RestartSec=10
-# Harden: the keeper needs no privileges and holds only the keeper key.
+# Keeper lock lives here (systemd creates /run/arbswap-keeper owned by User).
+RuntimeDirectory=arbswap-keeper
+RuntimeDirectoryMode=0750
+Environment=NODE_OPTIONS=--no-network-family-autoselection
+ExecStart=/bin/bash -lc 'exec ./keeper_loop.sh'
+Restart=always
+RestartSec=5
+# Hardening: the keeper needs no privileges and holds only the keeper key.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/opt/arbswap/logs
+ReadWritePaths=/opt/arbswap/logs /run/arbswap-keeper
 
 [Install]
 WantedBy=multi-user.target

@@ -48,11 +48,14 @@ function knownHostCluster(url: string): RpcCluster | null {
   return null;
 }
 
-/** Strip credentials/query so a URL can be logged safely. */
+/**
+ * Strip credentials, query AND path so a URL can be logged safely. Some
+ * providers (e.g. QuickNode) put the API key in the URL path, not the query.
+ */
 export function redactUrl(url: string): string {
   try {
     const u = new URL(url);
-    return `${u.protocol}//${u.host}${u.pathname}`;
+    return `${u.protocol}//${u.host}`;
   } catch {
     return "<invalid-url>";
   }
@@ -165,6 +168,12 @@ export class RpcPool {
 
   get endpoint(): string {
     return this.opts.endpoints[this.index];
+  }
+
+  /** Advance to the next endpoint (used after a rate-limit/outage). */
+  rotate(): string {
+    this.index = (this.index + 1) % this.conns.length;
+    return this.endpoint;
   }
 
   /** Independently confirm the connected endpoint is on the intended cluster. */

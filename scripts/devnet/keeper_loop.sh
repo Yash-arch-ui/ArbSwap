@@ -1,65 +1,122 @@
 #!/usr/bin/env bash
-# Bounded, single-instance operator runner for the staged-quote keeper.
+# Continuous, single-instance operator runner for the staged-quote keeper.
 #
-# This is intentionally NOT an unbounded `while true`:
-#   * it holds an exclusive `flock`, so a second copy cannot start by accident;
-#   * it restarts a failed invocation with exponential backoff, but exits
-#     non-zero after MAX_CONSECUTIVE_FAILURES so a supervisor can decide;
-#   * success is decided inside `keeper_live.ts` by an independently reread
-#     QuoteState version increase (never by the process merely returning).
+# Design:
+#   * `keeper_live.ts` runs continuously (ATTEMPTS=0 RUN_SECONDS=0); there is no
+#     fixed 600 s handover window, so there is no gap on a window boundary.
+#   * one exclusive flock is held for the whole lifetime of the runner, so two
+#     keeper processes can never write concurrently.
+#   * a crashed invocation is restarted after a short, capped backoff; the loop
+#     never exits on consecutive failures (systemd may still restart the unit).
+#   * RPC endpoints (primary + ARBSWAP_RPC_FALLBACKS) rotate on each failed
+#     invocation, so a 429/outage on one provider does not pin the keeper.
 #
-# The driver still owns the authorization semantics: it only ever sends Pyth
-# pushes plus `stage_quote`/`commit_quote`. No swaps are sent.
-#
-# Usage:  scripts/devnet/keeper_loop.sh [rpc] [run_seconds]
-# Env:    MAX_CONSECUTIVE_FAILURES (default 3), BACKOFF_BASE_S (default 5)
+# Usage:  scripts/devnet/keeper_loop.sh [rpc-url] [legacy_run_seconds]
+# Env:    BACKOFF_BASE_S (default 2), BACKOFF_CAP_S (default 10)
+#         MAX_CONSECUTIVE_FAILURES (default 3) is logged, not fatal.
 set -euo pipefail
 
-RPC="${1:-https://api.devnet.solana.com}"
-RUN_SECONDS="${2:-600}"
-MAX_CONSECUTIVE_FAILURES="${MAX_CONSECUTIVE_FAILURES:-3}"
-BACKOFF_BASE_S="${BACKOFF_BASE_S:-5}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCK="${TMPDIR:-/tmp}/arbswap-keeper.$(printf '%s' "$RPC" | cksum | awk '{print $1}').lock"
+ROOT="$(cd "$HERE/../.." && pwd)"
+LEGACY_WINDOW=""
+FIRST="${1:-}"
+if [[ "$FIRST" =~ ^https?:// ]]; then
+  PRIMARY="$FIRST"
+  LEGACY_WINDOW="${2:-}"
+elif [[ "$FIRST" =~ ^[0-9]+$ ]]; then
+  PRIMARY="${ARBSWAP_RPC_URL:-https://api.devnet.solana.com}"
+  LEGACY_WINDOW="$FIRST"
+else
+  PRIMARY="${ARBSWAP_RPC_URL:-https://api.devnet.solana.com}"
+fi
+BACKOFF_BASE_S="${BACKOFF_BASE_S:-2}"
+BACKOFF_CAP_S="${BACKOFF_CAP_S:-10}"
+FAILURE_LOG_EVERY="${MAX_CONSECUTIVE_FAILURES:-3}"
+
+if [[ -n "$LEGACY_WINDOW" ]]; then
+  echo "keeper runner: ignoring legacy ${LEGACY_WINDOW}s window; running continuously" >&2
+fi
+
+# Resolve the quote-engine binary for this checkout unless explicitly provided.
+if [[ -z "${KEEPER_BIN:-}" ]]; then
+  for candidate in "$ROOT/target/release/arbswap-keeper" "$ROOT/target/debug/arbswap-keeper"; do
+    if [[ -x "$candidate" ]]; then export KEEPER_BIN="$candidate"; break; fi
+  done
+fi
 
 if [[ -z "${PYTH_API_KEY:-}" ]]; then
   echo "PYTH_API_KEY is not set; load .env first (set -a; . ./.env; set +a)" >&2
   exit 2
 fi
 
-export ARBSWAP_KEYPAIR="${ARBSWAP_KEYPAIR:-$HOME/.config/solana/id.json}"
-# The driver reads the endpoint from `ARBSWAP_RPC_URL`; without this export the
-# positional `rpc` argument would only name the lock file and the driver would
-# silently fall back to the default provider.
-export ARBSWAP_RPC_URL="$RPC"
-# Optional comma-separated fallbacks (e.g. a public endpoint alongside Helius).
-export ARBSWAP_RPC_FALLBACKS="${ARBSWAP_RPC_FALLBACKS:-}"
+export ARBSWAP_KEYPAIR="${ARBSWAP_KEYPAIR:-${ARBSWAP_DEVNET_KEYPAIR:-$HOME/.config/solana/id.json}}"
 export MAX_FETCH_AGE_MS="${MAX_FETCH_AGE_MS:-1000}"
 
-# Single-instance guard for the whole lifetime of this runner.
+# Prefer the local tsx binary: no npm cache writes (important under
+# ProtectHome=read-only) and a faster restart.
+if [[ -x "$HERE/node_modules/.bin/tsx" ]]; then
+  KEEPER_TSX=("$HERE/node_modules/.bin/tsx")
+else
+  KEEPER_TSX=(npx tsx)
+fi
+
+# Optional comma-separated fallbacks (e.g. a public endpoint alongside Helius).
+IFS=',' read -r -a FALLBACKS <<< "${ARBSWAP_RPC_FALLBACKS:-}"
+ENDPOINTS=("$PRIMARY")
+for fb in "${FALLBACKS[@]}"; do
+  fb="${fb#"${fb%%[![:space:]]*}"}"
+  fb="${fb%"${fb##*[![:space:]]}"}"
+  [[ -n "$fb" ]] && ENDPOINTS+=("$fb")
+done
+
+# Single-instance guard shared by every entrypoint (systemd, tmux, manual).
+if [[ -n "${KEEPER_LOCK:-}" ]]; then
+  LOCK="$KEEPER_LOCK"
+elif [[ -d /run/arbswap-keeper && -w /run/arbswap-keeper ]]; then
+  LOCK="/run/arbswap-keeper/keeper.lock"
+elif [[ -w /run ]]; then
+  LOCK="/run/arbswap-keeper.lock"
+else
+  LOCK="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/arbswap-keeper.lock"
+fi
 exec 9>"$LOCK"
 if ! flock -n 9; then
   echo "another keeper runner already holds $LOCK; refusing to start a second instance" >&2
   exit 3
 fi
 
-echo "keeper runner: rpc=$RPC run=${RUN_SECONDS}s max_consecutive_failures=$MAX_CONSECUTIVE_FAILURES lock=$LOCK"
-trap 'echo "keeper runner stopping" >&2' INT TERM
+redact() {
+  local url="$1"
+  if command -v node >/dev/null 2>&1; then
+    URL="$url" node -e 'try{const u=new URL(process.env.URL);process.stdout.write(u.protocol+"//"+u.host)}catch{process.stdout.write("<invalid-url>")}'
+  else
+    printf '%s' "$url" | sed -E 's#(https?://[^/]+).*#\1#'
+  fi
+}
+
+echo "keeper runner: endpoints=$((${#ENDPOINTS[@]})) rpc=$(redact "${ENDPOINTS[0]}") continuous=1 lock=$LOCK" >&2
+trap 'echo "keeper runner stopping" >&2; exit 0' INT TERM
 
 consecutive_failures=0
+endpoint_index=0
 while :; do
-  if ( cd "$HERE" && ATTEMPTS=100000 RUN_SECONDS="$RUN_SECONDS" SIMULATE_SWAP=0 npx tsx keeper_live.ts ); then
-    # The invocation reached its run window (and may have committed quotes).
+  export ARBSWAP_RPC_URL="${ENDPOINTS[$endpoint_index]}"
+  # Continuous: the driver's own loop never stops on success and never exits on
+  # transient errors; this outer loop only restarts a crashed/hung process.
+  if ( cd "$HERE" && ATTEMPTS=0 RUN_SECONDS=0 SIMULATE_SWAP=0 "${KEEPER_TSX[@]}" keeper_live.ts ); then
     consecutive_failures=0
-    echo "keeper invocation finished its run window; restarting"
+    echo "[$(date -u +%FT%TZ)] keeper invocation exited cleanly; restarting immediately" >&2
+    sleep 1
     continue
   fi
+
   consecutive_failures=$((consecutive_failures + 1))
-  if (( consecutive_failures >= MAX_CONSECUTIVE_FAILURES )); then
-    echo "keeper failed $consecutive_failures consecutive times; exiting non-zero (supervisor action required)" >&2
-    exit 1
-  fi
+  endpoint_index=$(( (endpoint_index + 1) % ${#ENDPOINTS[@]} ))
   backoff=$(( BACKOFF_BASE_S * (2 ** (consecutive_failures - 1)) ))
-  echo "keeper invocation failed ($consecutive_failures/$MAX_CONSECUTIVE_FAILURES); retrying in ${backoff}s" >&2
+  (( backoff > BACKOFF_CAP_S )) && backoff="$BACKOFF_CAP_S"
+  echo "[$(date -u +%FT%TZ)] keeper invocation failed (${consecutive_failures} consecutive); next_rpc=$(redact "${ENDPOINTS[$endpoint_index]}") retry_in=${backoff}s" >&2
+  if (( consecutive_failures % FAILURE_LOG_EVERY == 0 )); then
+    echo "[$(date -u +%FT%TZ)] ${consecutive_failures} consecutive failures; staying alive (systemd Restart=always)" >&2
+  fi
   sleep "$backoff"
 done

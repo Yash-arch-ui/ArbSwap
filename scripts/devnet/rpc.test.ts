@@ -48,8 +48,12 @@ check("cross-cluster fallback rejected", threw);
 
 // --- redaction ---
 check(
-  "redactUrl strips credentials/query",
-  redactUrl("https://user:pass@rpc.example/rpc?key=SECRET") === "https://rpc.example/rpc",
+  "redactUrl strips credentials/query/path",
+  redactUrl("https://user:pass@rpc.example/rpc?key=SECRET") === "https://rpc.example",
+);
+check(
+  "redactUrl strips path-based keys",
+  redactUrl("https://rpc.example/abc123secretkey/") === "https://rpc.example",
 );
 check("redactUrl tolerates garbage", redactUrl("not a url") === "<invalid-url>");
 

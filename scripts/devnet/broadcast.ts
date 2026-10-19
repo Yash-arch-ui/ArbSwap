@@ -75,11 +75,14 @@ export interface BroadcastResult {
   rateLimited: string[];
 }
 
-/** Strip credentials (query string) so a URL is credential-free to return/log. */
+/**
+ * Strip credentials, query AND path so a URL is credential-free to return/log.
+ * Some providers (e.g. QuickNode) put the API key in the path.
+ */
 const redact = (u: string): string => {
   try {
     const x = new URL(u);
-    return `${x.protocol}//${x.host}${x.pathname}`;
+    return `${x.protocol}//${x.host}`;
   } catch {
     return "<url>";
   }

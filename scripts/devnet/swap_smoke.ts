@@ -52,6 +52,27 @@ const u64 = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); r
 const meta = (pubkey: PublicKey, writable = false, signer = false): AccountMeta => ({ pubkey, isWritable: writable, isSigner: signer });
 const u128 = (d: Buffer, o: number): bigint => d.readBigUInt64LE(o) | (d.readBigUInt64LE(o + 8) << 64n);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const SWAP_EVENT_DISC = createHash("sha256").update("event:SwapEvent").digest().subarray(0, 8);
+/** Exact `SwapEvent.amount_out` from program logs (offset verified in keeper_live.ts). */
+function parseSwapEventOut(logs: string[] | null | undefined): bigint | null {
+  for (const line of logs ?? []) {
+    const m = line.match(/^Program data: (.+)$/);
+    if (!m) continue;
+    const raw = Buffer.from(m[1], "base64");
+    if (raw.length >= 49 && raw.subarray(0, 8).equals(SWAP_EVENT_DISC)) {
+      return raw.readBigUInt64LE(33);
+    }
+  }
+  return null;
+}
+interface SwapResult {
+  signature: string;
+  expected_out_atoms: string;
+  min_out_atoms: string;
+  simulated_out_atoms: string | null;
+  filled_out_atoms: string | null;
+  out_matches_quote: boolean | null;
+}
 
 interface FreshQuote { slot: number; version: bigint; expiry: bigint; pResSqrt: bigint; keeper: PublicKey; feeBps: number }
 
@@ -75,7 +96,7 @@ async function freshQuote(connection: Connection, cfgFeeBpsOffsetData: () => Pro
   }
 }
 
-async function sendSwap(connection: Connection, trader: Keypair, side: number, amountIn: bigint, q: FreshQuote): Promise<string> {
+async function sendSwap(connection: Connection, trader: Keypair, side: number, amountIn: bigint, q: FreshQuote): Promise<SwapResult> {
   const fee = (amountIn * BigInt(q.feeBps) + 9999n) / 10000n;
   const netIn = amountIn - fee;
   const priceQ64 = (q.pResSqrt * q.pResSqrt) / (1n << 64n);
@@ -113,6 +134,7 @@ async function sendSwap(connection: Connection, trader: Keypair, side: number, a
   if (sim.value.err) {
     throw new Error(`simulation failed (not sent): ${JSON.stringify(sim.value.err)} logs=${JSON.stringify((sim.value.logs ?? []).slice(-6))}`);
   }
+  const simulatedOut = parseSwapEventOut(sim.value.logs);
   const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 });
   console.error(`submitted ${sig}; confirming...`);
   for (let i = 0; i < 60; i++) {
@@ -120,7 +142,20 @@ async function sendSwap(connection: Connection, trader: Keypair, side: number, a
     const v = st.value[0];
     if (v?.confirmationStatus === "confirmed" || v?.confirmationStatus === "finalized") {
       if (v.err) throw new Error(`tx ${sig} failed: ${JSON.stringify(v.err)}`);
-      return sig;
+      const landed = await connection.getTransaction(sig, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      const filledOut = parseSwapEventOut(landed?.meta?.logMessages);
+      return {
+        signature: sig,
+        expected_out_atoms: expectedOut.toString(),
+        min_out_atoms: minOut.toString(),
+        simulated_out_atoms: simulatedOut?.toString() ?? null,
+        filled_out_atoms: filledOut?.toString() ?? null,
+        out_matches_quote:
+          simulatedOut !== null && filledOut !== null ? simulatedOut === filledOut : null,
+      };
     }
     await sleep(500);
   }
@@ -144,14 +179,14 @@ async function main() {
 
   for (const s of sides) {
     const q = await freshQuote(connection, cfgData);
-    const sig = await sendSwap(connection, trader, s.side, s.amountIn, q);
+    const res = await sendSwap(connection, trader, s.side, s.amountIn, q);
     out[s.name] = {
-      signature: sig, amount_in_atoms: s.amountIn.toString(), fee_bps: q.feeBps,
+      ...res, amount_in_atoms: s.amountIn.toString(), fee_bps: q.feeBps,
       quote_version: q.version.toString(), quote_expiry_slot: q.expiry.toString(),
       start_slot: q.slot, keeper: q.keeper.toBase58(),
-      explorer: `https://explorer.solana.com/tx/${sig}?cluster=devnet`,
+      explorer: `https://explorer.solana.com/tx/${res.signature}?cluster=devnet`,
     };
-    console.error(`${s.name} OK ${sig}`);
+    console.error(`${s.name} OK ${res.signature} filled=${res.filled_out_atoms} simulated=${res.simulated_out_atoms} match=${res.out_matches_quote}`);
   }
   console.log(JSON.stringify(out, null, 2));
   process.exit(0);
