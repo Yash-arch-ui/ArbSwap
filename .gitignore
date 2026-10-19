@@ -15,8 +15,8 @@ simulation/data/raw/
 *.json.gz
 # Program keypair is generated locally by `anchor keys` / keygen
 target/deploy/*.json
-# Docs: ignore every markdown file under docs/ except the core docs.
-/docs/*.md
+# Docs: publish only the four core docs; hide everything else under docs/.
+/docs/*
 !/docs/ANALYTICS.md
 !/docs/ARCHITECTURE.md
 !/docs/ASSUMPTIONS.md
