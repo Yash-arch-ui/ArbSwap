@@ -577,7 +577,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
           </p>
 
           <h1 className="hero-title">
-            One open vault for active liquidity.
+            Liquidity that prices like a desk, not a curve.
           </h1>
 
           <p className="hero-lead">
