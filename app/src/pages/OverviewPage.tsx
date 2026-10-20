@@ -669,11 +669,6 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
             <span className="ribbon-sub">Passive B1 average {m.b1Markout} · {m.modelLabel}</span>
           </div>
           <div className="ribbon-card">
-            <span className="ribbon-label">Quote-vs-Fill Gap</span>
-            <p className="ribbon-val mono text-muted" style={{ fontSize: 22 }}>Unavailable</p>
-            <span className="ribbon-sub">Requires live fills (not indexed)</span>
-          </div>
-          <div className="ribbon-card">
             <span className="ribbon-label">Update Compute (model)</span>
             <p className="ribbon-val mono">{m.cuUpdate}</p>
             <span className="ribbon-sub mono">{m.cuSwap} for a swap · {m.cuRatio} ratio</span>
