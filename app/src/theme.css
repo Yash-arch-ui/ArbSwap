@@ -26,7 +26,7 @@
   --uni-glow-1: #0d4a3c;
   --uni-glow-2: #1e3b6b;
   --uni-glow-3: #182235;
-  --uni-font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --uni-font: 'Inter Tight', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --uni-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: dark;
 }
